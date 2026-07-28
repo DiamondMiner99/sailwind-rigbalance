@@ -35,26 +35,48 @@ namespace SailwindRigBalance.UI
         private readonly List<GameObject> _sailMarkers = new List<GameObject>();
         private readonly List<bool> _sailVisible = new List<bool>();
         private readonly List<Color> _sailColours = new List<Color>();
-        private GameObject _ceMarker, _clrMarker;
+        private GameObject _ceMarker, _clrMarker, _container;
         private bool _ceVisible = true, _clrVisible = true;
 
         private RigBalance _closeHauled, _beamReach;
         private bool _valid, _beamValid;
         private string _status;
 
-        private GUIStyle _textStyle, _headingStyle, _labelStyle, _circleStyle;
+        private GUIStyle _textStyle, _headingStyle, _circleStyle;
         private Texture2D _circleTex;
+
+        /// <summary>
+        /// Seconds to wait after the last change event before rebuilding.
+        ///
+        /// This is not a performance tweak, it is a correctness one. Applying a customization
+        /// destroys and re-instantiates every sail, and Unity defers Object.Destroy to the end of
+        /// the frame, so a Mast.sails enumerated in the same frame still contains the OLD sails
+        /// alongside the new ones. Rebuilding immediately therefore drew a marker for every dead
+        /// sail too. The collision sweep also calls UpdateOrder repeatedly over many frames, so
+        /// waiting for the events to settle collapses all of that into one rebuild.
+        /// </summary>
+        private const float RebuildDelay = 0.25f;
+
+        private float _rebuildAt = -1f;
 
         private void Update()
         {
             if (!ShipyardHooks.InShipyard)
             {
                 if (_sailMarkers.Count > 0 || _ceMarker != null) Clear();
+                _rebuildAt = -1f;
                 return;
             }
 
-            // Recompute only on a configuration change, never per frame.
-            if (ShipyardHooks.ConsumeDirty()) Recompute();
+            // Recompute only on a configuration change, never per frame, and only once the
+            // changes have stopped arriving.
+            if (ShipyardHooks.ConsumeDirty()) _rebuildAt = Time.unscaledTime + RebuildDelay;
+
+            if (_rebuildAt > 0f && Time.unscaledTime >= _rebuildAt)
+            {
+                _rebuildAt = -1f;
+                Recompute();
+            }
         }
 
         private void Recompute()
@@ -113,6 +135,23 @@ namespace SailwindRigBalance.UI
             _clrMarker = MakeMarker(balance.HullOrigin, 1.9f, ClrColour);
             if (_ceMarker != null) _ceMarker.SetActive(_ceVisible);
             if (_clrMarker != null) _clrMarker.SetActive(_clrVisible);
+
+            Plugin.Log.LogInfo($"[Gizmo] rebuilt: {balance.Sails.Count} sail(s), "
+                + $"{(_container == null ? 0 : _container.transform.childCount)} marker(s) total");
+        }
+
+        /// <summary>
+        /// All markers live under one container we own, so a rebuild can guarantee nothing survives
+        /// it regardless of what went wrong last time.
+        /// </summary>
+        private GameObject Container()
+        {
+            if (_container == null)
+            {
+                _container = new GameObject("RigBalanceMarkers");
+                _container.transform.position = Vector3.zero;
+            }
+            return _container;
         }
 
         private GameObject MakeMarker(Vector3 worldPos, float size, Color colour)
@@ -125,6 +164,7 @@ namespace SailwindRigBalance.UI
                 if (collider != null) Destroy(collider);
 
                 go.layer = 0;                       // the orbit camera renders layer 0
+                go.transform.SetParent(Container().transform, false);
                 go.transform.position = worldPos;
                 go.transform.localScale = Vector3.one * size;
 
@@ -150,19 +190,21 @@ namespace SailwindRigBalance.UI
 
         private void ClearMarkers()
         {
-            foreach (GameObject go in _sailMarkers)
-            {
-                if (go != null) Destroy(go);
-            }
             _sailMarkers.Clear();
             _sailVisible.Clear();
             _sailColours.Clear();
-            if (_ceMarker != null) Destroy(_ceMarker);
-            if (_clrMarker != null) Destroy(_clrMarker);
             _ceMarker = null;
             _clrMarker = null;
             _valid = false;
             _beamValid = false;
+
+            // Destroy the whole container rather than tracked references. If anything ever leaks a
+            // marker, it still goes, because it cannot be anywhere else.
+            if (_container != null)
+            {
+                Destroy(_container);
+                _container = null;
+            }
         }
 
         private void Clear()
@@ -312,14 +354,6 @@ namespace SailwindRigBalance.UI
 
             _headingStyle = new GUIStyle(GUI.skin.label) { fontSize = 15, fontStyle = FontStyle.Bold };
             _headingStyle.normal.textColor = Color.white;
-
-            _labelStyle = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 16,
-                alignment = TextAnchor.MiddleCenter,
-                fontStyle = FontStyle.Bold,
-            };
-            _labelStyle.normal.textColor = Color.white;
 
             _circleTex = MakeCircleTexture(24);
             _circleStyle = new GUIStyle(GUI.skin.button) { padding = new RectOffset(0, 0, 0, 0) };
