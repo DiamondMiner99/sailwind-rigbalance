@@ -30,8 +30,8 @@ namespace SailwindRigBalance
         // semver pre-release suffix: a "-alpha" tag makes the chainloader reject the plugin
         // ("version is invalid") and skip it entirely. Any "alpha" wording lives in prose only.
         // Bump for every shipped zip, including a packaging-only change, so two machines can never
-        // silently differ. This is the step-1 skeleton build.
-        public const string PluginVersion = "0.3.0";
+        // silently differ.
+        public const string PluginVersion = "0.3.1";
 
         /// <summary>
         /// Hard-coded for now; becomes a config entry in the config/hotkey step. F7 is deliberate:
@@ -53,21 +53,44 @@ namespace SailwindRigBalance
 
             LogEnvironment();
 
-            try
-            {
-                _harmony = new Harmony(PluginGUID);
-                _harmony.PatchAll(typeof(Shipyard.ShipyardHooks).Assembly);
-                gameObject.AddComponent<UI.ShipyardGizmo>();
-                Log.LogInfo($"[Init] shipyard hooks applied; rig model available={Core.RigModel.Available}");
-            }
-            catch (Exception e)
-            {
-                // Fail soft: a patch failure must leave the game playable, just without the gizmo.
-                Log.LogError("[Init] shipyard hooks failed to apply; the gizmo is disabled. " + e);
-            }
+            ApplyPatches();
+            gameObject.AddComponent<UI.ShipyardGizmo>();
 
             Log.LogInfo($"{PluginName} v{PluginVersion} loaded. "
                 + $"Press {SnapshotKey} while aboard a boat to log a rig-balance snapshot.");
+        }
+
+        /// <summary>
+        /// Applies each hook independently. Harmony's PatchAll aborts the whole batch on the first
+        /// bad target, which is how a single ambiguous method name silently disabled everything
+        /// downstream of it in 0.3.0. One patch failing should cost one feature, not all of them.
+        /// </summary>
+        private void ApplyPatches()
+        {
+            _harmony = new Harmony(PluginGUID);
+            int applied = 0, failed = 0;
+
+            foreach (Type type in typeof(Shipyard.ShipyardHooks).GetNestedTypes(
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
+            {
+                if (type.GetCustomAttributes(typeof(HarmonyPatch), true).Length == 0) continue;
+                try
+                {
+                    _harmony.CreateClassProcessor(type).Patch();
+                    applied++;
+                }
+                catch (Exception e)
+                {
+                    failed++;
+                    Log.LogWarning($"[Init] hook '{type.Name}' did not apply: {e.Message}");
+                }
+            }
+
+            if (failed == 0)
+                Log.LogInfo($"[Init] {applied} shipyard hook(s) applied; rig model available={Core.RigModel.Available}");
+            else
+                Log.LogWarning($"[Init] {applied} shipyard hook(s) applied, {failed} failed; "
+                    + $"the gizmo may not refresh on every edit. Rig model available={Core.RigModel.Available}");
         }
 
         /// <summary>

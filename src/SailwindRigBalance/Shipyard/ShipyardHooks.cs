@@ -66,7 +66,15 @@ namespace SailwindRigBalance.Shipyard
             private static void Prefix() => Exit();
         }
 
-        [HarmonyPatch(typeof(global::Shipyard), nameof(global::Shipyard.UpdateOrder))]
+        // Shipyard has TWO UpdateOrder overloads, UpdateOrder(bool) and UpdateOrder(). Patching by
+        // name alone is an ambiguous match and throws, so both are named explicitly.
+        [HarmonyPatch(typeof(global::Shipyard), nameof(global::Shipyard.UpdateOrder), new Type[] { typeof(bool) })]
+        private static class UpdateOrderBoolPatch
+        {
+            private static void Postfix() => MarkDirty();
+        }
+
+        [HarmonyPatch(typeof(global::Shipyard), nameof(global::Shipyard.UpdateOrder), new Type[0])]
         private static class UpdateOrderPatch
         {
             private static void Postfix() => MarkDirty();
