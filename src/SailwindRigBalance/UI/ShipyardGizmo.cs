@@ -136,6 +136,7 @@ namespace SailwindRigBalance.UI
 
         private GUIStyle _circleStyle, _tipStyle, _panelStyle, _panelInnerStyle;
         private Texture2D _circleTex;
+        private Texture2D _panelTex;
         private bool _styleAdopted;
 
 
@@ -306,6 +307,7 @@ namespace SailwindRigBalance.UI
         {
             Teardown();
             if (_circleTex != null) Destroy(_circleTex);
+            if (_panelTex != null) Destroy(_panelTex);
         }
 
         // ------------------------------------------------------------------ evaluation
@@ -1054,19 +1056,19 @@ namespace SailwindRigBalance.UI
                     var paper = renderer.sharedMaterial.mainTexture as Texture2D;
                     if (paper == null) continue;
 
-                    // Deliberately NOT applied to the panel. Stretching a long scroll texture into
-                    // a short wide box reads as a rug, and no floating 2D panel belongs in a game
-                    // whose entire interface is world-space paper. Three coloured circles with
-                    // nothing behind them cannot look wrong. The hover label is the one place a
-                    // small piece of paper sits naturally, so it keeps the parchment.
+                    // The texture itself is deliberately NOT used as a background. It is a long
+                    // scroll, and stretching it into a short wide strip reads as a rug. The panel
+                    // draws its own rounded parchment in the same palette instead. What is worth
+                    // borrowing is the lettering and the ink, which cannot distort.
                     if (text.font != null)
                     {
                         _tipStyle.font = text.font;
                         _tipStyle.fontSize = 13;
                     }
-                    // The shipyard's ink, so hover text reads as a label on the same paper.
+                    // The shipyard's ink, so hover text reads as a label on the same paper. The
+                    // background stays the generated one; swapping in the scroll texture here would
+                    // reintroduce the stretching on an even smaller box.
                     _tipStyle.normal.textColor = text.color;
-                    _tipStyle.normal.background = paper;
 
                     Plugin.Log.LogInfo($"[Gizmo] adopted the shipyard's paper from '{button.name}' "
                         + $"(texture '{paper.name}', font '{(text.font == null ? "none" : text.font.name)}').");
@@ -1189,18 +1191,78 @@ namespace SailwindRigBalance.UI
             // paper panels as well as over the night sky.
             _tipStyle = new GUIStyle(GUI.skin.box)
             {
-                fontSize = 11,
+                fontSize = 12,
                 wordWrap = true,
                 alignment = TextAnchor.MiddleRight,
-                padding = new RectOffset(8, 8, 6, 6),
+                padding = new RectOffset(10, 10, 7, 7),
+                border = new RectOffset(12, 12, 12, 12),
             };
-            _tipStyle.normal.textColor = Color.white;
+            // Same paper as the panel, and AdoptGameStyle replaces the lettering and ink with the
+            // shipyard's own so the label reads as part of the game rather than beside it.
+            _tipStyle.normal.background = _panelTex;
+            _tipStyle.normal.textColor = new Color(0.20f, 0.13f, 0.08f);
 
             // A plain box, drawn separately from the layout area, so the panel is fixed in place.
             // It used to be a GUI.Window purely to inherit IMGUI's dragging, which made it the one
             // thing in the shipyard that could be moved and read as foreign because of it.
-            _panelStyle = new GUIStyle(GUIStyle.none);
+            // Corner radius 10 in a 32 px tile, nine-sliced on a 12 px border so the corners keep
+            // their shape at any panel size and only the flat middle stretches.
+            _panelTex = MakePanelTexture(32, 10);
+            _panelStyle = new GUIStyle(GUIStyle.none)
+            {
+                border = new RectOffset(12, 12, 12, 12),
+            };
+            _panelStyle.normal.background = _panelTex;
             _panelInnerStyle = new GUIStyle(GUIStyle.none) { padding = new RectOffset(8, 8, 8, 8) };
+        }
+
+        /// <summary>
+        /// A rounded parchment panel, drawn rather than sampled from the game.
+        ///
+        /// Borrowing the shipyard's own texture was the obvious move and it looked like a rug: that
+        /// art is a long scroll, and stretching it into a short wide strip distorts every fibre in
+        /// it. Nine-slicing someone else's texture without knowing its border widths is guesswork.
+        /// Generating a plain rounded rectangle in the same palette cannot distort at any size, and
+        /// the shipyard's lettering and ink colour are still borrowed for the hover label, so the
+        /// two sit together.
+        ///
+        /// The circles need this behind them for a plainer reason: they are saturated colours meant
+        /// to match the markers, and against an open sky they have nothing to contrast with.
+        /// </summary>
+        private static Texture2D MakePanelTexture(int size, int radius)
+        {
+            var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
+            var pixels = new Color32[size * size];
+
+            Color paper = new Color(0.93f, 0.85f, 0.76f, 0.96f);
+            Color edge = new Color(0.42f, 0.32f, 0.24f, 0.98f);
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    // Distance outside the rounded rectangle's inner box, which is 0 anywhere in
+                    // the straight-edged middle and grows only into the corners.
+                    float dx = Mathf.Max(radius - x, x - (size - 1 - radius), 0f);
+                    float dy = Mathf.Max(radius - y, y - (size - 1 - radius), 0f);
+                    float d = Mathf.Sqrt(dx * dx + dy * dy);
+
+                    float alpha = Mathf.Clamp01(radius - d + 0.5f);
+                    // A thin darker rim, so the panel has an edge against pale sky as well as dark.
+                    float rim = Mathf.Clamp01(1.5f - Mathf.Abs(radius - d));
+
+                    Color c = Color.Lerp(paper, edge, rim * 0.85f);
+                    c.a = paper.a * alpha;
+                    pixels[y * size + x] = c;
+                }
+            }
+
+            tex.SetPixels32(pixels);
+            tex.wrapMode = TextureWrapMode.Clamp;
+            tex.filterMode = FilterMode.Bilinear;
+            tex.Apply();
+            tex.hideFlags = HideFlags.HideAndDontSave;
+            return tex;
         }
 
         /// <summary>A filled white disc, tinted per button through GUI.color.</summary>
