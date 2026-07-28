@@ -1287,9 +1287,18 @@ namespace SailwindRigBalance.UI
                 return;
             }
 
+            // The game's texture is NOT drawn directly, and the black panel is why. parchment_alpha
+            // carries the paper only in its ALPHA channel; its RGB is black, and the shipyard's
+            // shader supplies the colour from the material. Blitting it through IMGUI, which just
+            // multiplies RGBA by GUI.color, therefore paints a black rectangle no matter what tint
+            // is applied.
+            //
+            // So the shape is generated white and the colour is taken from the material, which is
+            // the part that actually carries the shipyard's look. Same peach as the buttons, no
+            // atlas region to pick wrongly, and nothing that can stretch.
             Color previous = GUI.color;
             GUI.color = _paperTint;
-            GUI.DrawTextureWithTexCoords(rect, _paperTex, _paperUv);
+            GUI.DrawTexture(rect, _panelTex, ScaleMode.StretchToFill, true);
             GUI.color = previous;
         }
 
@@ -1325,13 +1334,7 @@ namespace SailwindRigBalance.UI
         /// arbitrary box is what made it look like a rug; letting the artwork set the shape and
         /// centring the buttons inside it does not.
         /// </summary>
-        private float PanelHeightFor(float width)
-        {
-            if (_paperTex == null || _paperUv.width <= 0f) return PanelHeight;
-
-            float aspect = (_paperUv.height * _paperTex.height) / (_paperUv.width * _paperTex.width);
-            return Mathf.Clamp(width * aspect, PanelHeight, PanelHeight * 2.4f);
-        }
+        private float PanelHeightFor(float width) => PanelHeight;
 
         /// <summary>
         /// A rounded parchment panel, generated. Only used when nothing could be borrowed.
@@ -1351,8 +1354,10 @@ namespace SailwindRigBalance.UI
             var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
             var pixels = new Color32[size * size];
 
-            Color paper = new Color(0.93f, 0.85f, 0.76f, 0.96f);
-            Color edge = new Color(0.42f, 0.32f, 0.24f, 0.98f);
+            // White, because the shipyard's own material colour is applied as a tint at draw time.
+            // Baking a colour in here as well would double it and come out muddy.
+            Color paper = new Color(1.00f, 1.00f, 1.00f, 0.97f);
+            Color edge = new Color(0.42f, 0.33f, 0.26f, 1.00f);
 
             for (int y = 0; y < size; y++)
             {
