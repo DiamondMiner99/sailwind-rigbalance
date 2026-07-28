@@ -1,4 +1,4 @@
-using BepInEx.Configuration;
+﻿using BepInEx.Configuration;
 using UnityEngine;
 
 namespace SailwindRigBalance.Config
@@ -14,8 +14,9 @@ namespace SailwindRigBalance.Config
     ///    a working, merely occluded, gizmo instead of a broken screen.
     ///  - WindAngle, because 45 degrees is a judgement about where balance matters, not a fact.
     ///
-    /// The panel position is stored rather than exposed: nobody edits a window rectangle by hand,
-    /// but having dragged it once, a player should not have to do it again next session.
+    /// There is deliberately no panel position entry. The strip is fixed in the top right: nothing
+    /// else in the shipyard can be dragged, so one thing that could read as belonging to a
+    /// different program rather than to the game.
     /// </summary>
     public static class Settings
     {
@@ -28,7 +29,6 @@ namespace SailwindRigBalance.Config
         public static ConfigEntry<float> MarkerScale { get; private set; }
         public static ConfigEntry<float> WindAngle { get; private set; }
         public static ConfigEntry<float> BalancedThreshold { get; private set; }
-        public static ConfigEntry<Vector2> PanelPosition { get; private set; }
 
         public static void Bind(ConfigFile config)
         {
@@ -77,9 +77,9 @@ namespace SailwindRigBalance.Config
                     + "nothing on a brig and most of the boat on a dinghy.",
                     new AcceptableValueRange<float>(0.002f, 0.15f)));
 
-            PanelPosition = config.Bind("Interface", "PanelPosition", new Vector2(-1f, -1f),
-                "Where the button strip sits, remembered after you drag it. Negative means "
-                + "unset, which places it in the top right corner.");
+            // No PanelPosition entry. The strip is fixed in the top right, because nothing else in
+            // the shipyard can be dragged and a panel that could read as belonging to another
+            // program.
         }
     }
 }

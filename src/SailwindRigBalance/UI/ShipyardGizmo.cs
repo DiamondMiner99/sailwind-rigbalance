@@ -132,11 +132,10 @@ namespace SailwindRigBalance.UI
 
         private float _rebuildAt = -1f;
 
-        private GUIStyle _circleStyle, _tipStyle, _panelStyle;
+        private GUIStyle _circleStyle, _tipStyle, _panelStyle, _panelInnerStyle;
         private Texture2D _circleTex;
+        private bool _styleAdopted;
 
-        /// <summary>Arbitrary but stable, so IMGUI keeps the drag state across frames.</summary>
-        private const int PanelWindowId = 0x52474D;
 
         // Sized to the buttons and nothing more: 8 padding, then 24 wide buttons separated by 3 of
         // margin. Any slack here shows up as dead background beside the last button.
@@ -148,7 +147,6 @@ namespace SailwindRigBalance.UI
         private const float HoverDelay = 0.66f;
 
         private Rect _panel;
-        private bool _panelPlaced;
         private string _hoverTip;      // what is hovered right now, this Repaint
         private string _hoverTracked;  // what the delay is being timed against
         private float _hoverSince;
@@ -935,49 +933,30 @@ namespace SailwindRigBalance.UI
         /// doubles as the legend; hovering one names it. No readout, by design: the gizmo is the
         /// output, and a number on screen just invites reading the number instead of the rig.
         ///
-        /// It sits in the top right corner, clear of the shipyard's own panels, and it is
-        /// draggable. Text never goes inside it: a tooltip long enough to be useful would either
-        /// pad the panel out with dead background or wrap into an unreadable column, so hover text
-        /// and the unreliable-marker warning are drawn underneath it instead.
+        /// It is fixed in the top right corner and cannot be dragged. Nothing else in the shipyard
+        /// moves, so a panel that did read as a stray piece of another program. Its background and
+        /// font are taken from the shipyard's own buttons at runtime rather than imitated, for the
+        /// same reason the furl button is a clone: matching the game's paper look by copying it is
+        /// exact, and matching it by eye never is.
         /// </summary>
         private void OnGUI()
         {
             if (!ShipyardHooks.InShipyard || !_valid) return;
             if (Config.Settings.ShowPanel != null && !Config.Settings.ShowPanel.Value) return;
             EnsureStyles();
-
-            if (!_panelPlaced)
-            {
-                Vector2 stored = Config.Settings.PanelPosition != null
-                    ? Config.Settings.PanelPosition.Value
-                    : new Vector2(-1f, -1f);
-
-                _panel = stored.x >= 0f && stored.y >= 0f
-                    ? new Rect(stored.x, stored.y, PanelWidth, PanelHeight)
-                    : new Rect(Screen.width - PanelWidth - PanelMargin, PanelMargin, PanelWidth, PanelHeight);
-                _panelPlaced = true;
-            }
+            AdoptGameStyle();
 
             // The furl button only exists while a sail is selected, so the panel has to grow and
             // shrink with it or the fourth button spills past the background.
-            _panel.width = PanelWidth
+            float width = PanelWidth
                 + (!Shipyard.FurlSailButton.Exists && SelectedSail() != null ? 27f : 0f);
-            _panel.height = PanelHeight;
+            _panel = new Rect(Screen.width - width - PanelMargin, PanelMargin, width, PanelHeight);
 
             _hoverTip = null;
-            _panel = GUI.Window(PanelWindowId, _panel, DrawPanel, GUIContent.none, _panelStyle);
-
-            // Keep it reachable if the window is resized or the game changes resolution.
-            _panel.x = Mathf.Clamp(_panel.x, 0f, Mathf.Max(0f, Screen.width - _panel.width));
-            _panel.y = Mathf.Clamp(_panel.y, 0f, Mathf.Max(0f, Screen.height - _panel.height));
-
-            // Persist only when it has actually moved, so a config write does not happen per frame.
-            if (Config.Settings.PanelPosition != null)
-            {
-                Vector2 now = new Vector2(_panel.x, _panel.y);
-                if ((Config.Settings.PanelPosition.Value - now).sqrMagnitude > 0.5f)
-                    Config.Settings.PanelPosition.Value = now;
-            }
+            GUI.Box(_panel, GUIContent.none, _panelStyle);
+            GUILayout.BeginArea(_panel, _panelInnerStyle);
+            DrawPanel(0);
+            GUILayout.EndArea();
 
             // Hover tracking is only updated on Repaint, because GUI.tooltip is populated while the
             // hovered control is drawn and reads empty during Layout. Updating on every event would
@@ -1033,12 +1012,59 @@ namespace SailwindRigBalance.UI
 
             GUILayout.FlexibleSpace();
 
-            // Captured here rather than read after the window returns, because GUI.tooltip is only
-            // populated while the hovered control is being drawn.
+            // Captured here rather than read afterwards, because GUI.tooltip is only populated
+            // while the hovered control is being drawn.
             if (!string.IsNullOrEmpty(GUI.tooltip)) _hoverTip = GUI.tooltip;
+        }
 
-            // Last, so the buttons above have already taken their clicks. Everything else drags.
-            GUI.DragWindow();
+        /// <summary>
+        /// Borrows the shipyard's own parchment texture and lettering, once, so the panel is made
+        /// of the same material as everything around it instead of being a grey box from a
+        /// different decade of UI design. Falls back silently to the default IMGUI skin, which is
+        /// legible if plain, when nothing suitable is on screen.
+        /// </summary>
+        private void AdoptGameStyle()
+        {
+            if (_styleAdopted) return;
+            _styleAdopted = true;
+
+            try
+            {
+                foreach (GoPointerButton button in FindObjectsOfType<GoPointerButton>())
+                {
+                    if (button == null) continue;
+
+                    var renderer = button.GetComponent<Renderer>();
+                    var text = button.GetComponentInChildren<TextMesh>();
+                    if (renderer == null || renderer.sharedMaterial == null || text == null) continue;
+
+                    var paper = renderer.sharedMaterial.mainTexture as Texture2D;
+                    if (paper == null) continue;
+
+                    _panelStyle.normal.background = paper;
+                    _panelStyle.border = new RectOffset(8, 8, 8, 8);
+
+                    if (text.font != null)
+                    {
+                        _tipStyle.font = text.font;
+                        _tipStyle.fontSize = 13;
+                    }
+                    // The shipyard's ink, so hover text reads as a label on the same paper.
+                    _tipStyle.normal.textColor = text.color;
+                    _tipStyle.normal.background = paper;
+
+                    Plugin.Log.LogInfo($"[Gizmo] adopted the shipyard's paper from '{button.name}' "
+                        + $"(texture '{paper.name}', font '{(text.font == null ? "none" : text.font.name)}').");
+                    return;
+                }
+
+                Plugin.Log.LogInfo("[Gizmo] no shipyard button found to borrow a style from; "
+                    + "using the default skin.");
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning("[Gizmo] could not adopt the shipyard style: " + e.Message);
+            }
         }
 
         private void Toggle(int index, Color colour, string tooltip)
@@ -1155,9 +1181,11 @@ namespace SailwindRigBalance.UI
             };
             _tipStyle.normal.textColor = Color.white;
 
-            // A window rather than a box, purely to inherit IMGUI's dragging. The default window
-            // style reserves room for a title bar the panel does not have, so padding is reset.
-            _panelStyle = new GUIStyle(GUI.skin.window) { padding = new RectOffset(8, 8, 8, 8) };
+            // A plain box, drawn separately from the layout area, so the panel is fixed in place.
+            // It used to be a GUI.Window purely to inherit IMGUI's dragging, which made it the one
+            // thing in the shipyard that could be moved and read as foreign because of it.
+            _panelStyle = new GUIStyle(GUI.skin.box) { padding = new RectOffset(0, 0, 0, 0) };
+            _panelInnerStyle = new GUIStyle(GUIStyle.none) { padding = new RectOffset(8, 8, 8, 8) };
         }
 
         /// <summary>A filled white disc, tinted per button through GUI.color.</summary>
