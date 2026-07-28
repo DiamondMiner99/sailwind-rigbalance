@@ -43,15 +43,28 @@ namespace SailwindRigBalance.Core
         public float WindAngle;          // degrees off the bow this was evaluated at
 
         /// <summary>
-        /// Whether a helm verdict means anything here.
-        ///
-        /// The helm figure is the yaw moment divided by the side force. Running, the sails push
-        /// almost straight forward and the side force falls to nearly nothing, so that division
-        /// explodes and reports several metres of lee helm for a rig that is simply being pushed
-        /// along. There is no balance to strike when nothing is pushing the boat sideways, and the
-        /// honest answer is to say so rather than to divide anyway.
+        /// False only when the rig is producing essentially no force at all, which happens inside
+        /// about 16 degrees of the wind where Sail.cs:416 ramps every sail to nothing.
         /// </summary>
         public bool HelmMeaningful;
+
+        /// <summary>
+        /// The yaw moment expressed as a lever arm, in metres, positive for weather helm.
+        ///
+        /// Divided by the rig's TOTAL output rather than by its side force alone. Dividing by side
+        /// force is the textbook centre-of-effort-against-centre-of-resistance picture and it works
+        /// beautifully on the wind, but it has two failures this rig exposed. Running, the side
+        /// force goes to zero and the division explodes, reporting metres of imaginary lee helm.
+        /// And side force is signed, so the verdict could inverbut  purely because the denominator
+        /// changed sign, which on a square rigger with backed sails it does.
+        ///
+        /// A square sail pushing forward from a point off the centreline still yaws the boat: the
+        /// log shows yaw of -1366 with a side force of exactly zero. That is a real handling
+        /// problem on the point of sail a square rigger lives on, and the old divisor could not see
+        /// it. Total output is always positive, never vanishes while the sails draw, and reduces to
+        /// the same number when the force is mostly sideways.
+        /// </summary>
+        public float HelmMetres;
     }
 
     /// <summary>
@@ -236,10 +249,28 @@ namespace SailwindRigBalance.Core
                 // Trim for best drive: evaluate both ends of the sail's own swing limits plus
                 // centred, and keep whichever gives the most forward force.
                 float bestFwd = float.NegativeInfinity, bestSide = 0f;
+
+                // The centre of effort is captured INSIDE the winning branch, with the sail still
+                // in the pose that won. It used to be read after the loop, which left the sail at
+                // whatever the last iteration set, always sail.maxAngle. The force then came from
+                // the winning trim while the point it acted at came from a different pose.
+                //
+                // That is not a small error. windcenter hangs off the sail root (Sail.cs:186 gives
+                // the scaled subtree a nonzero local X offset), so swinging the root sweeps it
+                // athwartships. In boat axes the yaw reduces to -arm.x * forwardForce, and forward
+                // force is the largest force in the rig, so a metre of bogus athwartships offset
+                // fabricates thousands of Nm. Worse, every sail was left at the SAME end of its
+                // swing, so the errors shared a sign and accumulated rather than cancelling.
+                //
+                // Square sails were immune: their force acts along transform.right (Sail.cs:487-489)
+                // and a symmetric yard puts the centre on the hinge axis. Everything fore-and-aft
+                // was affected, which is the whole rig of a dhow or a junk.
+                Vector3 bestCe = sail.windcenter.position;
+
+                Vector3 euler = sRot.eulerAngles;
                 foreach (float trim in new[] { sail.minAngle, 0f, sail.maxAngle })
                 {
-                    Vector3 e = sRot.eulerAngles;
-                    sail.transform.localRotation = Quaternion.Euler(e.x, e.y, trim);
+                    sail.transform.localRotation = Quaternion.Euler(euler.x, euler.y, trim);
 
                     MUpdateForce.Invoke(sail, null);
 
@@ -251,10 +282,11 @@ namespace SailwindRigBalance.Core
                     {
                         bestFwd = fwd;
                         bestSide = unampS * scale * 1.5f;   // the sideways component carries an extra 1.5x
+                        bestCe = sail.windcenter.position;
                     }
                 }
 
-                Vector3 ce = sail.windcenter.position;
+                Vector3 ce = bestCe;
                 Vector3 arm = ce - body.position;                       // about the HULL ORIGIN
                 Vector3 armLocal = boat.InverseTransformVector(arm);
                 Vector3 force = boat.forward * bestFwd + boat.right * bestSide;
