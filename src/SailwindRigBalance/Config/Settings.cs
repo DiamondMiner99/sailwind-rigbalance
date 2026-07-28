@@ -22,6 +22,7 @@ namespace SailwindRigBalance.Config
         public static ConfigEntry<bool> ShowEffort { get; private set; }
         public static ConfigEntry<bool> ShowResistance { get; private set; }
         public static ConfigEntry<bool> ShowMass { get; private set; }
+        public static ConfigEntry<bool> ShowReefTrack { get; private set; }
         public static ConfigEntry<bool> ShowPanel { get; private set; }
         public static ConfigEntry<bool> DrawThroughHull { get; private set; }
         public static ConfigEntry<float> MarkerScale { get; private set; }
@@ -41,6 +42,11 @@ namespace SailwindRigBalance.Config
             ShowMass = config.Bind("Markers", "ShowCentreOfMass", true,
                 "Show the yellow marker: the boat's own balance point. It does not respond to sails, "
                 + "only to a keel or ballast option where the hull has one.");
+
+            ShowReefTrack = config.Bind("Markers", "ShowReefTrack", true,
+                "With a sail selected, draw a line from the current centre of effort to where it "
+                + "would sit with that sail furled. The line covers every reef setting in between, "
+                + "and its colour is the verdict at the far end.");
 
             ShowPanel = config.Bind("Interface", "ShowPanel", true,
                 "Show the button strip. Turn this off to keep the markers with no interface at all.");

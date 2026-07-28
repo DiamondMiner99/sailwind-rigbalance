@@ -84,7 +84,17 @@ namespace SailwindRigBalance.Core
         /// the bow, on the port bow (so positive yaw means the bow turns away from the wind).
         /// 45 is close hauled, 90 is a beam reach.
         /// </summary>
-        public static bool TryEvaluate(GameObject boatRoot, float windAngleDegrees, out RigBalance result)
+        /// <param name="overrideSail">
+        /// Optional. Evaluate as if this one sail were set to <paramref name="overrideUnroll"/>
+        /// instead of its real furl state, leaving every other sail alone. This is what draws the
+        /// reef track: run it once as things stand and once with the selected sail at the opposite
+        /// extreme, and the two combined centres bound a straight segment covering every reef
+        /// setting in between. Straight because Sail.cs:415 scales the force linearly and nothing
+        /// in the reef path moves that sail's own windcenter, so only its weight in the average
+        /// changes, and a weighted average with one weight swept traces a line.
+        /// </param>
+        public static bool TryEvaluate(GameObject boatRoot, float windAngleDegrees, out RigBalance result,
+            Sail overrideSail = null, float overrideUnroll = 1f)
         {
             result = default(RigBalance);
             if (boatRoot == null || !Available) return false;
@@ -121,7 +131,8 @@ namespace SailwindRigBalance.Core
                     if (sail == null || sail.windcenter == null) continue;
 
                     SailContribution c;
-                    if (!TryEvaluateSail(sail, boat, body, windWorld, out c)) continue;
+                    float unroll = sail == overrideSail ? overrideUnroll : sail.currentUnroll;
+                    if (!TryEvaluateSail(sail, boat, body, windWorld, unroll, out c)) continue;
 
                     sails.Add(c);
                     totalSide += c.SideForce;
@@ -149,7 +160,7 @@ namespace SailwindRigBalance.Core
         }
 
         private static bool TryEvaluateSail(Sail sail, Transform boat, Rigidbody body,
-            Vector3 windWorld, out SailContribution c)
+            Vector3 windWorld, float unroll, out SailContribution c)
         {
             c = default(SailContribution);
 
@@ -175,8 +186,10 @@ namespace SailwindRigBalance.Core
                 // shipRigidbody for the boat's axes, so lend it the hull's.
                 sail.shipRigidbody = body;
                 sail.apparentWind = windWorld;
+                sail.currentUnroll = unroll;
 
-                // currentUnroll is deliberately NOT overridden. It used to be forced to 1 so the
+                // The caller passes the sail's own currentUnroll, so this is normally a no-op; it
+                // differs only for the one sail a reef track is being drawn for. It used to be
                 // readout showed the rig's potential, but the balance a player cares about is the
                 // one they will actually sail under. Sail.cs:415 multiplies the wind force by it
                 // linearly, so a furled sail contributes nothing and a reefed one contributes in

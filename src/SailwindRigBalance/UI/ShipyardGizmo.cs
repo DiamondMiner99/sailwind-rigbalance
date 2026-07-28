@@ -111,6 +111,14 @@ namespace SailwindRigBalance.UI
         private Material _linkMaterial;
         private Texture2D _linkTexture;
 
+        // The reef track: where the combined centre of effort travels as the selected sail goes
+        // between fully set and fully furled. Two endpoints describe every setting in between.
+        private LineRenderer _track;
+        private Material _trackMaterial;
+        private Vector3 _trackFrom, _trackTo;   // boat-local
+        private bool _trackValid;
+        private Sail _trackSail;
+
         private Transform _boat;
         private Camera _overlay, _source;
         private int _layer = -1;
@@ -156,6 +164,10 @@ namespace SailwindRigBalance.UI
             }
 
             if (ShipyardHooks.ConsumeDirty()) _rebuildAt = Time.unscaledTime + RebuildDelay;
+
+            // Selecting a different sail changes which reef track is meaningful, and the shipyard
+            // gives no event for it, so it is polled. Cheap: one accessor, no allocation.
+            if (_valid && SelectedSail() != _trackSail) _rebuildAt = Time.unscaledTime + RebuildDelay;
 
             if (_rebuildAt > 0f && Time.unscaledTime >= _rebuildAt)
             {
@@ -238,6 +250,19 @@ namespace SailwindRigBalance.UI
                 _link.startWidth = width;
                 _link.endWidth = width;
             }
+
+            if (_track != null && _track.enabled)
+            {
+                Vector3 from = _boat.TransformPoint(_trackFrom);
+                Vector3 to = _boat.TransformPoint(_trackTo);
+                _track.SetPosition(0, from);
+                _track.SetPosition(1, to);
+
+                // Thinner than the helm link: this is a what-if, not the current state.
+                float width = MarkerSize(eye, (from + to) * 0.5f) * 0.07f;
+                _track.startWidth = width;
+                _track.endWidth = width;
+            }
         }
 
         /// <summary>
@@ -318,6 +343,7 @@ namespace SailwindRigBalance.UI
 
             Repaint(Effort, _unreliable ? UnreliableColour : EffortColour);
             UpdateLinkColour();
+            UpdateTrack(boat, balance);
             SetValid(true);
 
             string verdict = Mathf.Abs(_helmMetres) < _balancedMetres ? "balanced"
@@ -384,6 +410,7 @@ namespace SailwindRigBalance.UI
                 if (_markers[i] != null) _markers[i].SetActive(valid && _visible[i]);
             }
             if (_link != null) _link.enabled = valid && _visible[Effort] && _visible[Resistance];
+            if (_track != null) _track.enabled = valid && _trackValid && _visible[Effort];
             if (_overlay != null && !valid) _overlay.enabled = false;
         }
 
@@ -412,6 +439,7 @@ namespace SailwindRigBalance.UI
             MakeMarker(Mass, "CentreOfMass", MassColour);
 
             MakeLink();
+            MakeTrack();
             MakeOverlayCamera();
         }
 
@@ -500,6 +528,78 @@ namespace SailwindRigBalance.UI
                 Plugin.Log.LogWarning("[Gizmo] helm link failed: " + e.Message);
                 _link = null;
             }
+        }
+
+        private void MakeTrack()
+        {
+            try
+            {
+                var go = new GameObject("ReefTrack");
+                go.layer = _layer;
+                go.transform.SetParent(_root.transform, false);
+
+                _track = go.AddComponent<LineRenderer>();
+                _track.useWorldSpace = true;
+                _track.positionCount = 2;
+                _track.numCapVertices = 4;
+                _track.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                _track.receiveShadows = false;
+                _track.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+                _track.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+
+                _trackMaterial = MakeMaterial(_linkTexture);
+                _track.material = _trackMaterial;
+                _track.enabled = false;
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning("[Gizmo] reef track failed: " + e.Message);
+                _track = null;
+            }
+        }
+
+        /// <summary>
+        /// Works out where the combined centre of effort would end up if the selected sail were
+        /// taken to the opposite extreme of its furl state, and colours the track by the verdict at
+        /// that destination. Blue means furling this sail would give you lee helm; red, weather.
+        ///
+        /// Only two evaluations are needed for a continuous answer. The path between them is a
+        /// straight segment, because the combined centre is a force-weighted average of fixed
+        /// points and reefing sweeps exactly one weight (see TryEvaluate's overrideSail).
+        /// </summary>
+        private void UpdateTrack(GameObject boat, RigBalance current)
+        {
+            _trackValid = false;
+            _trackSail = SelectedSail();
+
+            bool wanted = Config.Settings.ShowReefTrack == null || Config.Settings.ShowReefTrack.Value;
+            if (!wanted || _trackSail == null || _boat == null) return;
+
+            float destinationUnroll = _trackSail.currentUnroll > 0.5f ? 0f : 1f;
+
+            RigBalance other;
+            if (!RigModel.TryEvaluate(boat, WindAngleDegrees, out other, _trackSail, destinationUnroll))
+                return;
+
+            _trackFrom = _boat.InverseTransformPoint(current.CombinedCentreOfEffort);
+            _trackTo = _boat.InverseTransformPoint(other.CombinedCentreOfEffort);
+
+            float otherLever = Mathf.Abs(other.TotalSideForce) > 0.01f
+                ? other.YawMoment / other.TotalSideForce
+                : 0f;
+            float otherHelm = -otherLever;
+
+            Color colour = Mathf.Abs(otherHelm) < _balancedMetres ? BalancedColour
+                : (otherHelm > 0f ? WeatherHelmColour : LeeHelmColour);
+
+            if (_track != null)
+            {
+                _track.startColor = colour;
+                _track.endColor = colour;
+                Tint(_trackMaterial, colour);
+            }
+
+            _trackValid = true;
         }
 
         /// <summary>
@@ -664,6 +764,10 @@ namespace SailwindRigBalance.UI
             _overlay = null;
             _link = null;
             _linkMaterial = null;
+            _track = null;
+            _trackMaterial = null;
+            _trackValid = false;
+            _trackSail = null;
             _boat = null;
 
             for (int i = 0; i < _markers.Length; i++)
@@ -930,6 +1034,7 @@ namespace SailwindRigBalance.UI
             GUI.color = previous;
             if (!clicked) return;
 
+            // The reef track already showed where this would land; clicking commits to it.
             selected.currentUnroll = set ? 0f : 1f;
 
             // Mirrors what Shipyard Expansion does after writing the field. The boom and cloth reef
