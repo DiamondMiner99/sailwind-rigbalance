@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>SailwindRigBalance</AssemblyName>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <!-- Never copy the referenced game/BepInEx assemblies into the build output. Without this the
+       output folder fills with Assembly-CSharp.dll and friends, and anyone who copies the whole
+       folder into BepInEx/plugins ships the game's own assemblies back into the loader. -->
+  <ItemDefinitionGroup>
+    <Reference>
+      <Private>false</Private>
+    </Reference>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <!-- BepInEx -->
+    <Reference Include="BepInEx">
+      <HintPath>$(GameDir)/BepInEx/core/BepInEx.dll</HintPath>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(GameDir)/BepInEx/core/0Harmony.dll</HintPath>
+    </Reference>
+
+    <!-- Unity -->
+    <Reference Include="UnityEngine">
+      <HintPath>$(GameDir)/Sailwind_Data/Managed/UnityEngine.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameDir)/Sailwind_Data/Managed/UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(GameDir)/Sailwind_Data/Managed/UnityEngine.PhysicsModule.dll</HintPath>
+    </Reference>
+    <!-- OnGUI readout. NOTE: no InputLegacyModule reference - on this build (Unity 2019.1.10f1)
+         UnityEngine.Input still lives in CoreModule, and InputLegacyModule does not ship at all. -->
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>$(GameDir)/Sailwind_Data/Managed/UnityEngine.IMGUIModule.dll</HintPath>
+    </Reference>
+    <!-- The game's whole UI is world-space TextMesh; no uGUI canvas and no TextMeshPro exist. -->
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>$(GameDir)/Sailwind_Data/Managed/UnityEngine.TextRenderingModule.dll</HintPath>
+    </Reference>
+
+    <!-- Game -->
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(GameDir)/Sailwind_Data/Managed/Assembly-CSharp.dll</HintPath>
+    </Reference>
+    <!-- Crest.BoatProbes carries the hull's lateral-drag coefficient and its application point. -->
+    <Reference Include="Crest">
+      <HintPath>$(GameDir)/Sailwind_Data/Managed/Crest.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Allows the net472 target to build on machines without the .NET Framework 4.7.2
+       targeting pack installed. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>
