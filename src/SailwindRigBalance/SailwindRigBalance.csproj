@@ -42,6 +42,11 @@
     <Reference Include="UnityEngine.TextRenderingModule">
       <HintPath>$(GameDir)/Sailwind_Data/Managed/UnityEngine.TextRenderingModule.dll</HintPath>
     </Reference>
+    <!-- Animator: every sail prefab has exactly one, on the transform that gets scaled, which is
+         how the centre of effort's parenting is classified. -->
+    <Reference Include="UnityEngine.AnimationModule">
+      <HintPath>$(GameDir)/Sailwind_Data/Managed/UnityEngine.AnimationModule.dll</HintPath>
+    </Reference>
 
     <!-- Game -->
     <Reference Include="Assembly-CSharp">

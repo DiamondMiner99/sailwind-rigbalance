@@ -30,7 +30,13 @@ namespace SailwindRigBalance
         // ("version is invalid") and skip it entirely. Any "alpha" wording lives in prose only.
         // Bump for every shipped zip, including a packaging-only change, so two machines can never
         // silently differ. This is the step-1 skeleton build.
-        public const string PluginVersion = "0.1.0";
+        public const string PluginVersion = "0.2.0";
+
+        /// <summary>
+        /// Hard-coded for now; becomes a config entry in the config/hotkey step. F7 is deliberate:
+        /// the author's other mod already owns F8 and Shift+F8, and F10 is spoken for.
+        /// </summary>
+        public const KeyCode SnapshotKey = KeyCode.F7;
 
         public static Plugin Instance { get; private set; }
         public static ManualLogSource Log { get; private set; }
@@ -43,9 +49,29 @@ namespace SailwindRigBalance
             Log.LogInfo($"{PluginName} v{PluginVersion} loading...");
 
             LogEnvironment();
-            ModDetect.InitAndLog();
 
-            Log.LogInfo($"{PluginName} v{PluginVersion} loaded. No patches applied in this build.");
+            Log.LogInfo($"{PluginName} v{PluginVersion} loaded. No patches applied in this build. "
+                + $"Press {SnapshotKey} while aboard a boat to log a rig-balance snapshot.");
+        }
+
+        /// <summary>
+        /// Mod detection deliberately runs in Start, not Awake. Chainloader.PluginInfos is filled in
+        /// as plugins load, so an Awake-time snapshot only sees the plugins that happened to load
+        /// BEFORE us and reports the rest as absent. Start runs after every plugin's Awake, so the
+        /// roster is complete regardless of load order. (Found in the step 1 log: SailInfo loaded
+        /// one line after us and was therefore reported "not installed".)
+        /// </summary>
+        private void Start()
+        {
+            ModDetect.InitAndLog();
+        }
+
+        private void Update()
+        {
+            if (Input.GetKeyDown(SnapshotKey))
+            {
+                Diagnostics.RigSnapshot.LogSnapshot();
+            }
         }
 
         /// <summary>
