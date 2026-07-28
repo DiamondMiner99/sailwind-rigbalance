@@ -117,7 +117,8 @@ namespace SailwindRigBalance.UI
         private Material _trackMaterial;
         private Vector3 _trackFrom, _trackTo;   // boat-local
         private bool _trackValid;
-        private Sail _trackSail;
+        private Sail _trackSail;        // owned by Recompute
+        private Sail _polledSelection;  // owned by the Update poll, never by Recompute
 
         private Transform _boat;
         private Camera _overlay, _source;
@@ -167,7 +168,18 @@ namespace SailwindRigBalance.UI
 
             // Selecting a different sail changes which reef track is meaningful, and the shipyard
             // gives no event for it, so it is polled. Cheap: one accessor, no allocation.
-            if (_valid && SelectedSail() != _trackSail) _rebuildAt = Time.unscaledTime + RebuildDelay;
+            //
+            // The comparison is against a field owned by THIS poll, not against _trackSail, which
+            // Recompute owns. Comparing against _trackSail deadlocked the whole gizmo: the poll
+            // pushed the rebuild deadline forward every frame, so Recompute never ran, so
+            // _trackSail never caught up, so the poll fired again. Selecting a sail froze every
+            // marker until it was deselected, which included every furl made while it was selected.
+            Sail selection = SelectedSail();
+            if (selection != _polledSelection)
+            {
+                _polledSelection = selection;
+                if (_valid) _rebuildAt = Time.unscaledTime + RebuildDelay;
+            }
 
             if (_rebuildAt > 0f && Time.unscaledTime >= _rebuildAt)
             {
@@ -807,6 +819,7 @@ namespace SailwindRigBalance.UI
             _trackMaterial = null;
             _trackValid = false;
             _trackSail = null;
+            _polledSelection = null;
             _boat = null;
 
             for (int i = 0; i < _markers.Length; i++)
