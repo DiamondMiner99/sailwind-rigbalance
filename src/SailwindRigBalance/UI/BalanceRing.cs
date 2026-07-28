@@ -45,22 +45,56 @@ namespace SailwindRigBalance.UI
         private MeshRenderer _renderer;
         private Mesh _mesh;
         private Vector3 _centreLocal;
+        private float _radius = 10f;
+
+        private GameObject _arrowGo;
+        private Mesh _arrowMesh;
+        private bool _dragging;
+        private bool _angleChanged;
+
+        /// <summary>
+        /// Where the wind is coming from, in degrees off the bow, positive to port. This is the
+        /// angle every marker is evaluated at; the ring behind it shows what the other angles would
+        /// give.
+        /// </summary>
+        public float WindAngle { get; private set; } = 45f;
+
+        public void SetWindAngle(float degrees)
+        {
+            WindAngle = Mathf.Repeat(degrees, 360f);
+        }
+
+        /// <summary>True once after the arrow has been dragged, so the caller can recompute.</summary>
+        public bool ConsumeAngleChanged()
+        {
+            if (!_angleChanged) return false;
+            _angleChanged = false;
+            return true;
+        }
+
+        public bool Dragging => _dragging;
 
         public bool Exists => _go != null;
 
         public void SetVisible(bool visible)
         {
             if (_go != null && _go.activeSelf != visible) _go.SetActive(visible);
+            if (_arrowGo != null && _arrowGo.activeSelf != visible) _arrowGo.SetActive(visible);
         }
 
         public void Destroy()
         {
             if (_mesh != null) UnityEngine.Object.Destroy(_mesh);
             if (_go != null) UnityEngine.Object.Destroy(_go);
+            if (_arrowMesh != null) UnityEngine.Object.Destroy(_arrowMesh);
+            if (_arrowGo != null) UnityEngine.Object.Destroy(_arrowGo);
             _mesh = null;
             _go = null;
             _filter = null;
             _renderer = null;
+            _arrowMesh = null;
+            _arrowGo = null;
+            _dragging = false;
         }
 
         /// <summary>Keeps the ring on the boat without parenting to it, as the markers do.</summary>
@@ -68,6 +102,84 @@ namespace SailwindRigBalance.UI
         {
             if (_go == null || boat == null) return;
             _go.transform.SetPositionAndRotation(boat.TransformPoint(_centreLocal), boat.rotation);
+            if (_arrowGo != null)
+                _arrowGo.transform.SetPositionAndRotation(_go.transform.position, _go.transform.rotation);
+        }
+
+        /// <summary>
+        /// Lets the player swing the wind round by dragging the arrow.
+        ///
+        /// Deliberately NOT done with a collider and Physics.Raycast. The shipyard raycasts for its
+        /// own sail picking, and adding another collider into that is asking to steal clicks from
+        /// it. Instead the arrow's world position is projected to the screen and the drag only
+        /// starts if the cursor is within a small radius of it, which needs no collider at all and
+        /// cannot appear in anybody else's raycast. The arrow sits out beyond the hull, over open
+        /// water, so the odds of that small target overlapping something clickable are low.
+        /// </summary>
+        public void HandleDrag(Camera camera, Transform boat)
+        {
+            if (_go == null || camera == null || boat == null) return;
+
+            Vector3 centre = _go.transform.position;
+            Vector3 handle = centre + DirectionFor(WindAngle, boat) * _radius;
+
+            if (!_dragging)
+            {
+                if (!Input.GetMouseButtonDown(0)) { SetArrowHighlight(false); return; }
+
+                Vector3 screen = camera.WorldToScreenPoint(handle);
+                if (screen.z <= 0f) return;   // behind the camera
+
+                if (Vector2.Distance(new Vector2(screen.x, screen.y),
+                        new Vector2(Input.mousePosition.x, Input.mousePosition.y)) > GrabRadiusPixels)
+                    return;
+
+                _dragging = true;
+                SetArrowHighlight(true);
+                return;
+            }
+
+            if (!Input.GetMouseButton(0))
+            {
+                _dragging = false;
+                SetArrowHighlight(false);
+                return;
+            }
+
+            // Where the cursor lands on the ring's own plane.
+            var plane = new Plane(boat.up, centre);
+            Ray ray = camera.ScreenPointToRay(Input.mousePosition);
+            float enter;
+            if (!plane.Raycast(ray, out enter)) return;
+
+            Vector3 local = boat.InverseTransformDirection(ray.GetPoint(enter) - centre);
+            if (local.sqrMagnitude < 0.0001f) return;
+
+            // Inverse of DirectionFor: that maps an angle to (-sin, 0, cos).
+            float degrees = Mathf.Repeat(Mathf.Atan2(-local.x, local.z) * Mathf.Rad2Deg, 360f);
+            if (Mathf.Abs(Mathf.DeltaAngle(degrees, WindAngle)) < 0.5f) return;
+
+            WindAngle = degrees;
+            _angleChanged = true;
+            UpdateArrow(boat);
+        }
+
+        private const float GrabRadiusPixels = 40f;
+
+        private static Vector3 DirectionFor(float degrees, Transform boat)
+        {
+            float rad = degrees * Mathf.Deg2Rad;
+            Vector3 local = new Vector3(-Mathf.Sin(rad), 0f, Mathf.Cos(rad));
+            return boat.TransformDirection(local);
+        }
+
+        private void SetArrowHighlight(bool on)
+        {
+            if (_arrowGo == null) return;
+            var r = _arrowGo.GetComponent<MeshRenderer>();
+            if (r != null) r.enabled = true;
+            // Rebuilt colours are cheap; the mesh is seven vertices.
+            BuildArrowMesh(on);
         }
 
         /// <summary>
@@ -84,7 +196,8 @@ namespace SailwindRigBalance.UI
 
                 _centreLocal = boat.InverseTransformPoint(current.HullOrigin);
 
-                float radius = Mathf.Max(current.HullLength * 0.55f, 3f);
+                _radius = Mathf.Max(current.HullLength * 0.55f, 3f);
+                float radius = _radius;
                 float band = Mathf.Max(current.HullLength * 0.030f, 0.25f);
 
                 // Half the circle, mirrored. 0 is dead ahead, 180 dead astern.
@@ -104,6 +217,7 @@ namespace SailwindRigBalance.UI
                 }
 
                 BuildMesh(radius, band, colours);
+                UpdateArrow(boat);
             }
             catch (Exception e)
             {
@@ -127,6 +241,66 @@ namespace SailwindRigBalance.UI
             return helm > 0f ? ShipyardGizmo.WeatherHelmColour : ShipyardGizmo.LeeHelmColour;
         }
 
+        /// <summary>
+        /// Rebuilds the arrow so it sits at the current wind bearing, pointing inward at the boat,
+        /// because that is the direction the wind blows. It is drawn in the ring's own local space
+        /// and rotated with the boat, so it needs no transform of its own beyond following.
+        /// </summary>
+        private void UpdateArrow(Transform boat)
+        {
+            if (_arrowGo == null || _arrowMesh == null) return;
+            BuildArrowMesh(_dragging);
+        }
+
+        private void BuildArrowMesh(bool highlighted)
+        {
+            if (_arrowMesh == null) return;
+
+            float rad = WindAngle * Mathf.Deg2Rad;
+            Vector3 d = new Vector3(-Mathf.Sin(rad), 0f, Mathf.Cos(rad));
+            Vector3 side = Vector3.Cross(Vector3.up, d).normalized;
+
+            float head = Mathf.Max(_radius * 0.16f, 0.8f);
+            float halfWidth = head * 0.55f;
+            float shaft = head * 1.5f;
+            float shaftHalf = halfWidth * 0.30f;
+
+            Vector3 at = d * _radius;                 // on the ring
+            Vector3 tip = at - d * head;              // pointing in toward the boat
+            Vector3 tail = at + d * shaft;
+
+            var vertices = new Vector3[]
+            {
+                tip,                                  // 0 head
+                at + side * halfWidth,                // 1
+                at - side * halfWidth,                // 2
+                at + side * shaftHalf,                // 3 shaft
+                at - side * shaftHalf,                // 4
+                tail + side * shaftHalf,              // 5
+                tail - side * shaftHalf,              // 6
+            };
+
+            var triangles = new[]
+            {
+                0, 1, 2,
+                3, 5, 6,
+                3, 6, 4,
+            };
+
+            Color colour = highlighted
+                ? new Color(1f, 1f, 1f, 1f)
+                : new Color(0.98f, 0.98f, 0.92f, 0.90f);
+
+            var colours = new Color[vertices.Length];
+            for (int i = 0; i < colours.Length; i++) colours[i] = colour;
+
+            _arrowMesh.Clear();
+            _arrowMesh.vertices = vertices;
+            _arrowMesh.colors = colours;
+            _arrowMesh.triangles = triangles;
+            _arrowMesh.RecalculateBounds();
+        }
+
         private void Create(Material material, int layer, Transform parent)
         {
             _go = new GameObject("BalanceRing");
@@ -144,6 +318,22 @@ namespace SailwindRigBalance.UI
             _mesh = new Mesh { name = "BalanceRingMesh" };
             _mesh.MarkDynamic();
             _filter.sharedMesh = _mesh;
+
+            _arrowGo = new GameObject("WindArrow");
+            _arrowGo.layer = layer;
+            _arrowGo.transform.SetParent(_go.transform.parent, false);
+
+            var arrowFilter = _arrowGo.AddComponent<MeshFilter>();
+            var arrowRenderer = _arrowGo.AddComponent<MeshRenderer>();
+            arrowRenderer.sharedMaterial = material;
+            arrowRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            arrowRenderer.receiveShadows = false;
+            arrowRenderer.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+            arrowRenderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+
+            _arrowMesh = new Mesh { name = "WindArrowMesh" };
+            _arrowMesh.MarkDynamic();
+            arrowFilter.sharedMesh = _arrowMesh;
         }
 
         /// <summary>

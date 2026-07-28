@@ -59,9 +59,18 @@ namespace SailwindRigBalance.UI
         /// force to balance and would report every rig as neutral. Configurable because 45 degrees
         /// is a judgement about where balance matters, not a fact.
         /// </summary>
-        private static float WindAngleDegrees
+        /// <summary>
+        /// The angle everything is evaluated at. Starts from config and is then owned by the wind
+        /// arrow: dragging it round the ring is the same act as choosing a point of sail, so there
+        /// is no second source of truth to keep in step.
+        /// </summary>
+        private float WindAngleDegrees
         {
-            get { return Config.Settings.WindAngle != null ? Config.Settings.WindAngle.Value : 45f; }
+            get
+            {
+                if (_ring.Exists) return _ring.WindAngle;
+                return Config.Settings.WindAngle != null ? Config.Settings.WindAngle.Value : 45f;
+            }
         }
 
         /// <summary>
@@ -277,6 +286,11 @@ namespace SailwindRigBalance.UI
             }
 
             _ring.Follow(_boat);
+            _ring.HandleDrag(source, _boat);
+
+            // Dragging the arrow recomputes without the usual settle delay: the reason to drag is
+            // to watch the markers move, and a quarter second of lag would destroy that.
+            if (_ring.ConsumeAngleChanged()) _rebuildAt = Time.unscaledTime;
 
             if (_track != null && _track.enabled)
             {
@@ -376,6 +390,11 @@ namespace SailwindRigBalance.UI
 
             if (Config.Settings.ShowRing == null || Config.Settings.ShowRing.Value)
             {
+                // Seed the arrow from config the first time, then leave it alone: after that the
+                // arrow is where the angle lives.
+                if (!_ring.Exists && Config.Settings.WindAngle != null)
+                    _ring.SetWindAngle(Config.Settings.WindAngle.Value);
+
                 _ring.Rebuild(boat, _boat, balance, _balancedMetres,
                     _linkMaterial, _layer, _root == null ? null : _root.transform);
             }
