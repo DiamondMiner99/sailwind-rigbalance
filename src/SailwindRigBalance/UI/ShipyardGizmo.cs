@@ -251,11 +251,7 @@ namespace SailwindRigBalance.UI
                 return;
             }
 
-            // Read from the rigidbody rather than recomputed, so the marker shows whatever the game
-            // itself is using. BoatMass.cs:116 maintains it as BoatKeel.centerOfMass plus a cargo
-            // and player offset, and BoatCustomKeel.cs:11 can override the base per part option.
-            var body = boat.GetComponent<Rigidbody>();
-            Vector3 centreOfMass = body != null ? body.worldCenterOfMass : balance.HullOrigin;
+            Vector3 centreOfMass = ReadCentreOfMass(boat, balance.HullOrigin);
 
             // The offset that IS the answer, in metres, along the boat's own fore-aft axis.
             // Dividing the yaw moment by the side force turns a size-dependent torque into a lever
@@ -283,6 +279,56 @@ namespace SailwindRigBalance.UI
                 : (_helmMetres > 0f ? "weather helm" : "lee helm");
             Plugin.Log.LogInfo($"[Gizmo] {balance.Sails.Count} sail(s); CE offset "
                 + $"{_helmMetres:F2} m ({verdict}){(_unreliable ? "; a sail's CE does not track its size" : "")}");
+        }
+
+        /// <summary>
+        /// The centre of mass, taken from BoatKeel rather than from the rigidbody.
+        ///
+        /// This distinction is the whole reason the marker works. A keel option moves the centre of
+        /// mass by writing BoatKeel.centerOfMass in OnEnable, never the rigidbody directly: vanilla
+        /// does it in BoatCustomKeel.cs:11, Shipyard Expansion does it in its own SE_Keel.cs:23, and
+        /// Drydock in KeelWeight.cs:24. The only thing that copies that field onto the rigidbody is
+        /// BoatMass.UpdateMass (BoatMass.cs:116), and its caller is gated at BoatMass.cs:25 on
+        /// GameState.playing and GameState.lastBoat == this transform. GameState.lastBoat is set on
+        /// embark (PlayerEmbarkTriggerNew.cs:77) and never cleared, so that gate is open only for
+        /// the boat you sailed in on. Judge a boat you have not bought yet, which is what this mod
+        /// is for, and the rigidbody value is frozen at whatever BoatKeel.Start left there
+        /// (BoatKeel.cs:16), no matter which keel you pick.
+        ///
+        /// Reading the source field instead is live in every case. It also drops the cargo and
+        /// crew-position offset BoatMass folds in, which is right here: this is a marker for
+        /// judging a hull's design, not its current loading.
+        /// </summary>
+        private static Vector3 ReadCentreOfMass(GameObject boat, Vector3 fallback)
+        {
+            var body = boat.GetComponent<Rigidbody>();
+            Vector3 fromBody = body != null ? body.worldCenterOfMass : fallback;
+
+            BoatKeel keel;
+            try
+            {
+                keel = boat.GetComponent<BoatKeel>();
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning("[Gizmo] BoatKeel is not the shape this build expects: " + e.Message);
+                return fromBody;
+            }
+
+            if (keel == null || body == null) return fromBody;
+
+            // Same space the rigidbody uses, so this matches Unity's own worldCenterOfMass maths.
+            Vector3 fromKeel = body.position + body.rotation * keel.centerOfMass;
+
+            float drift = Vector3.Distance(fromKeel, fromBody);
+            if (drift > 0.05f)
+            {
+                Plugin.Log.LogInfo($"[Gizmo] centre of mass from BoatKeel {keel.centerOfMass}, "
+                    + $"rigidbody differs by {drift:F2} m (BoatMass is not maintaining this boat, "
+                    + "or cargo is aboard). Using BoatKeel.");
+            }
+
+            return fromKeel;
         }
 
         private void SetValid(bool valid)
