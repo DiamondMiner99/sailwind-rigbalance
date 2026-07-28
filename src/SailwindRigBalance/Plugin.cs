@@ -1,14 +1,15 @@
-using System;
+﻿using System;
 using BepInEx;
 using BepInEx.Logging;
+using HarmonyLib;
 using SailwindRigBalance.Compat;
 using UnityEngine;
 
 namespace SailwindRigBalance
 {
     /// <summary>
-    /// Entry point. Step 1 of the build order: load, log, and prove the environment is what the
-    /// recon said it was. No Harmony patches yet, nothing hooked, nothing drawn.
+    /// Entry point. Applies the shipyard hooks, hosts the gizmo, and keeps the F7 diagnostic
+    /// snapshot for checking the model against a live sailing session.
     /// </summary>
     [BepInPlugin(PluginGUID, PluginName, PluginVersion)]
     // Soft dependencies only. Every one of these is optional; declaring them makes BepInEx load us
@@ -30,7 +31,7 @@ namespace SailwindRigBalance
         // ("version is invalid") and skip it entirely. Any "alpha" wording lives in prose only.
         // Bump for every shipped zip, including a packaging-only change, so two machines can never
         // silently differ. This is the step-1 skeleton build.
-        public const string PluginVersion = "0.2.1";
+        public const string PluginVersion = "0.3.0";
 
         /// <summary>
         /// Hard-coded for now; becomes a config entry in the config/hotkey step. F7 is deliberate:
@@ -41,6 +42,8 @@ namespace SailwindRigBalance
         public static Plugin Instance { get; private set; }
         public static ManualLogSource Log { get; private set; }
 
+        private Harmony _harmony;
+
         private void Awake()
         {
             Instance = this;
@@ -50,7 +53,20 @@ namespace SailwindRigBalance
 
             LogEnvironment();
 
-            Log.LogInfo($"{PluginName} v{PluginVersion} loaded. No patches applied in this build. "
+            try
+            {
+                _harmony = new Harmony(PluginGUID);
+                _harmony.PatchAll(typeof(Shipyard.ShipyardHooks).Assembly);
+                gameObject.AddComponent<UI.ShipyardGizmo>();
+                Log.LogInfo($"[Init] shipyard hooks applied; rig model available={Core.RigModel.Available}");
+            }
+            catch (Exception e)
+            {
+                // Fail soft: a patch failure must leave the game playable, just without the gizmo.
+                Log.LogError("[Init] shipyard hooks failed to apply; the gizmo is disabled. " + e);
+            }
+
+            Log.LogInfo($"{PluginName} v{PluginVersion} loaded. "
                 + $"Press {SnapshotKey} while aboard a boat to log a rig-balance snapshot.");
         }
 
