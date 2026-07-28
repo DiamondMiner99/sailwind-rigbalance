@@ -149,6 +149,8 @@ namespace SailwindRigBalance.UI
 
         private bool _valid;
         private bool _unreliable;
+        private bool _helmMeaningful = true;
+        private bool _ringNeedsRebuild = true;
         private float _helmMetres;      // positive = weather helm, in metres of CE offset
 
         private float _rebuildAt = -1f;
@@ -187,7 +189,11 @@ namespace SailwindRigBalance.UI
                 return;
             }
 
-            if (ShipyardHooks.ConsumeDirty()) _rebuildAt = Time.unscaledTime + RebuildDelay;
+            if (ShipyardHooks.ConsumeDirty())
+            {
+                _rebuildAt = Time.unscaledTime + RebuildDelay;
+                _ringNeedsRebuild = true;
+            }
 
             // Selecting a different sail changes which reef track is meaningful, and the shipyard
             // gives no event for it, so it is polled. Cheap: one accessor, no allocation.
@@ -366,6 +372,7 @@ namespace SailwindRigBalance.UI
                 ? balance.YawMoment / balance.TotalSideForce
                 : 0f;
             _helmMetres = -lever;               // positive = CE aft of CLR = weather helm
+            _helmMeaningful = balance.HelmMeaningful;
             _unreliable = balance.AnySailHasFrozenCe;
 
             // Scaled to the boat. A flat threshold in metres is a tight tolerance on a brig and a
@@ -389,7 +396,12 @@ namespace SailwindRigBalance.UI
             UpdateLinkColour();
             UpdateTrack(boat, balance);
 
-            if (Config.Settings.ShowRing == null || Config.Settings.ShowRing.Value)
+            // The ring is a sweep of every wind angle, so its colours do not depend on where the
+            // arrow points. Rebuilding it while the arrow is being dragged was doing thirteen full
+            // rig evaluations per frame on top of the two the markers need, which is what dropped
+            // the frame rate by half. It is rebuilt when the RIG changes, not when the wind moves.
+            bool wantRing = Config.Settings.ShowRing == null || Config.Settings.ShowRing.Value;
+            if (wantRing && (_ringNeedsRebuild || !_ring.Exists))
             {
                 // Seed the arrow from config the first time, then leave it alone: after that the
                 // arrow is where the angle lives.
@@ -398,14 +410,16 @@ namespace SailwindRigBalance.UI
 
                 _ring.Rebuild(boat, _boat, balance, _balancedMetres,
                     _linkMaterial, _layer, _root == null ? null : _root.transform);
+                _ringNeedsRebuild = false;
             }
 
             SetValid(true);
 
-            string verdict = Mathf.Abs(_helmMetres) < _balancedMetres ? "balanced"
-                : (_helmMetres > 0f ? "weather helm" : "lee helm");
-            Plugin.Log.LogInfo($"[Gizmo] {balance.Sails.Count} sail(s); CE offset "
-                + $"{_helmMetres:F2} m ({verdict}, band {_balancedMetres:F2} m, hull {balance.HullLength:F1} m)"
+            string verdict = !_helmMeaningful ? "no side force to balance, running"
+                : (Mathf.Abs(_helmMetres) < _balancedMetres ? "balanced"
+                : (_helmMetres > 0f ? "weather helm" : "lee helm"));
+            Plugin.Log.LogInfo($"[Gizmo] {balance.Sails.Count} sail(s); wind {balance.WindAngle:F0} deg off the bow; "
+                + $"CE offset {_helmMetres:F2} m ({verdict}, band {_balancedMetres:F2} m, hull {balance.HullLength:F1} m)"
                 + $"{(_unreliable ? "; a sail's CE does not track its size" : "")}");
 
             // Per sail, so a furl that does not move the balance can be told apart from a furl that
@@ -485,8 +499,9 @@ namespace SailwindRigBalance.UI
 
         private void UpdateLinkColour()
         {
-            Color colour = Mathf.Abs(_helmMetres) < _balancedMetres ? BalancedColour
-                : (_helmMetres > 0f ? WeatherHelmColour : LeeHelmColour);
+            Color colour = !_helmMeaningful ? new Color(0.55f, 0.55f, 0.55f, 0.75f)
+                : (Mathf.Abs(_helmMetres) < _balancedMetres ? BalancedColour
+                : (_helmMetres > 0f ? WeatherHelmColour : LeeHelmColour));
             if (_link == null) return;
             _link.startColor = colour;
             _link.endColor = colour;

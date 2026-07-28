@@ -40,6 +40,18 @@ namespace SailwindRigBalance.Core
         public Vector3 HullOrigin;
         public bool AnySailHasFrozenCe;
         public float HullLength;         // m, along the boat's own fore-aft axis
+        public float WindAngle;          // degrees off the bow this was evaluated at
+
+        /// <summary>
+        /// Whether a helm verdict means anything here.
+        ///
+        /// The helm figure is the yaw moment divided by the side force. Running, the sails push
+        /// almost straight forward and the side force falls to nearly nothing, so that division
+        /// explodes and reports several metres of lee helm for a rig that is simply being pushed
+        /// along. There is no balance to strike when nothing is pushing the boat sideways, and the
+        /// honest answer is to say so rather than to divide anyway.
+        /// </summary>
+        public bool HelmMeaningful;
     }
 
     /// <summary>
@@ -170,6 +182,15 @@ namespace SailwindRigBalance.Core
             result.CombinedCentreOfEffort = weightSum > 0.0001f ? ceAccum / weightSum : body.position;
             result.AnySailHasFrozenCe = anyFrozen;
             result.HullLength = MeasureHullLength(boatRoot, boat);
+            result.WindAngle = windAngleDegrees;
+
+            // Side force has to be a real share of what the rig is producing before the ratio it
+            // sits underneath means anything. A twentieth is generous: at a beam reach the two are
+            // comparable, and by the time the side force is below this the boat is running and
+            // there is nothing to balance.
+            result.HelmMeaningful =
+                Mathf.Abs(totalSide) > 0.05f * (Mathf.Abs(totalFwd) + Mathf.Abs(totalSide));
+
             return sails.Count > 0;
         }
 

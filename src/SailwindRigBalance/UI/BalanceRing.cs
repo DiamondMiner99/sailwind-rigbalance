@@ -267,7 +267,9 @@ namespace SailwindRigBalance.UI
             RigBalance balance;
             if (!RigModel.TryEvaluate(boatRoot, angle, out balance)) return DeadColour;
 
-            if (Mathf.Abs(balance.TotalSideForce) < 0.01f) return DeadColour;
+            // Grey rather than a verdict. Downwind the side force vanishes and the helm ratio is
+            // meaningless, which is what painted the whole ring red.
+            if (!balance.HelmMeaningful) return DeadColour;
 
             float lever = balance.YawMoment / balance.TotalSideForce;
             float helm = -lever;    // positive = weather
