@@ -787,3 +787,100 @@ the COM, since it depends on each sail's athwartships offset.
 
 The snapshot now prints both forms of the sum so the equivalence is checked rather than
 asserted.
+
+
+## 13. The centre of mass, measured, and a correction to what I said about it
+
+This section exists because I stated something confidently and it was wrong. The claim was:
+a boat's centre of mass is deaf to the shipyard, so a centre-of-mass marker cannot tell a
+player anything about a choice they are about to pay for. Most of that is right. The blanket
+part of it is not.
+
+### What actually maintains it
+
+`BoatMass.cs:116` is the only thing that maintains a boat's centre of mass:
+
+    body.centerOfMass = keel.centerOfMass + zero;
+
+`keel.centerOfMass` is a per-hull authored point (`BoatKeel.cs:7`, pushed to the rigidbody once
+in `Start` at `BoatKeel.cs:16`). `zero` starts empty at `BoatMass.cs:69` and is only ever fed by
+loose cargo (`BoatMass.cs:71-91`) and by the player's own 160 kg standing somewhere
+(`BoatMass.cs:109-114`).
+
+The parts and sails block at `BoatMass.cs:92-108` adds a mast's mass at line 97 and each sail's
+at line 105, both into `num`, which becomes `body.mass`. Neither ever touches `zero`. So sail
+plan and deck parts change what the boat weighs and never where it balances. That part of the
+original claim holds and is worth stating plainly, because it is not what a sailor would expect:
+**a towering rig does not make a boat tender in this sim.** It makes her heavy and slow.
+
+### The exception I missed
+
+`BoatCustomKeel.cs:11` writes `keel.centerOfMass = overrideCenterOfMass` in `OnEnable`. A part
+option is a GameObject that `BoatPart.SetOptionEnabled` (`BoatPart.cs:21`) activates and
+deactivates, so any option carrying that component moves the centre of mass when selected.
+
+I asserted no shipped option carries one. Measured instead: a sweep of all 89 serialized files
+under `Sailwind_Data` (14,125 MonoBehaviours, 14,124 script names resolved, no file failed) finds
+exactly **two**, both on the same hull.
+
+| option GameObject | overrideCenterOfMass | hull |
+| --- | --- | --- |
+| `deep_keel` | `(0, -1.55, 0)` | BOAT junk medium (80) |
+| `(no deep keel)` | `(0, -0.80, 0)` | BOAT junk medium (80) |
+
+That is the junk medium's deep-keel option pair, and choosing the deep keel drops the centre of
+mass 0.75 m. It is the only place in vanilla where a shipyard choice moves it.
+
+The parse is not assumed. A MonoBehaviour begins m_GameObject (PPtr, 12) m_Enabled (int32, 4)
+m_Script (PPtr, 12) m_Name (aligned string), so `BoatKeel` must total 44 bytes and
+`BoatCustomKeel` 56. Every instance consumed its buffer exactly, and the hull baselines came out
+as plausible metres on the centreline: junk medium -0.80, junk large -1.75, junk small -2.00,
+medi medium -1.25, medi small and the dhows -0.75.
+
+### The three parts that prompted the question
+
+Matched by part list rather than by guessing at internal names. The brig is
+`BOAT medi medium (50)`, the hull carrying `option_forecastle` and `(no forecastle)`.
+
+- Forecastle on the brig: no `BoatCustomKeel`. Mass only.
+- Cabins (`cabin_full`, `cabin_semi`, `cabin_standard`, `cabin_cloth_only` on the dhow large;
+  `part_cabin_wood`, `part_cabin_cloth` on the dhow medium; `struct_cabin_*` on the junk medium):
+  none carry one. Mass only.
+- Castle on the cog: no option named "castle" exists on any hull, and neither `medi medium (51)`
+  nor `(52)` carries a `BoatCustomKeel`.
+
+### With mods installed it is a different picture
+
+`SE_Bridge.SE_Keel` does exactly what `BoatCustomKeel` does and restores on the way out:
+
+    public void OnEnable()  { boatKeel.centerOfMass = localCoM; }   // SE_Keel.cs:23
+    public void OnDisable() { boatKeel.centerOfMass = startCoM; }   // SE_Keel.cs:27
+
+Shipyard Expansion's bundle ships four, all parsing to exactly the expected 44 bytes:
+
+| option GameObject | localCoM | SE part set |
+| --- | --- | --- |
+| `keel_deep` | `(0, -1.75, 0)` | SE_parts_kakam |
+| `keel_deep` | `(0, -1.75, 0)` | SE_parts_dhow |
+| `keel_deep` | `(0, -1.75, 0)` | SE_parts_cog |
+| `cladding` | `(0, -0.25, 0)` | SE_parts_sanbuq |
+
+Drydock does the same through `KeelWeight.cs:24`. So with the mods this author actually runs,
+four more hulls gain a moving centre of mass, the cog among them.
+
+### What this changed in the mod
+
+The marker stays, and it is read from `BoatKeel.centerOfMass` rather than from the rigidbody.
+
+That distinction is load-bearing. Every keel option writes `BoatKeel.centerOfMass`, never the
+rigidbody. The only thing that copies that field across is `BoatMass.UpdateMass`, whose caller is
+gated at `BoatMass.cs:25` on `GameState.playing` and `GameState.lastBoat == this transform`.
+`GameState.lastBoat` is set on embark (`PlayerEmbarkTriggerNew.cs:77`) and never cleared, so the
+gate is open only for the boat sailed in on. Judging a boat not yet bought, which is the whole
+premise of this mod, the rigidbody value sits frozen at whatever `BoatKeel.Start` left there
+whichever keel is selected. Reading the source field is live in every case.
+
+Refreshing is confirmed too: `ShipyardPartsInstaller.cs:53` calls `Shipyard.UpdateOrder()`, which
+reaches `partsInstaller.UpdateOrder()` at `Shipyard.cs:158` and then
+`RefreshPartsWithOrder` at `ShipyardPartsInstaller.cs:62`, which activates the option and fires
+`OnEnable`. The mod's postfix on `UpdateOrder(bool)` runs after all of that.

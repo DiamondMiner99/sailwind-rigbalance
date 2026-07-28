@@ -31,7 +31,7 @@ namespace SailwindRigBalance
         // ("version is invalid") and skip it entirely. Any "alpha" wording lives in prose only.
         // Bump for every shipped zip, including a packaging-only change, so two machines can never
         // silently differ.
-        public const string PluginVersion = "0.5.2";
+        public const string PluginVersion = "0.6.0";
 
         public static Plugin Instance { get; private set; }
         public static ManualLogSource Log { get; private set; }
@@ -45,6 +45,9 @@ namespace SailwindRigBalance
 
             Log.LogInfo($"{PluginName} v{PluginVersion} loading...");
 
+            // Fully qualified: inside a BaseUnityPlugin, the bare name "Config" binds to the
+            // inherited ConfigFile property, not to this mod's Config namespace.
+            SailwindRigBalance.Config.Settings.Bind(base.Config);
             LogEnvironment();
 
             ApplyPatches();

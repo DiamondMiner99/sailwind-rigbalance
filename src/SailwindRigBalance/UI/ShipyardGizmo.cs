@@ -1,4 +1,5 @@
 using System;
+using BepInEx.Configuration;
 using SailwindRigBalance.Core;
 using SailwindRigBalance.Shipyard;
 using UnityEngine;
@@ -54,10 +55,14 @@ namespace SailwindRigBalance.UI
     public class ShipyardGizmo : MonoBehaviour
     {
         /// <summary>
-        /// Close hauled. Balance is judged where it actually bites; a run has no side force to
-        /// balance and would report every rig as neutral.
+        /// Close hauled by default. Balance is judged where it actually bites; a run has no side
+        /// force to balance and would report every rig as neutral. Configurable because 45 degrees
+        /// is a judgement about where balance matters, not a fact.
         /// </summary>
-        private const float WindAngleDegrees = 45f;
+        private static float WindAngleDegrees
+        {
+            get { return Config.Settings.WindAngle != null ? Config.Settings.WindAngle.Value : 45f; }
+        }
 
         /// <summary>
         /// Seconds to wait after the last change event before recomputing. Not a performance tweak:
@@ -67,7 +72,10 @@ namespace SailwindRigBalance.UI
         private const float RebuildDelay = 0.25f;
 
         /// <summary>Offset below which a rig reads as balanced rather than one-handed.</summary>
-        private const float BalancedMetres = 0.3f;
+        private static float BalancedMetres
+        {
+            get { return Config.Settings.BalancedThreshold != null ? Config.Settings.BalancedThreshold.Value : 0.3f; }
+        }
 
         private const int Effort = 0, Resistance = 1, Mass = 2, MarkerCount = 3;
 
@@ -85,7 +93,18 @@ namespace SailwindRigBalance.UI
         private readonly Texture2D[] _textures = new Texture2D[MarkerCount];
         private readonly Color[] _painted = new Color[MarkerCount];
         private readonly Vector3[] _local = new Vector3[MarkerCount];
+        /// <summary>
+        /// Mirrors the three visibility config entries so the array indexing stays simple. Written
+        /// back whenever a button is clicked, so a hidden marker stays hidden next session.
+        /// </summary>
         private readonly bool[] _visible = { true, true, true };
+
+        private static ConfigEntry<bool> VisibilityEntry(int index)
+        {
+            if (index == Effort) return Config.Settings.ShowEffort;
+            if (index == Resistance) return Config.Settings.ShowResistance;
+            return Config.Settings.ShowMass;
+        }
 
         private GameObject _root;
         private LineRenderer _link;
@@ -222,7 +241,21 @@ namespace SailwindRigBalance.UI
         /// </summary>
         private static float MarkerSize(Vector3 eye, Vector3 point)
         {
-            return Mathf.Clamp(Vector3.Distance(eye, point) * 0.030f, 0.30f, 3.0f);
+            float scale = Config.Settings.MarkerScale != null ? Config.Settings.MarkerScale.Value : 1f;
+            return Mathf.Clamp(Vector3.Distance(eye, point) * 0.030f, 0.30f, 3.0f) * scale;
+        }
+
+        /// <summary>
+        /// Reads the stored visibility once per shipyard session. Done here rather than in Awake so
+        /// that editing the config file between visits takes effect without a restart.
+        /// </summary>
+        private void LoadVisibility()
+        {
+            for (int i = 0; i < _visible.Length; i++)
+            {
+                ConfigEntry<bool> entry = VisibilityEntry(i);
+                if (entry != null) _visible[i] = entry.Value;
+            }
         }
 
         private void OnDestroy()
@@ -358,6 +391,7 @@ namespace SailwindRigBalance.UI
         {
             if (_root != null) return;
 
+            LoadVisibility();
             _root = new GameObject("RigBalanceGizmo");
             _layer = ResolveMarkerLayer();
 
@@ -464,6 +498,20 @@ namespace SailwindRigBalance.UI
         /// </summary>
         private void MakeOverlayCamera()
         {
+            if (Config.Settings.DrawThroughHull != null && !Config.Settings.DrawThroughHull.Value)
+            {
+                // Markers stay on the default layer so the shipyard camera still renders them; the
+                // two inside the hull will simply be occluded.
+                _layer = 0;
+                foreach (GameObject marker in _markers)
+                {
+                    if (marker != null) marker.layer = 0;
+                }
+                if (_link != null) _link.gameObject.layer = 0;
+                Plugin.Log.LogInfo("[Gizmo] DrawThroughHull is off; markers inside the hull will be hidden by it.");
+                return;
+            }
+
             if (_layer < 0)
             {
                 Plugin.Log.LogWarning("[Gizmo] every layer on this build is named, so no private "
@@ -727,12 +775,18 @@ namespace SailwindRigBalance.UI
         private void OnGUI()
         {
             if (!ShipyardHooks.InShipyard || !_valid) return;
+            if (Config.Settings.ShowPanel != null && !Config.Settings.ShowPanel.Value) return;
             EnsureStyles();
 
             if (!_panelPlaced)
             {
-                _panel = new Rect(Screen.width - PanelWidth - PanelMargin, PanelMargin,
-                    PanelWidth, PanelHeight);
+                Vector2 stored = Config.Settings.PanelPosition != null
+                    ? Config.Settings.PanelPosition.Value
+                    : new Vector2(-1f, -1f);
+
+                _panel = stored.x >= 0f && stored.y >= 0f
+                    ? new Rect(stored.x, stored.y, PanelWidth, PanelHeight)
+                    : new Rect(Screen.width - PanelWidth - PanelMargin, PanelMargin, PanelWidth, PanelHeight);
                 _panelPlaced = true;
             }
 
@@ -742,6 +796,14 @@ namespace SailwindRigBalance.UI
             // Keep it reachable if the window is resized or the game changes resolution.
             _panel.x = Mathf.Clamp(_panel.x, 0f, Mathf.Max(0f, Screen.width - _panel.width));
             _panel.y = Mathf.Clamp(_panel.y, 0f, Mathf.Max(0f, Screen.height - _panel.height));
+
+            // Persist only when it has actually moved, so a config write does not happen per frame.
+            if (Config.Settings.PanelPosition != null)
+            {
+                Vector2 now = new Vector2(_panel.x, _panel.y);
+                if ((Config.Settings.PanelPosition.Value - now).sqrMagnitude > 0.5f)
+                    Config.Settings.PanelPosition.Value = now;
+            }
 
             // The one case where silence would be dishonest: a sail whose centre of effort does not
             // follow its own size makes the magenta marker wrong, not merely imprecise.
@@ -789,6 +851,9 @@ namespace SailwindRigBalance.UI
             _visible[index] = !_visible[index];
             if (_markers[index] != null) _markers[index].SetActive(_visible[index]);
             if (_link != null) _link.enabled = _visible[Effort] && _visible[Resistance];
+
+            ConfigEntry<bool> entry = VisibilityEntry(index);
+            if (entry != null) entry.Value = _visible[index];
         }
 
         private void EnsureStyles()
