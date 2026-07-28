@@ -42,10 +42,14 @@
     <Reference Include="UnityEngine.TextRenderingModule">
       <HintPath>$(GameDir)/Sailwind_Data/Managed/UnityEngine.TextRenderingModule.dll</HintPath>
     </Reference>
-    <!-- Animator: every sail prefab has exactly one, on the transform that gets scaled, which is
-         how the centre of effort's parenting is classified. -->
     <Reference Include="UnityEngine.AnimationModule">
       <HintPath>$(GameDir)/Sailwind_Data/Managed/UnityEngine.AnimationModule.dll</HintPath>
+    </Reference>
+    <!-- Sail.cloth is a UnityEngine.Cloth, and the transform a sail resize scales is its parent
+         (Sail.cs:140, read back at Sail.cs:202). Reading that field is how the mod tells whether a
+         sail's centre of effort follows a resize, so the type must resolve at compile time. -->
+    <Reference Include="UnityEngine.ClothModule">
+      <HintPath>$(GameDir)/Sailwind_Data/Managed/UnityEngine.ClothModule.dll</HintPath>
     </Reference>
 
     <!-- Game -->

@@ -31,6 +31,7 @@ namespace SailwindRigBalance.Core
         public Vector3 CombinedCentreOfEffort;
         public Vector3 HullOrigin;
         public bool AnySailHasFrozenCe;
+        public float HullLength;         // m, along the boat's own fore-aft axis
     }
 
     /// <summary>
@@ -143,6 +144,7 @@ namespace SailwindRigBalance.Core
             result.HullOrigin = body.position;
             result.CombinedCentreOfEffort = weightSum > 0.0001f ? ceAccum / weightSum : body.position;
             result.AnySailHasFrozenCe = anyFrozen;
+            result.HullLength = MeasureHullLength(boatRoot, boat);
             return sails.Count > 0;
         }
 
@@ -172,8 +174,16 @@ namespace SailwindRigBalance.Core
                 // A previewed sail is not wired to the hull yet; the force function dereferences
                 // shipRigidbody for the boat's axes, so lend it the hull's.
                 sail.shipRigidbody = body;
-                sail.currentUnroll = 1f;
                 sail.apparentWind = windWorld;
+
+                // currentUnroll is deliberately NOT overridden. It used to be forced to 1 so the
+                // readout showed the rig's potential, but the balance a player cares about is the
+                // one they will actually sail under. Sail.cs:415 multiplies the wind force by it
+                // linearly, so a furled sail contributes nothing and a reefed one contributes in
+                // proportion, and because reefing never moves a sail's own windcenter, the effect
+                // lands entirely on how much that sail counts toward the combined centre. That is
+                // exactly right: reef every sail equally and the balance does not move, reef one
+                // and it does.
 
                 // Trim for best drive: evaluate both ends of the sail's own swing limits plus
                 // centred, and keep whichever gives the most forward force.
@@ -240,22 +250,87 @@ namespace SailwindRigBalance.Core
         }
 
         /// <summary>
-        /// Vanilla's centre of effort is a prefab Transform that sits inside the part a resize
-        /// scales, so it tracks the geometry. Shipyard Expansion's own added sails have it
-        /// reparented to the sail root, where it stays frozen through a resize.
+        /// Whether this sail's centre of effort actually moves when the sail is resized.
+        ///
+        /// The transform a resize scales is <c>cloth.transform.parent</c>. That is vanilla's own:
+        /// Sail.ChangeScale takes it at Sail.cs:140 and writes its localScale at Sail.cs:185, and
+        /// Sail.UpdateScaledInstallHeight reads it back at Sail.cs:202-206. Shipyard Expansion
+        /// scales the same object by a different route (SailScaler.cs:36 finds it as the Animator's
+        /// transform, SailScaler.cs:187 scales it) and then calls vanilla's UpdateScaledInstallHeight
+        /// at SailScaler.cs:189, which only works because it is the same transform.
+        ///
+        /// So the question is simply whether windcenter is inside it. It is, on every stock sail.
+        /// It is not on Shipyard Expansion's three added lug sails, where the centre of effort is
+        /// reparented to the sail root and stays frozen through a resize.
+        ///
+        /// This used to go via GetComponentInChildren&lt;Animator&gt;() and treat a missing Animator as
+        /// success. That was SE's route to the transform, not the game's, and the fallback assumed
+        /// the answer it was supposed to be measuring. Vanilla sail resizing is the common case now,
+        /// so it reads the game's own field.
         /// </summary>
         private static bool CeTracksResizes(Sail sail)
         {
             try
             {
-                var animator = sail.GetComponentInChildren<Animator>();
-                return animator == null || sail.windcenter.IsChildOf(animator.transform);
+                if (sail.cloth == null || sail.cloth.transform.parent == null)
+                {
+                    // Nothing to compare against. Say so rather than quietly claiming it tracks.
+                    Plugin.Log.LogWarning($"[RigModel] '{sail.sailName}' has no cloth parent; "
+                        + "cannot tell whether its centre of effort follows a resize.");
+                    return true;
+                }
+
+                return sail.windcenter.IsChildOf(sail.cloth.transform.parent);
             }
-            catch
+            catch (Exception e)
             {
+                Plugin.Log.LogWarning($"[RigModel] resize check failed for '{sail.sailName}': {e.Message}");
                 return true;
             }
         }
+
+        /// <summary>
+        /// The hull's fore-and-aft extent, so a tolerance can be expressed as a fraction of the
+        /// boat rather than a flat number of metres. Half a metre of offset is nothing on a brig
+        /// and most of the boat on a dinghy, so a fixed threshold necessarily lies to one of them.
+        ///
+        /// Measured from the hull's own colliders, on layer 4 (Water) or the hull layer, rather
+        /// than from renderers: renderer bounds would include the masts and the sail cloth, which
+        /// overhang the bow and stern and would inflate the figure. Falls back to the full collider
+        /// set, and then to a fixed value, rather than returning something absurd.
+        /// </summary>
+        private static float MeasureHullLength(GameObject boatRoot, Transform boat)
+        {
+            try
+            {
+                var colliders = boatRoot.GetComponentsInChildren<Collider>();
+                float minZ = float.MaxValue, maxZ = float.MinValue;
+
+                foreach (Collider collider in colliders)
+                {
+                    if (collider == null || collider.isTrigger) continue;
+
+                    Bounds bounds = collider.bounds;
+                    // Both extremes of the world-space box, expressed along the boat's own axis.
+                    Vector3 a = boat.InverseTransformPoint(bounds.min);
+                    Vector3 b = boat.InverseTransformPoint(bounds.max);
+                    minZ = Mathf.Min(minZ, Mathf.Min(a.z, b.z));
+                    maxZ = Mathf.Max(maxZ, Mathf.Max(a.z, b.z));
+                }
+
+                float length = maxZ - minZ;
+                if (length > 1f && length < 500f) return length;
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning("[RigModel] hull length could not be measured: " + e.Message);
+            }
+
+            return DefaultHullLength;
+        }
+
+        /// <summary>Used only when the hull's colliders give nothing sane to measure.</summary>
+        public const float DefaultHullLength = 20f;
 
         private static float CategoryMultiplier(SailCategory category)
         {

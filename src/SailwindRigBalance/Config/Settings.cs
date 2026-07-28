@@ -63,11 +63,13 @@ namespace SailwindRigBalance.Config
                     + "balance and every rig reads as neutral.",
                     new AcceptableValueRange<float>(20f, 150f)));
 
-            BalancedThreshold = config.Bind("Model", "BalancedThresholdMetres", 0.3f,
+            BalancedThreshold = config.Bind("Model", "BalancedThresholdFraction", 0.02f,
                 new ConfigDescription(
                     "How far the centre of effort may sit from the centre of lateral resistance "
-                    + "before the link stops reading as balanced and takes on a helm colour.",
-                    new AcceptableValueRange<float>(0.05f, 3f)));
+                    + "before the link stops reading as balanced, as a fraction of the hull's "
+                    + "length. A fraction rather than a fixed distance because half a metre is "
+                    + "nothing on a brig and most of the boat on a dinghy.",
+                    new AcceptableValueRange<float>(0.002f, 0.15f)));
 
             PanelPosition = config.Bind("Interface", "PanelPosition", new Vector2(-1f, -1f),
                 "Where the button strip sits, remembered after you drag it. Negative means "

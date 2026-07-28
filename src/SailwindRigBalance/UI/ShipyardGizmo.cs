@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using BepInEx.Configuration;
 using SailwindRigBalance.Core;
 using SailwindRigBalance.Shipyard;
@@ -71,11 +71,11 @@ namespace SailwindRigBalance.UI
         /// </summary>
         private const float RebuildDelay = 0.25f;
 
-        /// <summary>Offset below which a rig reads as balanced rather than one-handed.</summary>
-        private static float BalancedMetres
-        {
-            get { return Config.Settings.BalancedThreshold != null ? Config.Settings.BalancedThreshold.Value : 0.3f; }
-        }
+        /// <summary>
+        /// Offset below which a rig reads as balanced rather than one-handed, scaled to the hull.
+        /// Held as a field because it depends on the boat, and set on every rebuild.
+        /// </summary>
+        private float _balancedMetres = 0.3f;
 
         private const int Effort = 0, Resistance = 1, Mass = 2, MarkerCount = 3;
 
@@ -300,6 +300,13 @@ namespace SailwindRigBalance.UI
             _helmMetres = -lever;               // positive = CE aft of CLR = weather helm
             _unreliable = balance.AnySailHasFrozenCe;
 
+            // Scaled to the boat. A flat threshold in metres is a tight tolerance on a brig and a
+            // meaningless one on a dinghy, so it necessarily misreports one of them.
+            float fraction = Config.Settings.BalancedThreshold != null
+                ? Config.Settings.BalancedThreshold.Value
+                : 0.02f;
+            _balancedMetres = Mathf.Clamp(balance.HullLength * fraction, 0.05f, 3f);
+
             EnsureVisuals();
 
             // Held in the boat's frame, because the shipyard lifts the boat after admitting it and
@@ -313,7 +320,7 @@ namespace SailwindRigBalance.UI
             UpdateLinkColour();
             SetValid(true);
 
-            string verdict = Mathf.Abs(_helmMetres) < BalancedMetres ? "balanced"
+            string verdict = Mathf.Abs(_helmMetres) < _balancedMetres ? "balanced"
                 : (_helmMetres > 0f ? "weather helm" : "lee helm");
             Plugin.Log.LogInfo($"[Gizmo] {balance.Sails.Count} sail(s); CE offset "
                 + $"{_helmMetres:F2} m ({verdict}){(_unreliable ? "; a sail's CE does not track its size" : "")}");
@@ -382,7 +389,7 @@ namespace SailwindRigBalance.UI
 
         private void UpdateLinkColour()
         {
-            Color colour = Mathf.Abs(_helmMetres) < BalancedMetres ? BalancedColour
+            Color colour = Mathf.Abs(_helmMetres) < _balancedMetres ? BalancedColour
                 : (_helmMetres > 0f ? WeatherHelmColour : LeeHelmColour);
             if (_link == null) return;
             _link.startColor = colour;
@@ -795,6 +802,11 @@ namespace SailwindRigBalance.UI
                 _panelPlaced = true;
             }
 
+            // The furl button only exists while a sail is selected, so the panel has to grow and
+            // shrink with it or the fourth button spills past the background.
+            _panel.width = PanelWidth + (SelectedSail() != null ? 27f : 0f);
+            _panel.height = PanelHeight;
+
             _hoverTip = null;
             _panel = GUI.Window(PanelWindowId, _panel, DrawPanel, GUIContent.none, _panelStyle);
 
@@ -855,6 +867,7 @@ namespace SailwindRigBalance.UI
             Toggle(Effort, _unreliable ? UnreliableColour : EffortColour, "Centre of effort");
             Toggle(Resistance, ResistanceColour, "Centre of lateral resistance");
             Toggle(Mass, MassColour, "Centre of mass");
+            FurlToggle();
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
@@ -886,6 +899,72 @@ namespace SailwindRigBalance.UI
 
             ConfigEntry<bool> entry = VisibilityEntry(index);
             if (entry != null) entry.Value = _visible[index];
+        }
+
+        /// <summary>
+        /// Furls or sets the sail the player currently has selected in the shipyard, and nothing
+        /// else. Appears only while a sail is selected.
+        ///
+        /// It holds NO state of its own. Whether the button reads as set or furled is decided by
+        /// reading Sail.currentUnroll each time it is drawn, because that field is the state. Any
+        /// remembered copy would go stale the moment Shipyard Expansion's furl-all button ran, or
+        /// the moment a customization was applied, since that destroys every sail and recreates it
+        /// at the currentUnroll = 1 default (Sail.cs:80). Reading live means this button and SE's
+        /// stay in agreement without either one knowing the other exists.
+        /// </summary>
+        private void FurlToggle()
+        {
+            Sail selected = SelectedSail();
+            if (selected == null) return;
+
+            bool set = selected.currentUnroll > 0.5f;
+
+            Color previous = GUI.color;
+            GUI.color = set ? new Color(0.95f, 0.95f, 0.90f) : new Color(0.32f, 0.32f, 0.32f, 0.85f);
+
+            string name = string.IsNullOrEmpty(selected.sailName) ? "this sail" : selected.sailName;
+            bool clicked = GUILayout.Button(
+                new GUIContent(string.Empty, (set ? "Furl " : "Set ") + name),
+                _circleStyle, GUILayout.Width(24f), GUILayout.Height(24f));
+
+            GUI.color = previous;
+            if (!clicked) return;
+
+            selected.currentUnroll = set ? 0f : 1f;
+
+            // Mirrors what Shipyard Expansion does after writing the field. The boom and cloth reef
+            // effects poll currentUnroll every Update and need no prompting, but the animation-driven
+            // one does, and not every sail carries it.
+            try
+            {
+                var reef = selected.GetComponent<ReefEffectAnimUniversal>();
+                if (reef != null) reef.RefreshCloth();
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning("[Gizmo] reef refresh failed: " + e.Message);
+            }
+
+            ShipyardHooks.MarkDirty();
+        }
+
+        /// <summary>
+        /// The sail the player has selected, via the game's own accessor. This is how vanilla's own
+        /// ObstructionOutline decides which sail it belongs to (ObstructionOutline.cs:13), so it
+        /// needs no patch and no guessing.
+        /// </summary>
+        private static Sail SelectedSail()
+        {
+            try
+            {
+                if (GameState.currentShipyard == null) return null;
+                var installer = GameState.currentShipyard.sailInstaller;
+                return installer == null ? null : installer.GetCurrentSail();
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private void EnsureStyles()
