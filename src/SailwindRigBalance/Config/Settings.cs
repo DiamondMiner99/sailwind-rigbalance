@@ -24,6 +24,7 @@ namespace SailwindRigBalance.Config
         public static ConfigEntry<bool> ShowResistance { get; private set; }
         public static ConfigEntry<bool> ShowMass { get; private set; }
         public static ConfigEntry<bool> ShowReefTrack { get; private set; }
+        public static ConfigEntry<bool> ShowRing { get; private set; }
         public static ConfigEntry<bool> ShowPanel { get; private set; }
         public static ConfigEntry<bool> DrawThroughHull { get; private set; }
         public static ConfigEntry<float> MarkerScale { get; private set; }
@@ -47,6 +48,12 @@ namespace SailwindRigBalance.Config
                 "With a sail selected, draw a line from the current centre of effort to where it "
                 + "would sit with that sail furled. The line covers every reef setting in between, "
                 + "and its colour is the verdict at the far end.");
+
+            ShowRing = config.Bind("Markers", "ShowBalanceRing", true,
+                "Draw a ring around the boat coloured by what the helm would do at every point of "
+                + "sail: red for weather helm, blue for lee, green for balanced, grey where the "
+                + "wind is too fine for the sails to draw at all. A ring with blue in it is a boat "
+                + "whose helm reverses on some heading, which a single reading cannot show.");
 
             ShowPanel = config.Bind("Interface", "ShowPanel", true,
                 "Show the button strip. Turn this off to keep the markers with no interface at all.");

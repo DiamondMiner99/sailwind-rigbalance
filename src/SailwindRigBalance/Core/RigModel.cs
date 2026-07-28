@@ -142,6 +142,12 @@ namespace SailwindRigBalance.Core
                     float unroll = sail == overrideSail ? overrideUnroll : sail.currentUnroll;
                     if (!TryEvaluateSail(sail, boat, body, windWorld, unroll, out c)) continue;
 
+                    // A sail producing no force cannot affect the balance by definition, and on a
+                    // brig three of them turn up parked at the boat origin, presumably not yet
+                    // placed on a mast. They were already weighted zero; dropping them here keeps
+                    // the sail count and the log honest.
+                    if (Mathf.Abs(c.ForwardForce) + Mathf.Abs(c.SideForce) < 0.001f) continue;
+
                     sails.Add(c);
                     totalSide += c.SideForce;
                     totalFwd += c.ForwardForce;

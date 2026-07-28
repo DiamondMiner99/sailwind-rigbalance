@@ -84,9 +84,9 @@ namespace SailwindRigBalance.UI
         private static readonly Color MassColour = new Color(1.00f, 0.92f, 0.20f);
         private static readonly Color UnreliableColour = new Color(1.00f, 0.15f, 0.15f);
 
-        private static readonly Color WeatherHelmColour = new Color(1.00f, 0.35f, 0.20f);
-        private static readonly Color LeeHelmColour = new Color(0.30f, 0.80f, 1.00f);
-        private static readonly Color BalancedColour = new Color(0.35f, 1.00f, 0.45f);
+        internal static readonly Color WeatherHelmColour = new Color(1.00f, 0.35f, 0.20f);
+        internal static readonly Color LeeHelmColour = new Color(0.30f, 0.80f, 1.00f);
+        internal static readonly Color BalancedColour = new Color(0.35f, 1.00f, 0.45f);
 
         private readonly GameObject[] _markers = new GameObject[MarkerCount];
         private readonly Material[] _materials = new Material[MarkerCount];
@@ -119,6 +119,8 @@ namespace SailwindRigBalance.UI
         private bool _trackValid;
         private Sail _trackSail;        // owned by Recompute
         private Sail _polledSelection;  // owned by the Update poll, never by Recompute
+
+        private readonly BalanceRing _ring = new BalanceRing();
 
         private Transform _boat;
         private Camera _overlay, _source;
@@ -261,6 +263,8 @@ namespace SailwindRigBalance.UI
                 _link.endWidth = width;
             }
 
+            _ring.Follow(_boat);
+
             if (_track != null && _track.enabled)
             {
                 Vector3 from = _boat.TransformPoint(_trackFrom);
@@ -355,6 +359,13 @@ namespace SailwindRigBalance.UI
             Repaint(Effort, _unreliable ? UnreliableColour : EffortColour);
             UpdateLinkColour();
             UpdateTrack(boat, balance);
+
+            if (Config.Settings.ShowRing == null || Config.Settings.ShowRing.Value)
+            {
+                _ring.Rebuild(boat, _boat, balance, _balancedMetres,
+                    _linkMaterial, _layer, _root == null ? null : _root.transform);
+            }
+
             SetValid(true);
 
             string verdict = Mathf.Abs(_helmMetres) < _balancedMetres ? "balanced"
@@ -434,6 +445,7 @@ namespace SailwindRigBalance.UI
             }
             if (_link != null) _link.enabled = valid && _visible[Effort] && _visible[Resistance];
             if (_track != null) _track.enabled = valid && _trackValid && _visible[Effort];
+            _ring.SetVisible(valid && (Config.Settings.ShowRing == null || Config.Settings.ShowRing.Value));
             if (_overlay != null && !valid) _overlay.enabled = false;
         }
 
@@ -807,6 +819,7 @@ namespace SailwindRigBalance.UI
         private void Teardown()
         {
             Shipyard.FurlSailButton.Destroy();
+            _ring.Destroy();
             _furlAttempts = 0;
             _valid = false;
             _source = null;
@@ -1041,9 +1054,11 @@ namespace SailwindRigBalance.UI
                     var paper = renderer.sharedMaterial.mainTexture as Texture2D;
                     if (paper == null) continue;
 
-                    _panelStyle.normal.background = paper;
-                    _panelStyle.border = new RectOffset(8, 8, 8, 8);
-
+                    // Deliberately NOT applied to the panel. Stretching a long scroll texture into
+                    // a short wide box reads as a rug, and no floating 2D panel belongs in a game
+                    // whose entire interface is world-space paper. Three coloured circles with
+                    // nothing behind them cannot look wrong. The hover label is the one place a
+                    // small piece of paper sits naturally, so it keeps the parchment.
                     if (text.font != null)
                     {
                         _tipStyle.font = text.font;
@@ -1184,7 +1199,7 @@ namespace SailwindRigBalance.UI
             // A plain box, drawn separately from the layout area, so the panel is fixed in place.
             // It used to be a GUI.Window purely to inherit IMGUI's dragging, which made it the one
             // thing in the shipyard that could be moved and read as foreign because of it.
-            _panelStyle = new GUIStyle(GUI.skin.box) { padding = new RectOffset(0, 0, 0, 0) };
+            _panelStyle = new GUIStyle(GUIStyle.none);
             _panelInnerStyle = new GUIStyle(GUIStyle.none) { padding = new RectOffset(8, 8, 8, 8) };
         }
 
