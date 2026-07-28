@@ -18,6 +18,7 @@ namespace SailwindRigBalance.Core
         public float LeverFromOrigin;    // m, positive forward
         public float YawMoment;          // Nm, positive turns the bow to starboard
         public bool CeTracksResizes;     // false only for a Shipyard Expansion added sail
+        public float Unroll;             // what the model actually evaluated this sail at
     }
 
     /// <summary>The whole answer for one rig at one synthetic wind.</summary>
@@ -237,6 +238,7 @@ namespace SailwindRigBalance.Core
                 c.LeverFromOrigin = armLocal.z;
                 c.YawMoment = yaw;
                 c.CeTracksResizes = CeTracksResizes(sail);
+                c.Unroll = unroll;
                 return true;
             }
             catch (Exception e)

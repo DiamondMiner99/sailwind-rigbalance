@@ -333,6 +333,7 @@ namespace SailwindRigBalance.UI
             _balancedMetres = Mathf.Clamp(balance.HullLength * fraction, 0.05f, 3f);
 
             EnsureVisuals();
+            EnsureFurlButton();
 
             // Held in the boat's frame, because the shipyard lifts the boat after admitting it and
             // keeps moving it while an order is being fitted.
@@ -349,7 +350,19 @@ namespace SailwindRigBalance.UI
             string verdict = Mathf.Abs(_helmMetres) < _balancedMetres ? "balanced"
                 : (_helmMetres > 0f ? "weather helm" : "lee helm");
             Plugin.Log.LogInfo($"[Gizmo] {balance.Sails.Count} sail(s); CE offset "
-                + $"{_helmMetres:F2} m ({verdict}){(_unreliable ? "; a sail's CE does not track its size" : "")}");
+                + $"{_helmMetres:F2} m ({verdict}, band {_balancedMetres:F2} m, hull {balance.HullLength:F1} m)"
+                + $"{(_unreliable ? "; a sail's CE does not track its size" : "")}");
+
+            // Per sail, so a furl that does not move the balance can be told apart from a furl that
+            // never reached the model. Note Sail.cs:415 floors the multiplier at
+            // Debugger.debugYardMult (0.015), so a furled sail keeps 1.5% of its force as bare-yard
+            // windage rather than dropping to nothing.
+            foreach (SailContribution c in balance.Sails)
+            {
+                Plugin.Log.LogInfo($"[Gizmo]   {c.Name}: unroll={c.Unroll:F2} "
+                    + $"fwd={c.ForwardForce:F0} side={c.SideForce:F0} lever={c.LeverFromOrigin:F2} m "
+                    + $"yaw={c.YawMoment:F0}");
+            }
         }
 
         /// <summary>
@@ -425,6 +438,30 @@ namespace SailwindRigBalance.UI
         }
 
         // ------------------------------------------------------------------ visuals
+
+        /// <summary>
+        /// Attempts to clone the shipyard's furl-all button, a handful of times and then never
+        /// again. Retried because the shipyard's own UI is built as the boat is admitted and the
+        /// button may not exist on the first rebuild; capped because without Shipyard Expansion
+        /// there is nothing to find, and a scene-wide search on every rebuild forever would be a
+        /// pointless cost for the many players who do not run it.
+        /// </summary>
+        private void EnsureFurlButton()
+        {
+            if (Shipyard.FurlSailButton.Exists || _furlAttempts >= MaxFurlAttempts) return;
+
+            _furlAttempts++;
+            if (Shipyard.FurlSailButton.TryCreate()) return;
+
+            if (_furlAttempts == MaxFurlAttempts)
+            {
+                Plugin.Log.LogInfo("[Furl] no furl-all button found to sit beneath after "
+                    + $"{MaxFurlAttempts} tries; using the panel button instead.");
+            }
+        }
+
+        private int _furlAttempts;
+        private const int MaxFurlAttempts = 5;
 
         private void EnsureVisuals()
         {
@@ -759,6 +796,8 @@ namespace SailwindRigBalance.UI
 
         private void Teardown()
         {
+            Shipyard.FurlSailButton.Destroy();
+            _furlAttempts = 0;
             _valid = false;
             _source = null;
             _overlay = null;
@@ -908,7 +947,8 @@ namespace SailwindRigBalance.UI
 
             // The furl button only exists while a sail is selected, so the panel has to grow and
             // shrink with it or the fourth button spills past the background.
-            _panel.width = PanelWidth + (SelectedSail() != null ? 27f : 0f);
+            _panel.width = PanelWidth
+                + (!Shipyard.FurlSailButton.Exists && SelectedSail() != null ? 27f : 0f);
             _panel.height = PanelHeight;
 
             _hoverTip = null;
@@ -971,7 +1011,10 @@ namespace SailwindRigBalance.UI
             Toggle(Effort, _unreliable ? UnreliableColour : EffortColour, "Centre of effort");
             Toggle(Resistance, ResistanceColour, "Centre of lateral resistance");
             Toggle(Mass, MassColour, "Centre of mass");
-            FurlToggle();
+            // Only a fallback. The real furl control is a clone of the shipyard's own furl-all
+            // button, sitting directly beneath it; this appears only when there was no such button
+            // to clone, which is the normal case without Shipyard Expansion installed.
+            if (!Shipyard.FurlSailButton.Exists) FurlToggle();
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
