@@ -84,8 +84,18 @@ namespace SailwindRigBalance.UI
         private static readonly Color MassColour = new Color(1.00f, 0.92f, 0.20f);
         private static readonly Color UnreliableColour = new Color(1.00f, 0.15f, 0.15f);
 
-        internal static readonly Color WeatherHelmColour = new Color(1.00f, 0.35f, 0.20f);
-        internal static readonly Color LeeHelmColour = new Color(0.30f, 0.80f, 1.00f);
+        // Colour follows danger, not direction.
+        //
+        // Lee helm is the state to avoid: let go of the wheel and she bears away, the sails fill
+        // harder and she accelerates downwind. Weather helm is the safe residual: let go and she
+        // rounds up into the wind and stops. So lee helm is red, and weather helm is amber, meaning
+        // safe but costing you, because holding any standing helm bleeds speed continuously
+        // (Rudder.cs:57-62 applies 2% of the rudder torque as a backwards force).
+        //
+        // The first version had weather helm red, which signalled the safe direction as the
+        // dangerous one.
+        internal static readonly Color WeatherHelmColour = new Color(1.00f, 0.68f, 0.15f);
+        internal static readonly Color LeeHelmColour = new Color(1.00f, 0.20f, 0.15f);
         internal static readonly Color BalancedColour = new Color(0.35f, 1.00f, 0.45f);
 
         private readonly GameObject[] _markers = new GameObject[MarkerCount];
@@ -137,6 +147,8 @@ namespace SailwindRigBalance.UI
         private GUIStyle _circleStyle, _tipStyle, _panelStyle, _panelInnerStyle;
         private Texture2D _circleTex;
         private Texture2D _panelTex;
+        private Texture2D _paperTex;
+        private Color _paperTint = Color.white;
         private bool _styleAdopted;
 
 
@@ -968,7 +980,7 @@ namespace SailwindRigBalance.UI
             _panel = new Rect(Screen.width - width - PanelMargin, PanelMargin, width, PanelHeight);
 
             _hoverTip = null;
-            GUI.Box(_panel, GUIContent.none, _panelStyle);
+            DrawPaper(_panel);
             GUILayout.BeginArea(_panel, _panelInnerStyle);
             DrawPanel(0);
             GUILayout.EndArea();
@@ -1001,6 +1013,7 @@ namespace SailwindRigBalance.UI
             float noteHeight = _tipStyle.CalcHeight(content, NoteWidth);
             // Right edge aligned with the panel's, so the two read as one control wherever it sits.
             var rect = new Rect(_panel.xMax - NoteWidth, _panel.yMax + 6f, NoteWidth, noteHeight);
+            DrawPaper(rect);
             GUI.Label(rect, content, _tipStyle);
         }
 
@@ -1056,6 +1069,14 @@ namespace SailwindRigBalance.UI
                     var paper = renderer.sharedMaterial.mainTexture as Texture2D;
                     if (paper == null) continue;
 
+                    _paperTex = paper;
+                    // The material's own tint. Without this the panel came out grey-tan while every
+                    // button around it was warm peach, because the colour lives on the material and
+                    // not in the texture.
+                    _paperTint = renderer.sharedMaterial.HasProperty("_Color")
+                        ? renderer.sharedMaterial.GetColor("_Color")
+                        : Color.white;
+
                     // The texture itself is deliberately NOT used as a background. It is a long
                     // scroll, and stretching it into a short wide strip reads as a rug. The panel
                     // draws its own rounded parchment in the same palette instead. What is worth
@@ -1070,8 +1091,11 @@ namespace SailwindRigBalance.UI
                     // reintroduce the stretching on an even smaller box.
                     _tipStyle.normal.textColor = text.color;
 
+                    _tipStyle.normal.background = null;   // the label draws its own paper too
+
                     Plugin.Log.LogInfo($"[Gizmo] adopted the shipyard's paper from '{button.name}' "
-                        + $"(texture '{paper.name}', font '{(text.font == null ? "none" : text.font.name)}').");
+                        + $"(texture '{paper.name}' {paper.width}x{paper.height}, tint {_paperTint}, "
+                        + $"font '{(text.font == null ? "none" : text.font.name)}').");
                     return;
                 }
 
@@ -1217,7 +1241,38 @@ namespace SailwindRigBalance.UI
         }
 
         /// <summary>
-        /// A rounded parchment panel, drawn rather than sampled from the game.
+        /// Draws the panel background using the shipyard's ACTUAL paper, tinted with the shipyard's
+        /// actual material colour.
+        ///
+        /// The first attempt stretched the whole sheet across the panel and looked like a rug,
+        /// because parchment_alpha is a long scroll with ragged ends and visible fibre. The fix is
+        /// not to draw it differently sized but to draw a small patch from the MIDDLE of it: a few
+        /// percent of a sheet of paper is nearly uniform, so scaling that patch cannot distort
+        /// anything recognisable, and it is still literally the game's own texture and colour
+        /// rather than an imitation of them.
+        /// </summary>
+        private void DrawPaper(Rect rect)
+        {
+            if (_paperTex == null)
+            {
+                GUI.Box(rect, GUIContent.none, _panelStyle);
+                return;
+            }
+
+            Color previous = GUI.color;
+            GUI.color = _paperTint;
+            GUI.DrawTextureWithTexCoords(rect, _paperTex, PaperPatch);
+            GUI.color = previous;
+        }
+
+        /// <summary>
+        /// The slice of the sheet to draw. Deliberately small and central, clear of the scroll's
+        /// ends and its rolled edges, where the paper is plain.
+        /// </summary>
+        private static readonly Rect PaperPatch = new Rect(0.40f, 0.42f, 0.20f, 0.16f);
+
+        /// <summary>
+        /// A rounded parchment panel, generated. Only used when nothing could be borrowed.
         ///
         /// Borrowing the shipyard's own texture was the obvious move and it looked like a rug: that
         /// art is a long scroll, and stretching it into a short wide strip distorts every fibre in

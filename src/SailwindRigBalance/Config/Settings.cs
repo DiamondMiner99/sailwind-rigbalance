@@ -51,9 +51,9 @@ namespace SailwindRigBalance.Config
 
             ShowRing = config.Bind("Markers", "ShowBalanceRing", true,
                 "Draw a ring around the boat coloured by what the helm would do at every point of "
-                + "sail: red for weather helm, blue for lee, green for balanced, grey where the "
-                + "wind is too fine for the sails to draw at all. A ring with blue in it is a boat "
-                + "whose helm reverses on some heading, which a single reading cannot show.");
+                + "sail: green balanced, amber weather helm, red lee helm, grey where the wind is "
+                + "too fine for the sails to draw at all. Red anywhere on the ring is a boat that "
+                + "develops lee helm on some heading, which a single reading cannot show.");
 
             ShowPanel = config.Bind("Interface", "ShowPanel", true,
                 "Show the button strip. Turn this off to keep the markers with no interface at all.");
