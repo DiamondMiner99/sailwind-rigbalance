@@ -1,173 +1,165 @@
 # Sailwind Rig Balance
 
-> **Early alpha.** The gizmo works and is safe to run, but it has been exercised on a
-> small number of hulls. It only ever draws; it does not change your boat, your save,
-> or the game's physics.
+> **Early alpha.** The gizmo works and is safe to run - it only draws, and never touches
+> your boat, your save, or the game's physics. It has been exercised on a small number of
+> hulls so far.
 
-A shipyard tool for [Sailwind](https://store.steampowered.com/app/1764530/Sailwind/).
-It shows you where a sail plan pushes and where the hull pushes back, so you can judge
-whether a rig will balance **before you pay for it**.
+A shipyard tool for [Sailwind](https://store.steampowered.com/app/1764530/Sailwind/) - a
+sailing and trading game on Steam.
 
-Think of the centre of gravity and centre of lift markers in Kerbal Space Program, but
-for a boat.
+Three markers float on your boat in the shipyard showing where the sail plan pushes and
+where the hull pushes back, so you can tell whether a rig will balance **before you pay for
+it**. If you've played Kerbal Space Program, it's the centre of gravity and centre of lift
+markers, for a boat.
 
-## What it shows
+## Features
 
-Three markers, floating in the shipyard, visible through the hull and at night.
-
-| marker | what it is |
-| --- | --- |
-| **magenta** | centre of effort: where the whole sail plan pushes |
-| **blue** | centre of lateral resistance: where the hull pushes back |
-| **yellow** | centre of mass: the boat's own balance point |
-
-A coloured link runs between magenta and blue. It drops straight down from the centre
-of effort to the hull's height, then across. **That horizontal run is the answer.**
-
-- Magenta **aft** of blue: the rig pushes behind the pivot, the bow swings up into the
-  wind. **Weather helm**, and the link turns red.
-- Magenta **forward** of blue: **lee helm**, and the link turns blue. This is the one to
-  avoid; she bears away when you let go of the wheel.
-- Stacked within 0.3 m: **balanced**, and the link turns green. A touch of weather helm
-  is what you actually want.
-
-Swap a sail, resize one, raise a spar, and watch it move before you confirm the order.
-
-## What the numbers come from
-
-Nothing here is a naval architecture formula. Every value is taken from the game's own
-model.
-
-The centre of effort is computed by driving Sailwind's own sail force function with a
-synthetic close-hauled wind, one sail at a time, at whichever trim gives that sail the
-most drive, then combining the results weighted by how hard each is pulling. Each sail's
-centre comes from live geometry, so it follows a resize or a raised spar. Nothing is
-read from a per-sail-type constant.
-
-The centre of lateral resistance is the hull origin. Sailwind has no CLR as a hull
-property, but its lateral drag is applied at the rigidbody's own position with a zero
-height offset on every hull, so in steady sailing that is where resistance acts. It is
-derived from the sim, not assumed.
-
-The centre of mass is read from the hull's keel data. It does **not** respond to sails or
-deck parts: in this game a mast or a sail adds weight without moving the balance point.
-It does respond to a keel or ballast option where the hull has one, which in vanilla is
-the junk medium's deep keel, and with Shipyard Expansion installed also the kakam, the
-dhow, the cog and the sanbuq.
+- **Three markers** - centre of effort, centre of lateral resistance, centre of mass
+- **A helm verdict at a glance** - a coloured link between two of them, red for weather helm, blue for lee helm, green for balanced
+- **Live** - swap, resize or move a sail and the markers follow, before you confirm the order
+- **Measured, not tabulated** - every centre of effort comes from the sail's actual geometry driven through the game's own force function, never a per-sail-type constant
+- **Visible through the hull and at night** - two of the three markers sit inside the boat, and unlit markers hold their colour after dark
+- **Shipyard Expansion support** - resized sails, rotated spars, sails on stays, and SE's own keel options
+- **Nothing to press** - enter a shipyard and it's there
 
 ## Installation
 
 ### Step 1: BepInEx (mod loader)
 
-If you already run any Sailwind mod you have this. If not, install BepInEx 5.4.x for
-Windows x64 into your Sailwind folder and run the game once so it creates its
-directories.
+If you already run any Sailwind mod, skip to step 2.
+
+1. Download [BepInEx 5.4.x](https://github.com/BepInEx/BepInEx/releases) (the `x64` build).
+2. Find your Sailwind folder (Steam, right-click Sailwind, Manage, Browse local files).
+3. Extract the BepInEx zip into the Sailwind folder (you should see `winhttp.dll` and a
+   `BepInEx` folder next to `Sailwind.exe`).
+4. Run the game once and close it - this creates `BepInEx/plugins`.
+
+**Linux / Steam Deck:** set Sailwind's launch options to
+`WINEDLLOVERRIDES="winhttp=n,b" %command%`.
 
 ### Step 2: the mod
 
-Extract the release zip into your Sailwind folder. You should end up with:
+1. Extract the release zip into your Sailwind folder. You should end up with
+   `Sailwind/BepInEx/plugins/SailwindRigBalance/SailwindRigBalance.dll`.
+2. **When updating, overwrite the old file.** Two copies of the DLL anywhere under
+   `BepInEx` and the loader picks one of them, which is how you end up running an old build
+   without knowing.
 
-```
-Sailwind/BepInEx/plugins/SailwindRigBalance/SailwindRigBalance.dll
-```
+## How to use it
 
-Launch the game and enter any shipyard.
+Enter a shipyard. The markers appear on the boat.
 
-## Using it
+| marker | what it is |
+|--------|------------|
+| **magenta** | centre of effort - where the whole sail plan pushes |
+| **blue** | centre of lateral resistance - where the hull pushes back |
+| **yellow** | centre of mass - the boat's own balance point |
 
-There is nothing to press. Enter a shipyard and the markers appear.
+The reading is the **fore and aft gap between magenta and blue**, and nothing else. The
+link between them drops from the sail plan down to the hull's height and then runs across,
+so that gap is the horizontal leg, at true scale, from any camera angle.
 
-A small strip of three round buttons sits in the top right corner, coloured to match the
-markers. Click one to hide or show that marker; hover it for a name. Drag the strip
-anywhere you like and it stays there, across sessions.
+| what you see | what it means |
+|--------------|---------------|
+| magenta **aft** of blue, link **red** | weather helm - she rounds up into the wind |
+| magenta **forward** of blue, link **blue** | lee helm - she bears away when you let go |
+| close together, link **green** | balanced |
+
+A touch of weather helm is what you want. Lee helm is the one to avoid.
+
+Three round buttons in the top right, coloured to match, hide and show each marker. Hover
+one for a name. Drag the strip anywhere and it stays put.
+
+**The yellow marker behaves differently.** It does not respond to sails or deck parts - in
+this game a mast, a sail or a forecastle adds weight without moving where the boat
+balances. It does respond to a keel or ballast option where a hull has one.
 
 ## Configuration
 
-Settings live in `BepInEx/config/com.sailwindrigbalance.mod.cfg`, written the first time
-you run the mod.
+`BepInEx/config/com.sailwindrigbalance.mod.cfg`, written on first run.
 
 | setting | default | what it does |
-| --- | --- | --- |
+|---------|---------|--------------|
 | `ShowCentreOfEffort` | true | magenta marker |
 | `ShowCentreOfLateralResistance` | true | blue marker |
 | `ShowCentreOfMass` | true | yellow marker |
-| `ShowPanel` | true | the button strip; turn off for markers with no interface |
-| `DrawThroughHull` | true | draws markers on top of the boat, using an overlay camera |
+| `ShowPanel` | true | the button strip |
+| `DrawThroughHull` | true | draw markers on top of the boat |
 | `MarkerScale` | 1.0 | marker size multiplier |
-| `WindAngleDegrees` | 45 | apparent wind angle used to judge the rig |
+| `WindAngleDegrees` | 45 | wind angle used to judge the rig |
 | `BalancedThresholdMetres` | 0.3 | how far off centre still reads as balanced |
 | `PanelPosition` | unset | remembered after you drag the strip |
 
-Two of these are worth knowing about. `DrawThroughHull` is what makes the markers inside
-the hull visible at all; if it ever conflicts with another mod's rendering, turning it
-off leaves a working but occluded gizmo instead of a broken screen. `WindAngleDegrees`
-defaults to 45 because balance matters close hauled; near a run there is almost no side
-force to balance and every rig reads as neutral.
+`DrawThroughHull` is the one worth knowing about: it's what makes the two markers inside the
+hull visible at all. Turn it off if it ever conflicts with another mod's rendering.
 
 ## Mod compatibility
 
-Shipyard Expansion is supported. Resized sails are handled correctly: Sailwind's own
-centre of effort sits inside the part SE scales, so it tracks width, height and spar
-changes, and the sail area the force model reads is updated by SE on every resize.
+Shipyard Expansion is supported. Resizing a sail, rotating a spar and adding sails to stays
+all work, because the centre of effort is read from the sail's live geometry and SE updates
+the sail area on every resize. SE's deep keel options move the yellow marker.
 
-**One caveat.** SE's own three added lug sails keep their centre of effort outside the
-part that gets scaled, so it does not move when the sail is resized. When one of those is
-on the boat, the magenta marker turns red and a line of text says so. The mod flags this
-and nothing more; it does not modify Shipyard Expansion.
-
-Everything else is left alone. The mod declares soft dependencies on Shipyard Expansion,
-Sail Collision Fix, NAND Tweaks, Towable Boats and HMS Leopard purely so it loads after
-them, and detects what is actually present at runtime.
+**One caveat:** SE's three added lug sails keep their centre of effort outside the part that
+gets scaled, so it doesn't move when the sail is resized. When one is aboard, the magenta
+marker turns red and says so. The mod flags this and nothing else - it does not modify
+Shipyard Expansion.
 
 ## Troubleshooting
 
-**No markers in the shipyard.** Check `BepInEx/LogOutput.log` for lines beginning
-`[Gizmo]` or `[Init]`. `[Init] N shipyard hook(s) applied` should report 7 with none
-failed. If a hook failed the log names it.
+**No markers in the shipyard:**
+- Check `BepInEx/LogOutput.log` for `[Init] 7 shipyard hook(s) applied`. It names any hook
+  that failed.
+- `rig model available=False` means a game update moved something the force model reads, and
+  the gizmo disabled itself rather than guess.
 
-**Markers hidden inside the boat.** `DrawThroughHull` is off, or every layer on your
-install is already named so the mod could not claim a private one. The log says which.
+**Markers hidden inside the boat:**
+- `DrawThroughHull` is off, or every Unity layer is already claimed by other mods. The log
+  says which.
 
-**Markers do not move when I change the rig.** The rebuild waits a moment for the
-shipyard to settle. If they never update, `[Gizmo]` lines in the log will show whether a
-rebuild ran.
+**Markers don't update when I change the rig:**
+- Rebuilds wait a moment for the shipyard to settle. Each one logs a `[Gizmo]` line - if
+  that never appears, a hook didn't apply.
+
+**Everything reads as balanced:**
+- Check `WindAngleDegrees`. Near a run there's almost no side force to balance.
 
 ## Building from source
 
+<details>
+<summary>For developers</summary>
+
 ### Requirements
 
-- .NET SDK with `net472` targeting support
+- .NET SDK able to target `net472`
 - A Sailwind install to reference the game assemblies from
 
 ### Build
 
-```
-dotnet build src/SailwindRigBalance/SailwindRigBalance.csproj -c Release -p:GameDir="C:\Path\To\Sailwind"
+```bash
+dotnet build src/SailwindRigBalance/SailwindRigBalance.csproj -c Release \
+  -p:GameDir="C:/Program Files (x86)/Steam/steamapps/common/Sailwind"
 ```
 
-The output DLL lands in `src/SailwindRigBalance/bin/Release/net472/`. Copy it into
-`BepInEx/plugins/SailwindRigBalance/`.
-
-Referenced game assemblies are never copied to the output folder, so the build directory
-is safe to zip wholesale.
+Output: `src/SailwindRigBalance/bin/Release/net472/SailwindRigBalance.dll`.
 
 ### Project structure
 
-```
+```text
 src/SailwindRigBalance/
-  Plugin.cs              entry point, patch application, environment log
-  Config/Settings.cs     every configurable value
-  Core/RigModel.cs       drives the game's force function, computes the balance
-  Shipyard/              Harmony hooks that decide when to recompute
-  UI/ShipyardGizmo.cs    markers, overlay camera, button strip
-  Compat/ModDetect.cs    runtime detection of other mods
+  Plugin.cs          # entry point, patch application, environment log
+  Config/            # every configurable value
+  Core/              # drives the game's force function, computes the balance
+  Shipyard/          # Harmony hooks deciding when to recompute
+  UI/                # markers, overlay camera, button strip
+  Compat/            # runtime detection of other mods
 ```
 
-`FINDINGS.md` documents how the game's sail and hull model actually works, with a
-citation for every claim. It is worth reading before changing anything in `Core`.
+Read [FINDINGS.md](FINDINGS.md) before changing anything in `Core/`. It documents how the
+game's sail and hull model actually works with a `file:line` citation for every claim, and
+records where an earlier conclusion turned out to be wrong.
 
-## Credits & license
+</details>
 
-Sailwind is by Joel Rosenqvist. Shipyard Expansion is by NANDBrew.
+## License
 
-Released under the MIT license.
+MIT licensed (see [LICENSE](LICENSE)).
