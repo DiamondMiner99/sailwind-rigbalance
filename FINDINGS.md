@@ -732,3 +732,58 @@ already establishes.
 
 Every item on this list is answerable by the Phase 3 step 2 live readout, which is why
 that step is worth doing before any UI exists.
+
+---
+
+## 12. Live confirmation, and one correction to section 3
+
+Five snapshots taken while sailing a Shipyard Expansion rigged brig (`BOAT medi medium (50)`,
+sceneIndex 50) in winds from 5 to 31 m/s, on both tacks.
+
+**Confirmed against the live game**, every value matching the asset reads exactly:
+`_forceHeightOffset` 0.000, `_dragInWaterRight` 3.000, `BoatWind.forceOffset` (0,0,-12),
+`BoatKeel.centerOfMass` (0,-1.25,0), `BoatProbes` enabled with 12 force points. Every one
+of the seven sails reported its centre of effort **inside** the scaled part, including
+sails SE had scaled to 265%, which confirms the prefab measurement on live objects.
+Height multipliers ran 1.005 to 1.400 and tracked sail height. Furled sails reported
+`appliedWindForce` near 0.15 rather than 0, which is the `debugYardMult` floor behaving
+exactly as predicted.
+
+**Open item 8 is answered: `Rigidbody.centerOfMass` is live.** It sat at
+`(-0.21, -0.61, -1.27)` against an authored keel value of `(0, -1.25, 0)`, so `BoatMass`
+is running and cargo plus the aboard player had shifted it 1.27 m aft and 0.21 m to port.
+
+**The sign convention is right.** Raw yaw flipped sign with the tack (+38,475 Nm on port,
+-25,620 Nm on starboard) while the signed helm stayed negative on all five samples. A
+headsail-heavy rig reading consistent lee helm is the correct answer, and it is the answer
+the sim's own numbers give.
+
+### The correction
+
+Section 3 says hull lateral resistance produces roll and zero yaw at the authored COM, and
+gains yaw only from the COM shift. That is true, but the conclusion drawn from it
+understated the term. The drag coefficient is applied with `ForceMode.Acceleration`, so the
+equivalent force is mass times the coefficient: on a 24.8 tonne loaded brig that is roughly
+74 kN per m/s of leeway. Against a measured 1.27 m arm, the hull's yaw contribution is the
+same order as the entire sail plan's. **It is a first-class term and the readout must
+include it.** It was missing from the step 2 totals and has been added.
+
+There is a more useful way to say the same thing. In lateral-force equilibrium, which is
+what a "will this rig balance" question assumes, hull drag exactly opposes the sails' side
+force. The two side-force terms then combine into one lever taken about the point the drag
+acts at, so **the effective pivot for the side-force part of the balance is the hull
+origin**, not the centre of mass. That is the classical centre-of-lateral-resistance
+picture, recovered from the sim rather than assumed: the CLR is real, it is the hull
+origin, and it is identical on every hull because `_forceHeightOffset` is zero everywhere.
+It is still not a keel, not hull-shape derived, and not something a fraction of waterline
+length would predict.
+
+Two practical consequences. The shipyard number can be computed **without knowing the
+leeway**, by taking sail side-force moments about the hull origin, which is exactly what a
+pre-purchase readout needs. And cargo placement is a genuine helm control in this sim,
+because moving the COM fore or aft changes the hull term directly; that is worth surfacing
+rather than hiding. The forward-force part of the yaw is separate and keeps its arm from
+the COM, since it depends on each sail's athwartships offset.
+
+The snapshot now prints both forms of the sum so the equivalence is checked rather than
+asserted.

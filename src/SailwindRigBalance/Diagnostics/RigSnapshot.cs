@@ -170,6 +170,12 @@ namespace SailwindRigBalance.Diagnostics
         private static void AppendWind(StringBuilder sb, Transform boat, Rigidbody body, Vector3 apparentWind)
         {
             sb.AppendLine("---- wind ----");
+
+            // Leeway is what the hull's lateral drag actually responds to, so it has to be visible.
+            Vector3 vLocal = boat.InverseTransformVector(body.velocity);
+            sb.AppendLine(F("boat velocity, boat-local {0}  -> headway {1} m/s, LEEWAY {2} m/s",
+                V(vLocal), N(vLocal.z), N(vLocal.x)));
+
             Vector3 local = boat.InverseTransformVector(apparentWind);
             // Which side is it on? Sign of the athwartships component of the wind's own velocity:
             // blowing toward -x means it is coming FROM starboard.
@@ -201,6 +207,10 @@ namespace SailwindRigBalance.Diagnostics
             float totalSide = 0f;
             float totalArea = 0f;
             int counted = 0;
+
+            // (fore/aft offset of the CE from the HULL ORIGIN, that sail's side force), for the
+            // cross-check at the bottom.
+            var perSail = new List<KeyValuePair<float, float>>();
 
             // BoatRefs.masts is allocated at length 31 and indexed by Mast.orderIndex, so it is
             // sparse. Null-check every slot.
@@ -248,6 +258,8 @@ namespace SailwindRigBalance.Diagnostics
                     totalSide += sideForce;
 
                     Vector3 armLocal = boat.InverseTransformVector(arm);
+                    Vector3 armFromOrigin = boat.InverseTransformVector(ce - body.position);
+                    perSail.Add(new KeyValuePair<float, float>(armFromOrigin.z, sideForce));
 
                     sb.AppendLine(F("  [mast {0}] '{1}' ({2}{3}) area={4} unroll={5} upwindEff={6}",
                         mast.orderIndex, sail.sailName, sail.category,
@@ -276,19 +288,57 @@ namespace SailwindRigBalance.Diagnostics
                 windageYaw = Vector3.Dot(Vector3.Cross(windagePoint - com, windageForce), boat.up);
             }
 
+            // Hull lateral drag. This is NOT a negligible yaw term, contrary to the first reading of
+            // the code: the force is applied at the hull ORIGIN while Unity takes torque about the
+            // live centre of mass, and cargo plus the aboard player move that COM fore and aft. The
+            // arm is only a metre or so, but the force is mass-scaled (ForceMode.Acceleration means
+            // the coefficient is an acceleration, so the equivalent force is mass x that), which on
+            // a loaded brig makes it comparable to the entire sail plan.
+            //
+            // Approximation, stated so it is not mistaken for exactness: Crest subtracts the water
+            // surface velocity (wave orbital motion plus flow) from the boat velocity before applying
+            // drag. Reproducing that needs a Crest collision query; here the raw rigidbody velocity
+            // is used instead, which is the same thing on average in open water without current.
+            float hullDragYaw = 0f;
+            float hullDragSide = 0f;
+            var probes = boat.GetComponent<BoatProbes>();
+            if (probes != null)
+            {
+                float heightOffset = GetFloat(FForceHeightOffset, probes);
+                Vector3 dragPoint = body.position + heightOffset * Vector3.up;
+                hullDragSide = Vector3.Dot(boat.right, -body.velocity) * probes._dragInWaterRight * body.mass;
+                Vector3 dragForce = boat.right * hullDragSide;
+                hullDragYaw = Vector3.Dot(Vector3.Cross(dragPoint - com, dragForce), boat.up);
+            }
+
             sb.AppendLine("---- totals ----");
             sb.AppendLine(F("sails counted={0}  total area={1}", counted, N(totalArea)));
-            sb.AppendLine(F("sail force: fwd={0} N  side={1} N", N(totalFwd), N(totalSide)));
-            sb.AppendLine(F("yaw moment about COM (boat up axis): sails={0} Nm  windage={1} Nm  sum={2} Nm",
-                N(totalYaw), N(windageYaw), N(totalYaw + windageYaw)));
+            sb.AppendLine(F("side force: sails={0} N  hull drag={1} N  (these cancel in steady state)",
+                N(totalSide), N(hullDragSide)));
+            sb.AppendLine(F("sail force fwd={0} N", N(totalFwd)));
+            sb.AppendLine(F("yaw moment about COM (boat up axis): sails={0}  windage={1}  hull drag={2}  sum={3} Nm",
+                N(totalYaw), N(windageYaw), N(hullDragYaw), N(totalYaw + windageYaw + hullDragYaw)));
 
             // Sign convention: positive yaw turns the bow to starboard. Weather helm is the bow
             // turning INTO the wind, so the sign flips with which side the wind is on.
-            float signedHelm = (totalYaw + windageYaw) * (windFromStarboard ? 1f : -1f);
+            float net = totalYaw + windageYaw + hullDragYaw;
+            float signedHelm = net * (windFromStarboard ? 1f : -1f);
             sb.AppendLine(F("SIGNED HELM = {0} Nm  ({1})   [positive = weather helm, bow turning into the wind; wind is from {2}]",
                 N(signedHelm),
                 signedHelm > 0f ? "WEATHER HELM" : (signedHelm < 0f ? "lee helm" : "neutral"),
                 windFromStarboard ? "starboard" : "port"));
+
+            // Cross-check on the whole model. Because hull drag acts at the hull origin and opposes
+            // the sails' side force, the two side-force terms combine into a single lever about that
+            // origin. If this agrees with the sum above, the "effective pivot is the hull origin"
+            // reading is right and the shipyard number can be computed without knowing the leeway.
+            float sailSideYawAboutOrigin = 0f;
+            foreach (var s in perSail)
+            {
+                sailSideYawAboutOrigin += s.Key * s.Value;
+            }
+            sb.AppendLine(F("cross-check: sail side-force yaw taken about the HULL ORIGIN instead of the COM = {0} Nm",
+                N(sailSideYawAboutOrigin)));
         }
 
         /// <summary>
