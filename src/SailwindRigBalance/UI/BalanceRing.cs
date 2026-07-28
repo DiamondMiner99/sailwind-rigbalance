@@ -136,6 +136,7 @@ namespace SailwindRigBalance.UI
 
                 _dragging = true;
                 SetArrowHighlight(true);
+                SuppressCameraLook();
                 return;
             }
 
@@ -145,6 +146,13 @@ namespace SailwindRigBalance.UI
                 SetArrowHighlight(false);
                 return;
             }
+
+            // Held off every frame of the drag. ShipyardCameraRotator.Update turns MouseLook on at
+            // every left mouse-down (ShipyardCameraRotator.cs:18-22) and off again on mouse-up, so
+            // without this the camera swings around while the arrow is being dragged. This runs in
+            // LateUpdate, after that Update, so it wins. Nothing needs restoring afterwards: the
+            // rotator disables them itself on release, which is their resting state anyway.
+            SuppressCameraLook();
 
             // Where the cursor lands on the ring's own plane.
             var plane = new Plane(boat.up, centre);
@@ -165,6 +173,33 @@ namespace SailwindRigBalance.UI
         }
 
         private const float GrabRadiusPixels = 40f;
+
+        /// <summary>
+        /// Stops the shipyard camera looking around while the arrow is being dragged. The rotator
+        /// enables MouseLook on the camera and on its first child; both are switched off here.
+        /// </summary>
+        private static void SuppressCameraLook()
+        {
+            try
+            {
+                if (BoatCamera.instance == null) return;
+
+                var own = BoatCamera.instance.GetComponent<MouseLook>();
+                if (own != null && own.enabled) own.enabled = false;
+
+                Transform child = BoatCamera.instance.transform.childCount > 0
+                    ? BoatCamera.instance.transform.GetChild(0)
+                    : null;
+                if (child == null) return;
+
+                var childLook = child.GetComponent<MouseLook>();
+                if (childLook != null && childLook.enabled) childLook.enabled = false;
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning("[Ring] could not hold the camera still while dragging: " + e.Message);
+            }
+        }
 
         private static Vector3 DirectionFor(float degrees, Transform boat)
         {

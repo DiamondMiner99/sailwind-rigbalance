@@ -158,6 +158,7 @@ namespace SailwindRigBalance.UI
         private Texture2D _panelTex;
         private Texture2D _paperTex;
         private Color _paperTint = Color.white;
+        private Rect _paperUv = new Rect(0f, 0f, 1f, 1f);
         private bool _styleAdopted;
 
 
@@ -996,7 +997,8 @@ namespace SailwindRigBalance.UI
             // shrink with it or the fourth button spills past the background.
             float width = PanelWidth
                 + (!Shipyard.FurlSailButton.Exists && SelectedSail() != null ? 27f : 0f);
-            _panel = new Rect(Screen.width - width - PanelMargin, PanelMargin, width, PanelHeight);
+            _panel = new Rect(Screen.width - width - PanelMargin, PanelMargin,
+                width, PanelHeightFor(width));
 
             _hoverTip = null;
             DrawPaper(_panel);
@@ -1089,6 +1091,13 @@ namespace SailwindRigBalance.UI
                     if (paper == null) continue;
 
                     _paperTex = paper;
+
+                    // Which part of the sheet this button actually uses. parchment_alpha is an
+                    // atlas: every shipyard button maps a different sub-rectangle of it, so drawing
+                    // the whole texture shows several scrolls at once and drawing an arbitrary
+                    // patch shows blank paper. The mesh's own UV bounds are the exact region the
+                    // game draws for a button, so copying those gives a button-shaped scroll.
+                    _paperUv = UvBoundsOf(button.gameObject);
                     // The material's own tint. Without this the panel came out grey-tan while every
                     // button around it was warm peach, because the colour lives on the material and
                     // not in the texture.
@@ -1280,15 +1289,49 @@ namespace SailwindRigBalance.UI
 
             Color previous = GUI.color;
             GUI.color = _paperTint;
-            GUI.DrawTextureWithTexCoords(rect, _paperTex, PaperPatch);
+            GUI.DrawTextureWithTexCoords(rect, _paperTex, _paperUv);
             GUI.color = previous;
         }
 
         /// <summary>
-        /// The slice of the sheet to draw. Deliberately small and central, clear of the scroll's
-        /// ends and its rolled edges, where the paper is plain.
+        /// The sub-rectangle of the shared sheet that a given shipyard element draws, taken from
+        /// its mesh UVs. This is the whole scroll graphic for that element, so drawing it just
+        /// means the same scroll at a different size.
         /// </summary>
-        private static readonly Rect PaperPatch = new Rect(0.40f, 0.42f, 0.20f, 0.16f);
+        private static Rect UvBoundsOf(GameObject go)
+        {
+            var filter = go.GetComponent<MeshFilter>();
+            Mesh mesh = filter != null ? filter.sharedMesh : null;
+            Vector2[] uv = mesh != null ? mesh.uv : null;
+            if (uv == null || uv.Length == 0) return new Rect(0f, 0f, 1f, 1f);
+
+            float minU = float.MaxValue, minV = float.MaxValue;
+            float maxU = float.MinValue, maxV = float.MinValue;
+            foreach (Vector2 p in uv)
+            {
+                minU = Mathf.Min(minU, p.x);
+                minV = Mathf.Min(minV, p.y);
+                maxU = Mathf.Max(maxU, p.x);
+                maxV = Mathf.Max(maxV, p.y);
+            }
+
+            float w = maxU - minU, h = maxV - minV;
+            if (w <= 0.0001f || h <= 0.0001f) return new Rect(0f, 0f, 1f, 1f);
+            return new Rect(minU, minV, w, h);
+        }
+
+        /// <summary>
+        /// Panel height that keeps the borrowed scroll at its own proportions. Stretching it to an
+        /// arbitrary box is what made it look like a rug; letting the artwork set the shape and
+        /// centring the buttons inside it does not.
+        /// </summary>
+        private float PanelHeightFor(float width)
+        {
+            if (_paperTex == null || _paperUv.width <= 0f) return PanelHeight;
+
+            float aspect = (_paperUv.height * _paperTex.height) / (_paperUv.width * _paperTex.width);
+            return Mathf.Clamp(width * aspect, PanelHeight, PanelHeight * 2.4f);
+        }
 
         /// <summary>
         /// A rounded parchment panel, generated. Only used when nothing could be borrowed.
