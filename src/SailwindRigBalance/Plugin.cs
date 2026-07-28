@@ -8,8 +8,8 @@ using UnityEngine;
 namespace SailwindRigBalance
 {
     /// <summary>
-    /// Entry point. Applies the shipyard hooks, hosts the gizmo, and keeps the F7 diagnostic
-    /// snapshot for checking the model against a live sailing session.
+    /// Entry point. Applies the shipyard hooks and hosts the gizmo. Nothing this plugin does runs
+    /// outside a shipyard.
     /// </summary>
     [BepInPlugin(PluginGUID, PluginName, PluginVersion)]
     // Soft dependencies only. Every one of these is optional; declaring them makes BepInEx load us
@@ -31,13 +31,7 @@ namespace SailwindRigBalance
         // ("version is invalid") and skip it entirely. Any "alpha" wording lives in prose only.
         // Bump for every shipped zip, including a packaging-only change, so two machines can never
         // silently differ.
-        public const string PluginVersion = "0.4.2";
-
-        /// <summary>
-        /// Hard-coded for now; becomes a config entry in the config/hotkey step. F7 is deliberate:
-        /// the author's other mod already owns F8 and Shift+F8, and F10 is spoken for.
-        /// </summary>
-        public const KeyCode SnapshotKey = KeyCode.F7;
+        public const string PluginVersion = "0.5.0";
 
         public static Plugin Instance { get; private set; }
         public static ManualLogSource Log { get; private set; }
@@ -56,8 +50,7 @@ namespace SailwindRigBalance
             ApplyPatches();
             gameObject.AddComponent<UI.ShipyardGizmo>();
 
-            Log.LogInfo($"{PluginName} v{PluginVersion} loaded. "
-                + $"Press {SnapshotKey} while aboard a boat to log a rig-balance snapshot.");
+            Log.LogInfo($"{PluginName} v{PluginVersion} loaded.");
         }
 
         /// <summary>
@@ -103,14 +96,6 @@ namespace SailwindRigBalance
         private void Start()
         {
             ModDetect.InitAndLog();
-        }
-
-        private void Update()
-        {
-            if (Input.GetKeyDown(SnapshotKey))
-            {
-                Diagnostics.RigSnapshot.LogSnapshot();
-            }
         }
 
         /// <summary>

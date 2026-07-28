@@ -6,11 +6,17 @@ using UnityEngine;
 namespace SailwindRigBalance.UI
 {
     /// <summary>
-    /// The shipyard gizmo: three world-space markers, read the way KSP's CoM/CoL/CoT are read.
+    /// The shipyard gizmo: two world-space markers, read the way KSP's CoM and CoL are read.
     ///
     ///   magenta  centre of effort      where the whole sail plan pushes
     ///   blue     centre of resistance  where the hull's lateral drag pushes back
-    ///   yellow   centre of mass        the hull's own balance point
+    ///
+    /// There is deliberately no centre-of-mass marker. BoatMass.UpdateMass adds a mast's and a
+    /// sail's mass to the rigidbody's mass but never to its centre-of-mass offset, which is only
+    /// ever moved by loose cargo and by the player standing somewhere. So the centre of mass is
+    /// deaf to the rig: you can hang an entirely different sail plan and it will not move a
+    /// millimetre. A marker that cannot respond to the only thing this mod exists to change is
+    /// worse than no marker, because it invites the reading that it did respond.
     ///
     /// The answer is the fore-and-aft offset between magenta and blue, and nothing else. Magenta
     /// aft of blue is weather helm, magenta forward is lee helm. A coloured link between the two
@@ -59,23 +65,22 @@ namespace SailwindRigBalance.UI
         /// <summary>Offset below which a rig reads as balanced rather than one-handed.</summary>
         private const float BalancedMetres = 0.3f;
 
-        private const int Effort = 0, Resistance = 1, Mass = 2;
+        private const int Effort = 0, Resistance = 1, MarkerCount = 2;
 
         private static readonly Color EffortColour = new Color(1.00f, 0.25f, 0.90f);
         private static readonly Color ResistanceColour = new Color(0.25f, 0.60f, 1.00f);
-        private static readonly Color MassColour = new Color(1.00f, 0.92f, 0.20f);
         private static readonly Color UnreliableColour = new Color(1.00f, 0.15f, 0.15f);
 
         private static readonly Color WeatherHelmColour = new Color(1.00f, 0.35f, 0.20f);
         private static readonly Color LeeHelmColour = new Color(0.30f, 0.80f, 1.00f);
         private static readonly Color BalancedColour = new Color(0.35f, 1.00f, 0.45f);
 
-        private readonly GameObject[] _markers = new GameObject[3];
-        private readonly Material[] _materials = new Material[3];
-        private readonly Texture2D[] _textures = new Texture2D[3];
-        private readonly Color[] _painted = new Color[3];
-        private readonly Vector3[] _local = new Vector3[3];
-        private readonly bool[] _visible = { true, true, true };
+        private readonly GameObject[] _markers = new GameObject[MarkerCount];
+        private readonly Material[] _materials = new Material[MarkerCount];
+        private readonly Texture2D[] _textures = new Texture2D[MarkerCount];
+        private readonly Color[] _painted = new Color[MarkerCount];
+        private readonly Vector3[] _local = new Vector3[MarkerCount];
+        private readonly bool[] _visible = { true, true };
 
         private GameObject _root;
         private LineRenderer _link;
@@ -100,9 +105,9 @@ namespace SailwindRigBalance.UI
         /// <summary>Arbitrary but stable, so IMGUI keeps the drag state across frames.</summary>
         private const int PanelWindowId = 0x52474D;
 
-        // Sized to the three buttons and nothing more: 8 padding, then 24 wide buttons separated by
-        // 3 of margin. Any slack here shows up as dead background beside the last button.
-        private const float PanelWidth = 8f + 3f + 24f + 3f + 24f + 3f + 24f + 3f + 8f;
+        // Sized to the buttons and nothing more: 8 padding, then 24 wide buttons separated by 3 of
+        // margin. Any slack here shows up as dead background beside the last button.
+        private const float PanelWidth = 8f + 3f + 24f + 3f + 24f + 3f + 8f;
         private const float PanelHeight = 8f + 3f + 24f + 3f + 8f;
         private const float PanelMargin = 20f;
 
@@ -241,9 +246,6 @@ namespace SailwindRigBalance.UI
                 return;
             }
 
-            var body = boat.GetComponent<Rigidbody>();
-            Vector3 centreOfMass = body != null ? body.worldCenterOfMass : balance.HullOrigin;
-
             // The offset that IS the answer, in metres, along the boat's own fore-aft axis.
             // Dividing the yaw moment by the side force turns a size-dependent torque into a lever
             // arm, which compares honestly between a dinghy and a brig.
@@ -260,7 +262,6 @@ namespace SailwindRigBalance.UI
             _boat = boat.transform;
             _local[Effort] = _boat.InverseTransformPoint(balance.CombinedCentreOfEffort);
             _local[Resistance] = _boat.InverseTransformPoint(balance.HullOrigin);
-            _local[Mass] = _boat.InverseTransformPoint(centreOfMass);
 
             Repaint(Effort, _unreliable ? UnreliableColour : EffortColour);
             UpdateLinkColour();
@@ -304,7 +305,6 @@ namespace SailwindRigBalance.UI
 
             MakeMarker(Effort, "CentreOfEffort", EffortColour);
             MakeMarker(Resistance, "CentreOfLateralResistance", ResistanceColour);
-            MakeMarker(Mass, "CentreOfMass", MassColour);
 
             MakeLink();
             MakeOverlayCamera();
@@ -704,7 +704,6 @@ namespace SailwindRigBalance.UI
             GUILayout.BeginHorizontal();
             Toggle(Effort, _unreliable ? UnreliableColour : EffortColour, "Centre of effort");
             Toggle(Resistance, ResistanceColour, "Centre of lateral resistance");
-            Toggle(Mass, MassColour, "Centre of mass");
             GUILayout.EndHorizontal();
 
             // Captured here rather than read after the window returns, because GUI.tooltip is only
