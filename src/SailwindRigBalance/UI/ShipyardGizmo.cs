@@ -16,17 +16,27 @@ namespace SailwindRigBalance.UI
     /// aft of blue is weather helm, magenta forward is lee helm. A coloured link between the two
     /// carries that verdict so it reads from any camera angle without a number on screen.
     ///
-    /// Three rendering decisions, all of them load-bearing:
-    ///  - markers are UNLIT. A lit sphere is invisible at night and changes colour with the time of
-    ///    day, which makes a colour-coded readout useless. An unlit shader is searched for by name
-    ///    and, if this build ships none of them, Standard with black albedo and emission is the
-    ///    fallback, which self-lights to the same effect.
-    ///  - markers are drawn by a second camera that clears depth only, so they show THROUGH the
+    /// Four decisions carry the whole file:
+    ///
+    ///  - Marker positions are held in the BOAT'S local space and converted to world every frame.
+    ///    The shipyard lifts the boat clear of the water after admitting it, so a position sampled
+    ///    once at evaluation time is left behind in mid-air within a second of entering.
+    ///
+    ///  - Markers are camera-facing quads carrying a pre-shaded ball image, not mesh spheres. An
+    ///    unlit mesh sphere is a flat disc by construction: with no lighting term there is nothing
+    ///    to vary the colour across it. Baking the shading into the image keeps the unlit
+    ///    requirement and still reads as a ball.
+    ///
+    ///  - The shading is baked, so the markers hold their colour and their form at midnight exactly
+    ///    as at noon. Scene lighting never touches them.
+    ///
+    ///  - Markers are drawn by a second camera that clears depth only, so they show THROUGH the
     ///    hull. Two of the three sit inside the boat; without this the user simply sees nothing.
-    ///  - the marker objects are created once per shipyard session and only ever MOVED. Rebuilding
-    ///    them was what produced a screenful of spheres: applying a customization destroys and
-    ///    re-instantiates every sail, Unity defers Object.Destroy to end of frame, and the collision
-    ///    sweep calls UpdateOrder repeatedly. A fixed pool of three cannot express that bug.
+    ///
+    /// The three marker objects are created once per shipyard session and only ever moved.
+    /// Rebuilding them was what produced a screenful of spheres: applying a customization destroys
+    /// and re-instantiates every sail, Unity defers Object.Destroy to end of frame, and the
+    /// collision sweep calls UpdateOrder repeatedly. A fixed pool of three cannot express that bug.
     ///
     /// Nothing is parented to a Sail or to the boat: Sail.UpdateInstallPosition toggles the sail
     /// GameObject off and on again on every add and every move.
@@ -62,12 +72,17 @@ namespace SailwindRigBalance.UI
 
         private readonly GameObject[] _markers = new GameObject[3];
         private readonly Material[] _materials = new Material[3];
+        private readonly Texture2D[] _textures = new Texture2D[3];
+        private readonly Color[] _painted = new Color[3];
+        private readonly Vector3[] _local = new Vector3[3];
         private readonly bool[] _visible = { true, true, true };
 
         private GameObject _root;
         private LineRenderer _link;
         private Material _linkMaterial;
+        private Texture2D _linkTexture;
 
+        private Transform _boat;
         private Camera _overlay, _source;
         private int _layer = -1;
         private Shader _unlit;
@@ -79,8 +94,15 @@ namespace SailwindRigBalance.UI
 
         private float _rebuildAt = -1f;
 
-        private GUIStyle _circleStyle, _tipStyle;
+        private GUIStyle _circleStyle, _tipStyle, _panelStyle;
         private Texture2D _circleTex;
+
+        /// <summary>Arbitrary but stable, so IMGUI keeps the drag state across frames.</summary>
+        private const int PanelWindowId = 0x52474D;
+        private const float PanelWidth = 158f;
+
+        private Rect _panel;
+        private bool _panelPlaced;
 
         // ------------------------------------------------------------------ lifecycle
 
@@ -103,12 +125,21 @@ namespace SailwindRigBalance.UI
         }
 
         /// <summary>
-        /// Camera follow and size hold happen after everything else has moved for the frame, so the
-        /// overlay never trails the shipyard's orbit camera by a frame.
+        /// Runs after everything else has moved for the frame, so the markers never trail the boat
+        /// or the orbit camera by a frame. Three jobs: follow the boat, face the camera, hold a
+        /// constant on-screen size.
         /// </summary>
         private void LateUpdate()
         {
             if (_root == null || !_valid) return;
+
+            if (_boat == null)
+            {
+                // The boat went away without a discharge hook firing. Stop drawing rather than
+                // leave three markers hanging in the air.
+                SetValid(false);
+                return;
+            }
 
             Camera source = ResolveSourceCamera();
             if (source == null)
@@ -131,27 +162,40 @@ namespace SailwindRigBalance.UI
                 _overlay.enabled = true;
             }
 
-            // Hold a roughly constant on-screen size. A fixed world size is a pinhead on a brig
-            // when zoomed out and swallows a dinghy when zoomed in.
             Vector3 eye = source.transform.position;
+            Quaternion facing = source.transform.rotation;
+
             for (int i = 0; i < _markers.Length; i++)
             {
                 if (_markers[i] == null || !_markers[i].activeSelf) continue;
-                float size = MarkerSize(eye, _markers[i].transform.position);
-                _markers[i].transform.localScale = Vector3.one * size;
+
+                Vector3 world = _boat.TransformPoint(_local[i]);
+                Transform t = _markers[i].transform;
+                t.position = world;
+                t.rotation = facing;                        // billboard
+                t.localScale = Vector3.one * MarkerSize(eye, world);
             }
 
             if (_link != null && _link.enabled)
             {
-                float width = MarkerSize(eye, _link.GetPosition(0)) * 0.18f;
+                Vector3 from = _boat.TransformPoint(_local[Resistance]);
+                Vector3 to = _boat.TransformPoint(_local[Effort]);
+                _link.SetPosition(0, from);
+                _link.SetPosition(1, to);
+
+                float width = MarkerSize(eye, (from + to) * 0.5f) * 0.16f;
                 _link.startWidth = width;
                 _link.endWidth = width;
             }
         }
 
+        /// <summary>
+        /// Size proportional to distance, which holds a roughly constant size on screen. A fixed
+        /// world size is a pinhead on a brig when zoomed out and swallows a dinghy when zoomed in.
+        /// </summary>
         private static float MarkerSize(Vector3 eye, Vector3 point)
         {
-            return Mathf.Clamp(Vector3.Distance(eye, point) * 0.028f, 0.30f, 3.0f);
+            return Mathf.Clamp(Vector3.Distance(eye, point) * 0.030f, 0.30f, 3.0f);
         }
 
         private void OnDestroy()
@@ -183,7 +227,7 @@ namespace SailwindRigBalance.UI
             var body = boat.GetComponent<Rigidbody>();
             Vector3 centreOfMass = body != null ? body.worldCenterOfMass : balance.HullOrigin;
 
-            // The offset that IS the answer, in metres, taken along the boat's own fore-aft axis.
+            // The offset that IS the answer, in metres, along the boat's own fore-aft axis.
             // Dividing the yaw moment by the side force turns a size-dependent torque into a lever
             // arm, which compares honestly between a dinghy and a brig.
             float lever = Mathf.Abs(balance.TotalSideForce) > 0.01f
@@ -193,14 +237,17 @@ namespace SailwindRigBalance.UI
             _unreliable = balance.AnySailHasFrozenCe;
 
             EnsureVisuals();
+
+            // Held in the boat's frame, because the shipyard lifts the boat after admitting it and
+            // keeps moving it while an order is being fitted.
+            _boat = boat.transform;
+            _local[Effort] = _boat.InverseTransformPoint(balance.CombinedCentreOfEffort);
+            _local[Resistance] = _boat.InverseTransformPoint(balance.HullOrigin);
+            _local[Mass] = _boat.InverseTransformPoint(centreOfMass);
+
+            Repaint(Effort, _unreliable ? UnreliableColour : EffortColour);
+            UpdateLinkColour();
             SetValid(true);
-
-            Place(Effort, balance.CombinedCentreOfEffort);
-            Place(Resistance, balance.HullOrigin);
-            Place(Mass, centreOfMass);
-
-            SetColour(Effort, _unreliable ? UnreliableColour : EffortColour);
-            UpdateLink(balance.HullOrigin, balance.CombinedCentreOfEffort);
 
             string verdict = Mathf.Abs(_helmMetres) < BalancedMetres ? "balanced"
                 : (_helmMetres > 0f ? "weather helm" : "lee helm");
@@ -219,28 +266,14 @@ namespace SailwindRigBalance.UI
             if (_overlay != null && !valid) _overlay.enabled = false;
         }
 
-        private void Place(int index, Vector3 worldPosition)
+        private void UpdateLinkColour()
         {
-            if (_markers[index] != null) _markers[index].transform.position = worldPosition;
-        }
-
-        private void SetColour(int index, Color colour)
-        {
-            if (_materials[index] != null) Tint(_materials[index], colour);
-        }
-
-        private void UpdateLink(Vector3 from, Vector3 to)
-        {
-            if (_link == null) return;
-
-            _link.SetPosition(0, from);
-            _link.SetPosition(1, to);
-
             Color colour = Mathf.Abs(_helmMetres) < BalancedMetres ? BalancedColour
                 : (_helmMetres > 0f ? WeatherHelmColour : LeeHelmColour);
+            if (_link == null) return;
             _link.startColor = colour;
             _link.endColor = colour;
-            if (_linkMaterial != null) Tint(_linkMaterial, colour);
+            Tint(_linkMaterial, colour);
         }
 
         // ------------------------------------------------------------------ visuals
@@ -252,19 +285,21 @@ namespace SailwindRigBalance.UI
             _root = new GameObject("RigBalanceGizmo");
             _layer = ResolveMarkerLayer();
 
-            _markers[Effort] = MakeMarker("CentreOfEffort", EffortColour, Effort);
-            _markers[Resistance] = MakeMarker("CentreOfLateralResistance", ResistanceColour, Resistance);
-            _markers[Mass] = MakeMarker("CentreOfMass", MassColour, Mass);
+            MakeMarker(Effort, "CentreOfEffort", EffortColour);
+            MakeMarker(Resistance, "CentreOfLateralResistance", ResistanceColour);
+            MakeMarker(Mass, "CentreOfMass", MassColour);
 
             MakeLink();
             MakeOverlayCamera();
         }
 
-        private GameObject MakeMarker(string name, Color colour, int index)
+        private void MakeMarker(int index, string name, Color colour)
         {
             try
             {
-                var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                // A quad, not a sphere. See the class comment: an unlit sphere has no shading term
+                // and renders as a flat disc, so the ball is drawn into the image instead.
+                var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
                 go.name = name;
 
                 var collider = go.GetComponent<Collider>();
@@ -277,7 +312,9 @@ namespace SailwindRigBalance.UI
                 var renderer = go.GetComponent<Renderer>();
                 if (renderer != null)
                 {
-                    _materials[index] = MakeMaterial(colour);
+                    _textures[index] = MakeBallTexture(colour);
+                    _painted[index] = colour;
+                    _materials[index] = MakeMaterial(_textures[index]);
                     renderer.material = _materials[index];
                     renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                     renderer.receiveShadows = false;
@@ -285,13 +322,32 @@ namespace SailwindRigBalance.UI
                     renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
                 }
 
-                return go;
+                _markers[index] = go;
             }
             catch (Exception e)
             {
                 Plugin.Log.LogWarning($"[Gizmo] marker '{name}' failed: {e.Message}");
-                return null;
+                _markers[index] = null;
             }
+        }
+
+        /// <summary>
+        /// Recolours a marker in place. The colour is baked into the image rather than applied as a
+        /// tint, so this regenerates it, and only when the colour actually changed.
+        /// </summary>
+        private void Repaint(int index, Color colour)
+        {
+            if (_markers[index] == null) return;
+            if (_painted[index] == colour) return;
+
+            Texture2D replacement = MakeBallTexture(colour);
+            if (_materials[index] != null) _materials[index].mainTexture = replacement;
+            if (_materials[index] != null && _materials[index].HasProperty("_EmissionMap"))
+                _materials[index].SetTexture("_EmissionMap", replacement);
+
+            if (_textures[index] != null) Destroy(_textures[index]);
+            _textures[index] = replacement;
+            _painted[index] = colour;
         }
 
         private void MakeLink()
@@ -311,7 +367,8 @@ namespace SailwindRigBalance.UI
                 _link.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
                 _link.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
 
-                _linkMaterial = MakeMaterial(BalancedColour);
+                _linkTexture = MakeSolidTexture();
+                _linkMaterial = MakeMaterial(_linkTexture);
                 _link.material = _linkMaterial;
                 _link.enabled = false;
             }
@@ -389,7 +446,7 @@ namespace SailwindRigBalance.UI
             return _source;
         }
 
-        private Material MakeMaterial(Color colour)
+        private Material MakeMaterial(Texture2D texture)
         {
             if (!_shaderResolved)
             {
@@ -403,50 +460,56 @@ namespace SailwindRigBalance.UI
             if (_unlit != null)
             {
                 material = new Material(_unlit);
+                // The colour is already in the texture, so any tint slot must be neutral or it
+                // multiplies twice and the markers come out muddy.
+                if (material.HasProperty("_Color")) material.SetColor("_Color", Color.white);
+                if (material.HasProperty("_TintColor")) material.SetColor("_TintColor", Color.white);
             }
             else
             {
-                // No unlit shader is present in this build. Standard with a black albedo and the
-                // colour in emission self-lights to the same result: it reads identically at
-                // midnight and at noon, which is the whole requirement.
+                // No unlit shader is present in this build. Standard in cutout mode with a black
+                // albedo and the image in emission self-lights to the same result: it reads
+                // identically at midnight and at noon, and the cutout keeps the round silhouette.
                 material = new Material(Shader.Find("Standard"));
+                material.SetFloat("_Mode", 1f);
+                material.SetFloat("_Cutoff", 0.4f);
+                material.EnableKeyword("_ALPHATEST_ON");
                 material.EnableKeyword("_EMISSION");
                 material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+                material.renderQueue = 2450;
+                material.SetColor("_Color", Color.black);
+                material.SetColor("_EmissionColor", Color.white);
+                material.SetTexture("_EmissionMap", texture);
             }
 
-            Tint(material, colour);
+            material.mainTexture = texture;
             return material;
         }
 
         private void Tint(Material material, Color colour)
         {
             if (material == null) return;
-            if (_unlit != null)
-            {
-                if (material.HasProperty("_Color")) material.SetColor("_Color", colour);
-                if (material.HasProperty("_TintColor")) material.SetColor("_TintColor", colour);
-            }
-            else
-            {
-                if (material.HasProperty("_Color")) material.SetColor("_Color", Color.black);
-                material.SetColor("_EmissionColor", colour);
-            }
+            if (material.HasProperty("_Color") && _unlit != null) material.SetColor("_Color", colour);
+            if (material.HasProperty("_TintColor")) material.SetColor("_TintColor", colour);
+            if (_unlit == null) material.SetColor("_EmissionColor", colour);
         }
 
         /// <summary>
         /// Searched by name and in order, because a Unity build only contains the shaders something
-        /// in it actually references. Every candidate here is unlit and tintable; which one exists
-        /// is a property of this build, not something to assume.
+        /// in it actually references. Every candidate is unlit, textured and alpha blended, which
+        /// is what a round marker on a square quad needs. Which one exists is a property of this
+        /// build, not something to assume, so the resolved name is logged.
         /// </summary>
         private static Shader FindUnlitShader()
         {
             string[] candidates =
             {
-                "Unlit/Color",
                 "Sprites/Default",
                 "UI/Default",
                 "Particles/Standard Unlit",
-                "GUI/Text Shader",
+                "Legacy Shaders/Particles/Alpha Blended",
+                "Mobile/Particles/Alpha Blended",
+                "Unlit/Transparent",
             };
 
             foreach (string name in candidates)
@@ -464,10 +527,21 @@ namespace SailwindRigBalance.UI
             _overlay = null;
             _link = null;
             _linkMaterial = null;
+            _boat = null;
+
             for (int i = 0; i < _markers.Length; i++)
             {
                 _markers[i] = null;
                 _materials[i] = null;
+                if (_textures[i] != null) Destroy(_textures[i]);
+                _textures[i] = null;
+                _painted[i] = default(Color);
+            }
+
+            if (_linkTexture != null)
+            {
+                Destroy(_linkTexture);
+                _linkTexture = null;
             }
 
             if (_root != null)
@@ -477,23 +551,130 @@ namespace SailwindRigBalance.UI
             }
         }
 
+        // ------------------------------------------------------------------ textures
+
+        /// <summary>
+        /// Paints a lit sphere into a square image: a Lambert term from a fixed key light up and to
+        /// the left, an ambient floor so the dark side stays legible, a small specular highlight,
+        /// and a rim lift so the silhouette holds against a bright sky. The alpha channel is the
+        /// circle, feathered by one pixel.
+        ///
+        /// This is what makes an unlit marker look like a ball. The shading cannot come from the
+        /// scene, because a marker that dims at dusk or takes a tint from a lantern is a
+        /// colour-coded readout that lies.
+        /// </summary>
+        private static Texture2D MakeBallTexture(Color tint)
+        {
+            const int Size = 128;
+            const float Radius = Size * 0.5f;
+
+            Vector3 key = new Vector3(-0.45f, 0.55f, 0.70f).normalized;
+            Vector3 eye = new Vector3(0f, 0f, 1f);
+
+            var tex = new Texture2D(Size, Size, TextureFormat.ARGB32, false);
+            var pixels = new Color32[Size * Size];
+
+            for (int y = 0; y < Size; y++)
+            {
+                for (int x = 0; x < Size; x++)
+                {
+                    float dx = (x + 0.5f - Radius) / Radius;
+                    float dy = (y + 0.5f - Radius) / Radius;
+                    float d2 = dx * dx + dy * dy;
+
+                    if (d2 >= 1f)
+                    {
+                        pixels[y * Size + x] = new Color32(0, 0, 0, 0);
+                        continue;
+                    }
+
+                    // The visible hemisphere's surface normal at this pixel.
+                    Vector3 normal = new Vector3(dx, dy, Mathf.Sqrt(1f - d2));
+
+                    float lambert = Mathf.Max(0f, Vector3.Dot(normal, key));
+                    float shade = 0.34f + 0.66f * lambert;
+
+                    // Blinn-Phong highlight, tight enough to read as a wet ball rather than a blob.
+                    Vector3 half = (key + eye).normalized;
+                    float spec = Mathf.Pow(Mathf.Max(0f, Vector3.Dot(normal, half)), 28f) * 0.55f;
+
+                    // A lift at the edge keeps the outline visible against a bright sky.
+                    float rim = Mathf.Pow(1f - normal.z, 3f) * 0.30f;
+
+                    float r = Mathf.Clamp01(tint.r * (shade + rim) + spec);
+                    float g = Mathf.Clamp01(tint.g * (shade + rim) + spec);
+                    float b = Mathf.Clamp01(tint.b * (shade + rim) + spec);
+
+                    // One pixel of feathering so the silhouette is not jagged.
+                    float alpha = Mathf.Clamp01((1f - Mathf.Sqrt(d2)) * Radius);
+
+                    pixels[y * Size + x] = new Color(r, g, b, alpha);
+                }
+            }
+
+            tex.SetPixels32(pixels);
+            tex.wrapMode = TextureWrapMode.Clamp;   // clamp, or the feathered edge wraps and bleeds
+            tex.filterMode = FilterMode.Bilinear;
+            tex.Apply();
+            tex.hideFlags = HideFlags.HideAndDontSave;
+            return tex;
+        }
+
+        /// <summary>Opaque white, for the link line, which takes its colour from vertex colours.</summary>
+        private static Texture2D MakeSolidTexture()
+        {
+            var tex = new Texture2D(2, 2, TextureFormat.ARGB32, false);
+            tex.SetPixels32(new[]
+            {
+                new Color32(255, 255, 255, 255), new Color32(255, 255, 255, 255),
+                new Color32(255, 255, 255, 255), new Color32(255, 255, 255, 255),
+            });
+            tex.wrapMode = TextureWrapMode.Clamp;
+            tex.Apply();
+            tex.hideFlags = HideFlags.HideAndDontSave;
+            return tex;
+        }
+
         // ------------------------------------------------------------------ UI
 
         /// <summary>
         /// Three round buttons and nothing else. The buttons carry the marker colours, so the strip
         /// doubles as the legend; hovering one names it. No readout, by design: the gizmo is the
         /// output, and a number on screen just invites reading the number instead of the rig.
+        ///
+        /// It sits in the bottom right corner and it is draggable. The shipyard's own panels are
+        /// laid out in a scene this code cannot read, so rather than guess at a gap in someone
+        /// else's UI and be wrong on a different resolution, it starts out of the way and moves
+        /// wherever the user puts it.
         /// </summary>
         private void OnGUI()
         {
             if (!ShipyardHooks.InShipyard || !_valid) return;
             EnsureStyles();
 
-            GUILayout.BeginArea(new Rect(18f, 18f, 132f, _unreliable ? 78f : 40f));
+            float height = _unreliable ? 84f : 48f;
+            if (!_panelPlaced)
+            {
+                _panel = new Rect(Screen.width - PanelWidth - 20f, Screen.height - height - 20f,
+                    PanelWidth, height);
+                _panelPlaced = true;
+            }
+            _panel.height = height;
+
+            _panel = GUI.Window(PanelWindowId, _panel, DrawPanel, GUIContent.none, _panelStyle);
+
+            // Keep it reachable if the window is resized or the game changes resolution.
+            _panel.x = Mathf.Clamp(_panel.x, 0f, Mathf.Max(0f, Screen.width - _panel.width));
+            _panel.y = Mathf.Clamp(_panel.y, 0f, Mathf.Max(0f, Screen.height - _panel.height));
+        }
+
+        private void DrawPanel(int id)
+        {
             GUILayout.BeginHorizontal();
             Toggle(Effort, _unreliable ? UnreliableColour : EffortColour, "Centre of effort");
             Toggle(Resistance, ResistanceColour, "Centre of lateral resistance");
             Toggle(Mass, MassColour, "Centre of mass");
+            GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
             // The one case where silence would be dishonest: a sail whose centre of effort does not
@@ -503,7 +684,8 @@ namespace SailwindRigBalance.UI
             else if (!string.IsNullOrEmpty(GUI.tooltip))
                 GUILayout.Label(GUI.tooltip, _tipStyle);
 
-            GUILayout.EndArea();
+            // Last, so the buttons above have already taken their clicks. Everything else drags.
+            GUI.DragWindow();
         }
 
         private void Toggle(int index, Color colour, string tooltip)
@@ -535,6 +717,10 @@ namespace SailwindRigBalance.UI
 
             _tipStyle = new GUIStyle(GUI.skin.label) { fontSize = 11, wordWrap = true };
             _tipStyle.normal.textColor = Color.white;
+
+            // A window rather than a box, purely to inherit IMGUI's dragging. The default window
+            // style reserves room for a title bar the panel does not have, so padding is reset.
+            _panelStyle = new GUIStyle(GUI.skin.window) { padding = new RectOffset(10, 10, 10, 10) };
         }
 
         /// <summary>A filled white disc, tinted per button through GUI.color.</summary>
