@@ -1132,7 +1132,7 @@ namespace SailwindRigBalance.UI
                     // The shipyard's ink, so hover text reads as a label on the same paper. The
                     // background stays the generated one; swapping in the scroll texture here would
                     // reintroduce the stretching on an even smaller box.
-                    _tipStyle.normal.textColor = text.color;
+                    _tipStyle.normal.textColor = new Color(0.20f, 0.13f, 0.08f);
 
                     _tipStyle.normal.background = null;   // the label draws its own paper too
 
@@ -1302,20 +1302,25 @@ namespace SailwindRigBalance.UI
                 return;
             }
 
-            // The game's texture is NOT drawn directly, and the black panel is why. parchment_alpha
-            // carries the paper only in its ALPHA channel; its RGB is black, and the shipyard's
-            // shader supplies the colour from the material. Blitting it through IMGUI, which just
-            // multiplies RGBA by GUI.color, therefore paints a black rectangle no matter what tint
-            // is applied.
+            // The colour is a constant, and deliberately so after three attempts at deriving it.
             //
-            // So the shape is generated white and the colour is taken from the material, which is
-            // the part that actually carries the shipyard's look. Same peach as the buttons, no
-            // atlas region to pick wrongly, and nothing that can stretch.
+            // Drawing the game's texture painted black, because parchment_alpha does not carry the
+            // paper in its RGB. Generating the shape and tinting it with the material's _Color
+            // painted black too, because that property is black as well. Both attempts multiplied
+            // by a value that turns out to be zero, which is why "fixing" it twice changed nothing.
+            // Wherever the shipyard's peach actually comes from, it is not in either place I looked,
+            // and a fourth guess is worth less than a constant matched to the buttons on screen.
+            //
+            // The material colour is still read, but only to log it.
             Color previous = GUI.color;
-            GUI.color = _paperTint;
+            GUI.color = Color.white;
             GUI.DrawTexture(rect, _panelTex, ScaleMode.StretchToFill, true);
             GUI.color = previous;
         }
+
+        /// <summary>Matched by eye to the shipyard's own buttons.</summary>
+        private static readonly Color PaperColour = new Color(0.96f, 0.81f, 0.67f, 0.97f);
+        private static readonly Color PaperEdgeColour = new Color(0.45f, 0.30f, 0.20f, 1.00f);
 
         /// <summary>
         /// The sub-rectangle of the shared sheet that a given shipyard element draws, taken from
@@ -1369,10 +1374,8 @@ namespace SailwindRigBalance.UI
             var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
             var pixels = new Color32[size * size];
 
-            // White, because the shipyard's own material colour is applied as a tint at draw time.
-            // Baking a colour in here as well would double it and come out muddy.
-            Color paper = new Color(1.00f, 1.00f, 1.00f, 0.97f);
-            Color edge = new Color(0.42f, 0.33f, 0.26f, 1.00f);
+            Color paper = PaperColour;
+            Color edge = PaperEdgeColour;
 
             for (int y = 0; y < size; y++)
             {
