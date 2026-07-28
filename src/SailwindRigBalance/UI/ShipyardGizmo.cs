@@ -369,9 +369,9 @@ namespace SailwindRigBalance.UI
             // windage rather than dropping to nothing.
             foreach (SailContribution c in balance.Sails)
             {
-                Plugin.Log.LogInfo($"[Gizmo]   {c.Name}: unroll={c.Unroll:F2} "
-                    + $"fwd={c.ForwardForce:F0} side={c.SideForce:F0} lever={c.LeverFromOrigin:F2} m "
-                    + $"yaw={c.YawMoment:F0}");
+                Plugin.Log.LogInfo($"[Gizmo]   {c.Name}: cat={c.Category} upwindEff={c.UpwindEfficiency:F3} "
+                    + $"unroll={c.Unroll:F2} fwd={c.ForwardForce:F0} side={c.SideForce:F0} "
+                    + $"lever={c.LeverFromOrigin:F2} m yaw={c.YawMoment:F0}");
             }
         }
 

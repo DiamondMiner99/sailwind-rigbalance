@@ -19,6 +19,13 @@ namespace SailwindRigBalance.Core
         public float YawMoment;          // Nm, positive turns the bow to starboard
         public bool CeTracksResizes;     // false only for a Shipyard Expansion added sail
         public float Unroll;             // what the model actually evaluated this sail at
+
+        // Sail.cs:415 drags a sail's force from its full value at 90 degrees down toward
+        // totalWindForce * upwindEfficiency as the apparent wind closes on the bow. Sails with
+        // different efficiencies therefore lose force at different rates coming up on the wind,
+        // which is the mechanism that can move a rig's balance with point of sail.
+        public float UpwindEfficiency;
+        public SailCategory Category;
     }
 
     /// <summary>The whole answer for one rig at one synthetic wind.</summary>
@@ -239,6 +246,8 @@ namespace SailwindRigBalance.Core
                 c.YawMoment = yaw;
                 c.CeTracksResizes = CeTracksResizes(sail);
                 c.Unroll = unroll;
+                c.UpwindEfficiency = sail.upwindEfficiency;
+                c.Category = sail.category;
                 return true;
             }
             catch (Exception e)
