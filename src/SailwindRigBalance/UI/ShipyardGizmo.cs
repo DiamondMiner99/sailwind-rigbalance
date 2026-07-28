@@ -135,9 +135,14 @@ namespace SailwindRigBalance.UI
         private const float PanelHeight = 8f + 3f + 24f + 3f + 8f;
         private const float PanelMargin = 20f;
 
+        /// <summary>How long a button must be hovered before its name appears.</summary>
+        private const float HoverDelay = 0.66f;
+
         private Rect _panel;
         private bool _panelPlaced;
-        private string _hoverTip;
+        private string _hoverTip;      // what is hovered right now, this Repaint
+        private string _hoverTracked;  // what the delay is being timed against
+        private float _hoverSince;
 
         // ------------------------------------------------------------------ lifecycle
 
@@ -805,11 +810,27 @@ namespace SailwindRigBalance.UI
                     Config.Settings.PanelPosition.Value = now;
             }
 
+            // Hover tracking is only updated on Repaint, because GUI.tooltip is populated while the
+            // hovered control is drawn and reads empty during Layout. Updating on every event would
+            // reset the timer several times a frame and the delay would never elapse.
+            if (Event.current.type == EventType.Repaint)
+            {
+                if (_hoverTip != _hoverTracked)
+                {
+                    _hoverTracked = _hoverTip;
+                    _hoverSince = Time.unscaledTime;
+                }
+            }
+
+            bool hoverReady = !string.IsNullOrEmpty(_hoverTracked)
+                && Time.unscaledTime - _hoverSince >= HoverDelay;
+
             // The one case where silence would be dishonest: a sail whose centre of effort does not
-            // follow its own size makes the magenta marker wrong, not merely imprecise.
+            // follow its own size makes the magenta marker wrong, not merely imprecise. That one is
+            // not a hover hint, so it shows immediately.
             string note = _unreliable
                 ? "A sail's centre of effort does not follow its size. The magenta marker is unreliable."
-                : _hoverTip;
+                : (hoverReady ? _hoverTracked : null);
             if (string.IsNullOrEmpty(note)) return;
 
             const float NoteWidth = 230f;
@@ -822,11 +843,22 @@ namespace SailwindRigBalance.UI
 
         private void DrawPanel(int id)
         {
+            // Centred with flexible space on all four sides rather than by trusting PanelWidth to
+            // be exactly right. The width constant is derived from an assumed IMGUI box model, and
+            // any error in it showed up as the buttons hugging the left edge with dead space on the
+            // right. Flexible space splits whatever slack actually exists evenly, so the row is
+            // centred whether the constant is perfect or a few pixels out.
+            GUILayout.FlexibleSpace();
+
             GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
             Toggle(Effort, _unreliable ? UnreliableColour : EffortColour, "Centre of effort");
             Toggle(Resistance, ResistanceColour, "Centre of lateral resistance");
             Toggle(Mass, MassColour, "Centre of mass");
+            GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
+
+            GUILayout.FlexibleSpace();
 
             // Captured here rather than read after the window returns, because GUI.tooltip is only
             // populated while the hovered control is being drawn.
