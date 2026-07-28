@@ -99,10 +99,16 @@ namespace SailwindRigBalance.UI
 
         /// <summary>Arbitrary but stable, so IMGUI keeps the drag state across frames.</summary>
         private const int PanelWindowId = 0x52474D;
-        private const float PanelWidth = 158f;
+
+        // Sized to the three buttons and nothing more: 8 padding, then 24 wide buttons separated by
+        // 3 of margin. Any slack here shows up as dead background beside the last button.
+        private const float PanelWidth = 8f + 3f + 24f + 3f + 24f + 3f + 24f + 3f + 8f;
+        private const float PanelHeight = 8f + 3f + 24f + 3f + 8f;
+        private const float PanelMargin = 20f;
 
         private Rect _panel;
         private bool _panelPlaced;
+        private string _hoverTip;
 
         // ------------------------------------------------------------------ lifecycle
 
@@ -178,12 +184,23 @@ namespace SailwindRigBalance.UI
 
             if (_link != null && _link.enabled)
             {
-                Vector3 from = _boat.TransformPoint(_local[Resistance]);
-                Vector3 to = _boat.TransformPoint(_local[Effort]);
-                _link.SetPosition(0, from);
-                _link.SetPosition(1, to);
+                // An elbow, not a straight line. A sail plan's centre of effort sits many metres
+                // above the hull, so a direct line is almost vertical and the fore-and-aft offset,
+                // which is the entire answer, shows up as an imperceptible lean. Dropping straight
+                // down to the hull's height first turns that offset into the horizontal run of the
+                // elbow, at true scale, readable from any angle.
+                Vector3 effort = _local[Effort];
+                Vector3 resistance = _local[Resistance];
+                Vector3 bend = new Vector3(effort.x, resistance.y, effort.z);
 
-                float width = MarkerSize(eye, (from + to) * 0.5f) * 0.16f;
+                Vector3 a = _boat.TransformPoint(effort);
+                Vector3 b = _boat.TransformPoint(bend);
+                Vector3 c = _boat.TransformPoint(resistance);
+                _link.SetPosition(0, a);
+                _link.SetPosition(1, b);
+                _link.SetPosition(2, c);
+
+                float width = MarkerSize(eye, b) * 0.14f;
                 _link.startWidth = width;
                 _link.endWidth = width;
             }
@@ -360,8 +377,9 @@ namespace SailwindRigBalance.UI
 
                 _link = go.AddComponent<LineRenderer>();
                 _link.useWorldSpace = true;
-                _link.positionCount = 2;
+                _link.positionCount = 3;     // centre of effort, the bend below it, then the hull
                 _link.numCapVertices = 4;
+                _link.numCornerVertices = 4;
                 _link.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 _link.receiveShadows = false;
                 _link.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
@@ -642,30 +660,43 @@ namespace SailwindRigBalance.UI
         /// doubles as the legend; hovering one names it. No readout, by design: the gizmo is the
         /// output, and a number on screen just invites reading the number instead of the rig.
         ///
-        /// It sits in the bottom right corner and it is draggable. The shipyard's own panels are
-        /// laid out in a scene this code cannot read, so rather than guess at a gap in someone
-        /// else's UI and be wrong on a different resolution, it starts out of the way and moves
-        /// wherever the user puts it.
+        /// It sits in the top right corner, clear of the shipyard's own panels, and it is
+        /// draggable. Text never goes inside it: a tooltip long enough to be useful would either
+        /// pad the panel out with dead background or wrap into an unreadable column, so hover text
+        /// and the unreliable-marker warning are drawn underneath it instead.
         /// </summary>
         private void OnGUI()
         {
             if (!ShipyardHooks.InShipyard || !_valid) return;
             EnsureStyles();
 
-            float height = _unreliable ? 84f : 48f;
             if (!_panelPlaced)
             {
-                _panel = new Rect(Screen.width - PanelWidth - 20f, Screen.height - height - 20f,
-                    PanelWidth, height);
+                _panel = new Rect(Screen.width - PanelWidth - PanelMargin, PanelMargin,
+                    PanelWidth, PanelHeight);
                 _panelPlaced = true;
             }
-            _panel.height = height;
 
+            _hoverTip = null;
             _panel = GUI.Window(PanelWindowId, _panel, DrawPanel, GUIContent.none, _panelStyle);
 
             // Keep it reachable if the window is resized or the game changes resolution.
             _panel.x = Mathf.Clamp(_panel.x, 0f, Mathf.Max(0f, Screen.width - _panel.width));
             _panel.y = Mathf.Clamp(_panel.y, 0f, Mathf.Max(0f, Screen.height - _panel.height));
+
+            // The one case where silence would be dishonest: a sail whose centre of effort does not
+            // follow its own size makes the magenta marker wrong, not merely imprecise.
+            string note = _unreliable
+                ? "A sail's centre of effort does not follow its size. The magenta marker is unreliable."
+                : _hoverTip;
+            if (string.IsNullOrEmpty(note)) return;
+
+            const float NoteWidth = 230f;
+            var content = new GUIContent(note);
+            float noteHeight = _tipStyle.CalcHeight(content, NoteWidth);
+            // Right edge aligned with the panel's, so the two read as one control wherever it sits.
+            var rect = new Rect(_panel.xMax - NoteWidth, _panel.yMax + 6f, NoteWidth, noteHeight);
+            GUI.Label(rect, content, _tipStyle);
         }
 
         private void DrawPanel(int id)
@@ -674,15 +705,11 @@ namespace SailwindRigBalance.UI
             Toggle(Effort, _unreliable ? UnreliableColour : EffortColour, "Centre of effort");
             Toggle(Resistance, ResistanceColour, "Centre of lateral resistance");
             Toggle(Mass, MassColour, "Centre of mass");
-            GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
-            // The one case where silence would be dishonest: a sail whose centre of effort does not
-            // follow its own size makes the magenta marker wrong, not merely imprecise.
-            if (_unreliable)
-                GUILayout.Label("A sail's centre of effort does not\nfollow its size. Marker unreliable.", _tipStyle);
-            else if (!string.IsNullOrEmpty(GUI.tooltip))
-                GUILayout.Label(GUI.tooltip, _tipStyle);
+            // Captured here rather than read after the window returns, because GUI.tooltip is only
+            // populated while the hovered control is being drawn.
+            if (!string.IsNullOrEmpty(GUI.tooltip)) _hoverTip = GUI.tooltip;
 
             // Last, so the buttons above have already taken their clicks. Everything else drags.
             GUI.DragWindow();
@@ -710,17 +737,31 @@ namespace SailwindRigBalance.UI
             if (_circleStyle != null) return;
 
             _circleTex = MakeCircleTexture(28);
-            _circleStyle = new GUIStyle(GUI.skin.button) { padding = new RectOffset(0, 0, 0, 0) };
+            // Margins fixed rather than inherited: PanelWidth is computed from these, and the
+            // skin's default button margin would leave background showing past the last button.
+            _circleStyle = new GUIStyle(GUI.skin.button)
+            {
+                padding = new RectOffset(0, 0, 0, 0),
+                margin = new RectOffset(3, 3, 3, 3),
+            };
             _circleStyle.normal.background = _circleTex;
             _circleStyle.hover.background = _circleTex;
             _circleStyle.active.background = _circleTex;
 
-            _tipStyle = new GUIStyle(GUI.skin.label) { fontSize = 11, wordWrap = true };
+            // Boxed rather than a bare label so the text stays legible over the shipyard's pale
+            // paper panels as well as over the night sky.
+            _tipStyle = new GUIStyle(GUI.skin.box)
+            {
+                fontSize = 11,
+                wordWrap = true,
+                alignment = TextAnchor.MiddleRight,
+                padding = new RectOffset(8, 8, 6, 6),
+            };
             _tipStyle.normal.textColor = Color.white;
 
             // A window rather than a box, purely to inherit IMGUI's dragging. The default window
             // style reserves room for a title bar the panel does not have, so padding is reset.
-            _panelStyle = new GUIStyle(GUI.skin.window) { padding = new RectOffset(10, 10, 10, 10) };
+            _panelStyle = new GUIStyle(GUI.skin.window) { padding = new RectOffset(8, 8, 8, 8) };
         }
 
         /// <summary>A filled white disc, tinted per button through GUI.color.</summary>

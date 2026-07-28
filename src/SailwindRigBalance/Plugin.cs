@@ -31,7 +31,7 @@ namespace SailwindRigBalance
         // ("version is invalid") and skip it entirely. Any "alpha" wording lives in prose only.
         // Bump for every shipped zip, including a packaging-only change, so two machines can never
         // silently differ.
-        public const string PluginVersion = "0.4.1";
+        public const string PluginVersion = "0.4.2";
 
         /// <summary>
         /// Hard-coded for now; becomes a config entry in the config/hotkey step. F7 is deliberate:
