@@ -659,7 +659,15 @@ namespace SailwindRigBalance.UI
                     + $"fwd {ca.ForwardForce:F0} vs {cb.ForwardForce:F0}{(fwdOk ? "" : " WANT EQUAL")}, "
                     + $"side {ca.SideForce:F0} vs {cb.SideForce:F0}{(sideOk ? "" : $" WANT {-ca.SideForce:F0}")}, "
                     + $"ce.x {pa.x:F2} vs {pb.x:F2}{(ceOk ? "" : $" WANT {-pa.x:F2}")}, "
-                    + $"ce.z {pa.z:F2} vs {pb.z:F2}");
+                    + $"ce.z {pa.z:F2} vs {pb.z:F2}, "
+                    // Vanilla's own reading at the chosen pose. A share near 1 with the backwards
+                    // flag clear means the search settled hard against the drive step at
+                    // Sail.cs:427, where the largest available drive lives when nothing drives, and
+                    // where the side force is close to maximal. That is a reading produced by the
+                    // step rather than by the rig, and it is the one case a force comparison alone
+                    // cannot identify.
+                    + $"sideShare {ca.SideShare:F2} vs {cb.SideShare:F2}, "
+                    + $"aback {ca.Aback} vs {cb.Aback}");
             }
 
             for (int n = 0; n < b.Sails.Count; n++)

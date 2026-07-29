@@ -46,6 +46,17 @@ namespace SailwindRigBalance.Core
         // which is the mechanism that can move a rig's balance with point of sail.
         public float UpwindEfficiency;
         public SailCategory Category;
+
+        /// <summary>
+        /// Vanilla's sideways share (Sail.cs:443) and backwards flag (Sail.cs:431) at the pose the
+        /// search settled on. A share close to 1 means the force found is essentially abeam, and the
+        /// flag says which side of the drive discontinuity at Sail.cs:427 that pose sits on. Together
+        /// they distinguish a sail that is genuinely driving from one whose apparent drive is an
+        /// artefact of the search landing hard against that step. Diagnostic only: nothing computes a
+        /// verdict from either.
+        /// </summary>
+        public float SideShare;
+        public bool Aback;
     }
 
     /// <summary>The whole answer for one rig at one synthetic wind.</summary>
@@ -709,12 +720,16 @@ namespace SailwindRigBalance.Core
                         float scale = sail.GetRealSailPower() * CategoryMultiplier(sail.category) * 50f
                             * CradleHeightCorrection(ceHere.y, waterline);
 
+                        object abackHere = FPushingBack?.GetValue(sail);
+
                         TrimCandidates.Add(new TrimCandidate
                         {
                             Trim = trim,
                             Fwd = unampF * scale,
                             Side = unampS * scale * 1.5f,   // the sideways component carries an extra 1.5x
                             Ce = ceHere,
+                            SideShare = ToFloat(FOutSideShare?.GetValue(sail)),
+                            Aback = abackHere is bool && (bool)abackHere,
                         });
                     }
 
@@ -756,6 +771,8 @@ namespace SailwindRigBalance.Core
                 c.CeTracksResizes = CeTracksResizes(sail);
                 c.Unroll = unroll;
                 c.Trim = TrimCandidates[winner].Trim;
+                c.SideShare = TrimCandidates[winner].SideShare;
+                c.Aback = TrimCandidates[winner].Aback;
                 c.UpwindEfficiency = sail.upwindEfficiency;
                 c.Category = sail.category;
                 return true;
@@ -1075,6 +1092,25 @@ namespace SailwindRigBalance.Core
             public float Fwd;
             public float Side;
             public Vector3 Ce;
+
+            /// <summary>
+            /// Vanilla's own two readings at this pose, carried along purely so the mirror audit can
+            /// report them for the WINNING pose rather than for whichever pose the loop happened to
+            /// leave the sail in.
+            ///
+            /// Sail.cs:443 sets outSidewayShare = num3/90, the angle between the sail's force and the
+            /// boat's bow over ninety, so 1 means the force is dead abeam. Sail.cs:431 sets
+            /// pushingBoatBackwards from num3 > 90, the test that also drops the drive multiplier
+            /// from 1 to -0.33 (Sail.cs:427-429).
+            ///
+            /// Those two are the same crossing, and drive is DISCONTINUOUS across it while the share
+            /// is not. Where no trim drives at all, the largest drive available is therefore found
+            /// hard against that step, at a pose whose side force is close to maximal. A pose with a
+            /// share near 1 and the flag just barely clear is the signature of a reading decided by
+            /// the step rather than by the rig, and there is no way to see that from a force alone.
+            /// </summary>
+            public float SideShare;
+            public bool Aback;
         }
 
         /// <summary>
