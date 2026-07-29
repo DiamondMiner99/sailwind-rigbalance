@@ -229,7 +229,8 @@ namespace SailwindRigBalance.Core
         /// between them, so the caller passes it in. Zero means measure.
         /// </param>
         public static bool TryEvaluate(GameObject boatRoot, float windAngleDegrees, out RigBalance result,
-            Sail overrideSail = null, float overrideUnroll = 1f, float knownHullLength = 0f)
+            Sail overrideSail = null, float overrideUnroll = 1f, float knownHullLength = 0f,
+            RigSnapshot snapshot = null)
         {
             result = default(RigBalance);
             if (boatRoot == null || !Available) return false;
@@ -269,10 +270,18 @@ namespace SailwindRigBalance.Core
                     if (sail == null || sail.windcenter == null) continue;
 
                     SailContribution c;
+
+                    // Frozen state where a sweep provided one, live state otherwise. A single
+                    // bearing is a single frame and has nothing to freeze; a sweep spans about
+                    // thirty six, and the boat does not hold still for that long.
+                    SailState state = default(SailState);
+                    if (snapshot != null) snapshot.Sails.TryGetValue(sail, out state);
+
                     float unroll = overridden != null && overridden.Contains(sail)
                         ? overrideUnroll
-                        : sail.currentUnroll;
-                    if (!TryEvaluateSail(sail, boat, body, windWorld, unroll, out c)) continue;
+                        : (state.Valid ? state.Unroll : sail.currentUnroll);
+                    if (!TryEvaluateSail(sail, boat, body, windWorld, windLocal.x, unroll, state, out c))
+                        continue;
 
                     // A sail producing no force cannot affect the balance by definition, and on a
                     // brig three of them turn up parked at the boat origin, presumably not yet
@@ -402,6 +411,16 @@ namespace SailwindRigBalance.Core
                 Vector3 forceLocal = boat.InverseTransformVector(windWorld * magnitude);
                 Vector3 armLocal = windage.forceOffset;   // already in the boat's own frame
 
+                // The windage point is on the centreline on every playable hull, which is what makes
+                // this term mirror cleanly. If a modded hull ever moves it off, say so rather than
+                // letting it tilt the ring asymmetrically without explanation.
+                if (Mathf.Abs(armLocal.x) > 0.001f)
+                {
+                    WarnOnce("windage:offset", "[RigModel] this hull's windage acts "
+                        + $"{armLocal.x:F2} m off the centreline, so the balance ring will not be "
+                        + "symmetric port and starboard even for a symmetric rig.");
+                }
+
                 totalSide += forceLocal.x;
                 totalFwd += forceLocal.z;
                 yawFromSide += armLocal.z * forceLocal.x;
@@ -528,7 +547,8 @@ namespace SailwindRigBalance.Core
         }
 
         private static bool TryEvaluateSail(Sail sail, Transform boat, Rigidbody body,
-            Vector3 windWorld, float unroll, out SailContribution c)
+            Vector3 windWorld, float windLateral, float unroll, SailState state,
+            out SailContribution c)
         {
             c = default(SailContribution);
 
@@ -582,17 +602,16 @@ namespace SailwindRigBalance.Core
                 // combined centre. That is exactly right: reef every sail equally and the balance
                 // does not move, reef one and it does.
 
-                // Trim for best drive: evaluate both ends of the sail's own swing limits plus
-                // centred, and keep whichever gives the most forward force.
+                // Trim for best drive: sample poses across the sail's own swing limits, then
+                // choose the winner from the WHOLE set with a rule that does not depend on the order
+                // they were tried in. See PickTrim: an order-dependent rule cannot be symmetric,
+                // which is what put a wedge in the ring at the bearings nearest the bow.
                 float minTrim, maxTrim;
-                ResolveTrimLimits(sail, out minTrim, out maxTrim);
+                ResolveTrimLimits(sail, state, out minTrim, out maxTrim);
 
-                float bestFwd = float.NegativeInfinity, bestSide = 0f;
-
-                // The centre of effort is captured INSIDE the winning branch, with the sail still
-                // in the pose that won. It used to be read after the loop, which left the sail at
-                // whatever the last iteration set, always the upper limit. The force then came from
-                // the winning trim while the point it acted at came from a different pose.
+                // The centre of effort is captured WITH each pose, so the force and the point it
+                // acts at always come from the same trim. It used to be read after the loop, which
+                // left the sail at whatever the last iteration set, always the upper limit.
                 //
                 // That is not a small error. windcenter hangs off the sail root (Sail.cs:186 gives
                 // the scaled subtree a nonzero local X offset), so swinging the root sweeps it
@@ -600,32 +619,34 @@ namespace SailwindRigBalance.Core
                 // force is the largest force in the rig, so a metre of bogus athwartships offset
                 // fabricates thousands of Nm. Worse, every sail was left at the SAME end of its
                 // swing, so the errors shared a sign and accumulated rather than cancelling.
-                //
-                // Square sails were immune: their force acts along transform.right (Sail.cs:479-480)
-                // and a symmetric yard puts the centre on the hinge axis. Everything fore-and-aft
-                // was affected, which is the whole rig of a dhow or a junk.
-                Vector3 bestCe = sail.windcenter.position;
-
-                Vector3 euler = sRot.eulerAngles;
+                // The pose the trim is imposed on top of comes from the SNAPSHOT where there is one,
+                // so every bearing in a sweep swings from the same rest attitude. The restore in the
+                // finally block still writes back sRot, the LIVE rotation read on entry: putting the
+                // snapshot back instead would have this mod quietly undoing whatever another
+                // component did to the sail while the sweep was running.
+                Vector3 euler = (state.Valid ? state.LocalRotation : sRot).eulerAngles;
                 float waterline = body.position.y;
-                float bestTrim = 0f;
-                bool haveBest = false;
 
                 // A fixed slice of what THIS sail could make at full power, computed once and held
                 // constant across every trim, so the tie window means the same thing whether the
                 // sail is driving hard or barely working. Deliberately independent of the forces
-                // actually measured: see the tie-break below.
+                // actually measured: scaling it to the best force found so far collapses the window
+                // to nothing exactly where the forces are near zero, which is the head to wind case
+                // the tie-break exists for.
                 float tieTolerance = sail.GetRealSailPower() * CategoryMultiplier(sail.category)
                     * 50f * SyntheticWindSpeed * TieFraction;
 
                 float low = Mathf.Min(minTrim, maxTrim);
                 float high = Mathf.Max(minTrim, maxTrim);
-                float coarseStep = high - low;
+
+                TrimCandidates.Clear();
+                float coarseBestTrim = 0f;
+                float coarseHalfStep = 0f;
 
                 // Two passes: a coarse scan of the whole swing, then a refinement inside the winning
-                // bracket. Ten evaluations land the trim within about twelve degrees, where the old
-                // three (hard over, centred, hard over) were a fifty degree grid on a hundred
-                // degree swing.
+                // bracket. Ten evaluations land the trim within about twelve degrees, where the
+                // original three (hard over, centred, hard over) were a fifty degree grid on a
+                // hundred degree swing.
                 //
                 // That grid was not a rounding error, it was a systematic one. Drive against trim is
                 // a smooth hump whose peak walks steadily aft as the wind goes aft, so the three
@@ -633,9 +654,6 @@ namespace SailwindRigBalance.Core
                 // Being wrong by a DIFFERENT amount at each bearing is what makes it serious here:
                 // it does not just shift the level of the readout, it bends the shape of the ring,
                 // which is the one thing the ring exists to show.
-                //
-                // Refining rather than sampling uniformly buys the resolution cheaply, and it is
-                // sound because the hump is unimodal in trim over a sail's own limits.
                 for (int pass = 0; pass < 2; pass++)
                 {
                     float from = low, to = high;
@@ -643,23 +661,34 @@ namespace SailwindRigBalance.Core
 
                     if (pass == 1)
                     {
-                        if (coarseStep < 0.01f) break;      // no swing to refine
-                        from = Mathf.Max(low, bestTrim - coarseStep);
-                        to = Mathf.Min(high, bestTrim + coarseStep);
+                        if (coarseHalfStep < 0.01f) break;      // no swing to refine
+                        from = Mathf.Max(low, coarseBestTrim - coarseHalfStep);
+                        to = Mathf.Min(high, coarseBestTrim + coarseHalfStep);
                         samples = RefineTrimSamples;
                     }
 
-                    float span = to - from;
-                    if (span < 0.01f)
+                    // Generated about the bracket's CENTRE rather than up from its lower end, so a
+                    // bracket and its exact reflection sample the reflected trims bit for bit. From
+                    // the lower end, from + span*k/(n-1) and its mirror are equal in algebra and not
+                    // always in float, and a last-bit difference in trim is a last-bit difference in
+                    // force, which is all a tie needs to fall one way on one tack and the other way
+                    // on the other.
+                    float centre = (from + to) * 0.5f;
+                    float half = (to - from) * 0.5f;
+                    if (half < 0.005f)
                     {
                         // A sail with no swing at all: one pose, and no second pass to run.
                         samples = 1;
                         if (pass == 1) break;
                     }
 
+                    int firstOfPass = TrimCandidates.Count;
+
                     for (int k = 0; k < samples; k++)
                     {
-                        float trim = samples <= 1 ? from : from + span * k / (samples - 1);
+                        // -1 to +1 about the centre, so u(k) is the exact negation of u(n-1-k).
+                        float u = samples <= 1 ? 0f : 2f * k / (samples - 1) - 1f;
+                        float trim = centre + half * u;
 
                         sail.transform.localRotation = Quaternion.Euler(euler.x, euler.y, trim);
                         MUpdateForce.Invoke(sail, null);
@@ -669,50 +698,32 @@ namespace SailwindRigBalance.Core
                         float unampS = ToFloat(FUnampSide.GetValue(sail));
                         float scale = sail.GetRealSailPower() * CategoryMultiplier(sail.category) * 50f
                             * CradleHeightCorrection(ceHere.y, waterline);
-                        float fwd = unampF * scale;
 
-                        // Strictly better, or an effective tie resolved toward the centred pose.
-                        //
-                        // The tie-break is not tidiness, it is what keeps the two tacks agreeing.
-                        // Close to head to wind there is almost no drive to maximise, so the curve
-                        // this is hunting over goes flat and several widely separated trims come out
-                        // within float noise of each other. Picking whichever happened to be tested
-                        // first made the choice arbitrary, and trim sweeps the centre of effort
-                        // athwartships, so an arbitrary trim is a wildly different yaw. A live sweep
-                        // on a symmetric square rigger mirrored EXACTLY at 32 of 36 bearings and
-                        // disagreed at the four nearest the bow: 35 degrees read +2.4 m of weather
-                        // helm while its mirror at 325 read -1.6 m of lee, with identical side-force
-                        // shares, so the forces were mirroring and only the geometry was not.
-                        //
-                        // Preferring the smaller absolute trim is a rule that is itself symmetric,
-                        // so mirrored winds resolve to mirrored poses.
-                        //
-                        // The tolerance is ABSOLUTE, a fixed fraction of what this sail could make
-                        // at full power, and that is the whole point. Scaling it to the best force
-                        // found so far, which is what it did at first, collapses the window to
-                        // nothing exactly where the forces are near zero, which is the head to wind
-                        // case the tie-break exists for. It never fired, and a second live sweep
-                        // came back disagreeing at the same four bearings as the first.
-                        bool better;
-                        if (!haveBest) better = true;
-                        else if (fwd > bestFwd + tieTolerance) better = true;
-                        else better = fwd > bestFwd - tieTolerance
-                            && Mathf.Abs(trim) < Mathf.Abs(bestTrim);
-
-                        if (better)
+                        TrimCandidates.Add(new TrimCandidate
                         {
-                            haveBest = true;
-                            bestFwd = fwd;
-                            bestSide = unampS * scale * 1.5f;   // the sideways component carries an extra 1.5x
-                            bestCe = ceHere;
-                            bestTrim = trim;
-                        }
+                            Trim = trim,
+                            Fwd = unampF * scale,
+                            Side = unampS * scale * 1.5f,   // the sideways component carries an extra 1.5x
+                            Ce = ceHere,
+                        });
                     }
 
-                    if (pass == 0) coarseStep = span / (samples - 1 < 1 ? 1 : samples - 1);
+                    if (pass == 0)
+                    {
+                        coarseHalfStep = samples <= 1 ? 0f : half * 2f / (samples - 1);
+                        int coarseWinner = PickTrim(firstOfPass, TrimCandidates.Count - firstOfPass,
+                            tieTolerance, windLateral);
+                        if (coarseWinner < 0) break;
+                        coarseBestTrim = TrimCandidates[coarseWinner].Trim;
+                    }
                 }
 
-                Vector3 ce = bestCe;
+                int winner = PickTrim(0, TrimCandidates.Count, tieTolerance, windLateral);
+                if (winner < 0) return false;
+
+                float bestFwd = TrimCandidates[winner].Fwd;
+                float bestSide = TrimCandidates[winner].Side;
+                Vector3 ce = TrimCandidates[winner].Ce;
                 Vector3 armLocal = boat.InverseTransformVector(ce - body.position);  // about the HULL ORIGIN
 
                 // Boat axes: x starboard, z forward. Unity's cross product about up reduces to
@@ -780,10 +791,15 @@ namespace SailwindRigBalance.Core
         /// under-weighted against every fitted one, and "what does adding this jib do to the helm" is
         /// the question the mod exists to answer.
         /// </summary>
-        private static void ResolveTrimLimits(Sail sail, out float minTrim, out float maxTrim)
+        private static void ResolveTrimLimits(Sail sail, SailState state,
+            out float minTrim, out float maxTrim)
         {
-            minTrim = sail.minAngle;
-            maxTrim = sail.maxAngle;
+            // From the sweep's snapshot when there is one. These are not constants: Mast
+            // CheckInitialAngles rewrites them at the end of a collision sweep spanning many
+            // FixedUpdates, so reading them live makes one bearing's swing range differ from the
+            // next one's for reasons that have nothing to do with the wind.
+            minTrim = state.Valid ? state.MinAngle : sail.minAngle;
+            maxTrim = state.Valid ? state.MaxAngle : sail.maxAngle;
             if (minTrim != 0f && maxTrim != 0f) return;
 
             // Each limit tested on its own, exactly as vanilla does at Sail.cs:322-329. Requiring
@@ -1036,6 +1052,157 @@ namespace SailwindRigBalance.Core
             if (category == SailCategory.junk) return 0.75f;
             if (category == SailCategory.gaff) return 0.85f;
             return 1f;
+        }
+
+        /// <summary>
+        /// One pose tried during the trim search, kept so the winner can be chosen from the whole
+        /// set rather than by a comparison against whatever has won so far.
+        /// </summary>
+        private struct TrimCandidate
+        {
+            public float Trim;
+            public float Fwd;
+            public float Side;
+            public Vector3 Ce;
+        }
+
+        /// <summary>
+        /// Scratch for the trim search, reused across sails and bearings: the ring runs this ten
+        /// times a sail, thirty six times a rebuild, and a fresh list each time is garbage the
+        /// shipyard does not need. Never held across a call.
+        /// </summary>
+        private static readonly List<TrimCandidate> TrimCandidates = new List<TrimCandidate>(16);
+
+        /// <summary>
+        /// How close two trims have to be in magnitude before they count as one pose and its own
+        /// reflection, in degrees. Far below the resolution of the search, far above the last bit of
+        /// building the grid.
+        /// </summary>
+        private const float TrimTieEpsilon = 0.001f;
+
+        /// <summary>
+        /// The winning pose out of the whole set of trims tried: most drive, ties resolved toward
+        /// the centred pose, and a tie between a pose and its own reflection resolved toward the one
+        /// whose side force pushes to LEEWARD.
+        ///
+        /// A rule over the whole set, not a comparison against a running best, and that is the
+        /// entire point. Samples are generated in ascending trim order, so a running comparison
+        /// answers differently depending on visit order; a mirrored wind produces the same forces in
+        /// REVERSE order, so an order-dependent rule CANNOT return mirrored poses for mirrored
+        /// winds.
+        ///
+        /// That is what put a wedge in the ring at the four bearings nearest the bow. With the
+        /// apparent wind close to the boat's own axis, Sail.cs:416 zeroes the force below 13 degrees
+        /// of relative wind angle and Sail.cs:427-429 turns the rest of the swing negative, so the
+        /// maximum is a flat plateau with exact ties in it. The two ends of the swing tie, and the
+        /// old magnitude test was STRICT, so the second-visited end could never displace the first:
+        /// both tacks came away braced the same way round, at one physical yard angle, so the forces
+        /// genuinely differed rather than mirroring. Bearing 5 read a 78 percent side-force share
+        /// against 95 percent at 355, identically in five consecutive sweeps.
+        ///
+        /// Leeward as the last resort, rather than a fixed sign: it is the pose a crew would
+        /// actually be in, the two tied poses have equal drive so it costs nothing, and unlike any
+        /// constant it FLIPS with the wind. That is what makes the whole rule odd under mirroring,
+        /// which is the property the ring needs and the property the old rule did not have.
+        /// </summary>
+        private static int PickTrim(int from, int count, float tieTolerance, float windLateral)
+        {
+            if (count <= 0) return -1;
+
+            float maxFwd = float.NegativeInfinity;
+            for (int i = from; i < from + count; i++)
+                if (TrimCandidates[i].Fwd > maxFwd) maxFwd = TrimCandidates[i].Fwd;
+
+            int best = -1;
+            for (int i = from; i < from + count; i++)
+            {
+                TrimCandidate c = TrimCandidates[i];
+                if (c.Fwd < maxFwd - tieTolerance) continue;      // not in the tie set at all
+                if (best < 0) { best = i; continue; }
+
+                TrimCandidate b = TrimCandidates[best];
+                float da = Mathf.Abs(c.Trim), db = Mathf.Abs(b.Trim);
+
+                if (da < db - TrimTieEpsilon) { best = i; continue; }
+                if (da > db + TrimTieEpsilon) continue;
+
+                // Same drive, same trim magnitude: one pose and its own reflection, and nothing
+                // measured separates them. Take the one pushing to leeward.
+                if (windLateral == 0f) continue;
+                bool cLee = c.Side * windLateral > 0f;
+                bool bLee = b.Side * windLateral > 0f;
+                if (cLee && !bLee) best = i;
+            }
+
+            return best;
+        }
+
+        /// <summary>What one sail was at the instant a sweep started.</summary>
+        public struct SailState
+        {
+            public float Unroll;
+            public float MinAngle;
+            public float MaxAngle;
+            public Quaternion LocalRotation;
+            public bool Valid;
+        }
+
+        /// <summary>
+        /// Every input to the model that some other component on the boat can move between frames,
+        /// captured in one instant.
+        ///
+        /// The ring evaluates thirty six bearings at roughly one per frame, so without this the
+        /// picture it draws is not of ONE rig: the bearings on one bow are read from a rig up to
+        /// thirty frames older than the bearings on the other. On a live boat that is not
+        /// hypothetical. Five consecutive readings at an unchanged 267 degrees alternated between
+        /// -2.31 m and -1.69 m with nothing touched, a strict period-two flip, and one sweep
+        /// straddled it, taking its port half from one state and its starboard half from the other.
+        ///
+        /// Only fields with another owner are captured. Sail.currentUnroll is rewritten every frame
+        /// by RopeControllerMirror.Update (RopeControllerMirror.cs:22); minAngle and maxAngle are
+        /// written by Mast.CheckInitialAngles (Mast.cs:174-176) at the end of a collision sweep that
+        /// runs over many FixedUpdates; and the HingeJoint limits the trim range falls back to are
+        /// rewritten every frame by SquareAngleMaster and JibAngleMaster, the latter with
+        /// Time.deltaTime, Wind.currentWind and Random.Range in it. Everything else the model reads
+        /// is either constant for the session or already cancelled.
+        /// </summary>
+        public sealed class RigSnapshot
+        {
+            public readonly Dictionary<Sail, SailState> Sails = new Dictionary<Sail, SailState>();
+        }
+
+        /// <summary>Freezes the rig so a whole sweep describes one boat rather than thirty.</summary>
+        public static RigSnapshot CaptureRig(GameObject boatRoot)
+        {
+            var snapshot = new RigSnapshot();
+            if (boatRoot == null) return snapshot;
+
+            var refs = boatRoot.GetComponent<BoatRefs>();
+            if (refs == null || refs.masts == null) return snapshot;
+
+            foreach (Mast mast in refs.masts)
+            {
+                if (mast == null || mast.sails == null) continue;
+                if (!mast.gameObject.activeInHierarchy) continue;
+
+                foreach (GameObject sailObject in mast.sails)
+                {
+                    if (sailObject == null) continue;
+                    var sail = sailObject.GetComponent<Sail>();
+                    if (sail == null || sail.windcenter == null) continue;
+
+                    snapshot.Sails[sail] = new SailState
+                    {
+                        Unroll = sail.currentUnroll,
+                        MinAngle = sail.minAngle,
+                        MaxAngle = sail.maxAngle,
+                        LocalRotation = sail.transform.localRotation,
+                        Valid = true,
+                    };
+                }
+            }
+
+            return snapshot;
         }
 
         private static float ToFloat(object o) => o is float f ? f : 0f;

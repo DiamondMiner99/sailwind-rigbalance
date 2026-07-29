@@ -312,6 +312,14 @@ namespace SailwindRigBalance.UI
                 // staring at is invisible.
                 _pendingRoot = boatRoot;
                 _pendingHullLength = current.HullLength;
+
+                // Freeze the rig for the whole sweep. Without this the ring is not a picture of one
+                // boat: the bearings on one bow are read from a rig up to thirty frames older than
+                // those on the other, and on a live boat something really does toggle between two
+                // states on alternate frames. Two sweeps of an untouched rig came back with
+                // identical port halves and different starboard ones, one mirroring correctly and
+                // one not, because the second sweep straddled the flip.
+                _pendingSnapshot = RigModel.CaptureRig(boatRoot);
                 _pendingBalancedMetres = balancedMetres;
                 _pendingBand = band;
                 _pendingSampled = new RigBalance[Segments];
@@ -334,6 +342,7 @@ namespace SailwindRigBalance.UI
         private RigBalance[] _pendingSampled;
         private bool[] _pendingEvaluated;
         private float _pendingHullLength;
+        private RigModel.RigSnapshot _pendingSnapshot;
         private float _pendingBalancedMetres;
         private float _pendingBand;
         private float _pendingBest;
@@ -377,7 +386,7 @@ namespace SailwindRigBalance.UI
                     // The hull cannot change length between bearings, so it is measured once by the
                     // caller and passed in.
                     _pendingEvaluated[i] = RigModel.TryEvaluate(_pendingRoot, angle, out balance,
-                        null, 1f, _pendingHullLength);
+                        null, 1f, _pendingHullLength, _pendingSnapshot);
                     _pendingSampled[i] = balance;
 
                     if (_pendingEvaluated[i] && balance.TotalOutput > _pendingBest)
@@ -424,6 +433,7 @@ namespace SailwindRigBalance.UI
                 _pendingSampled = null;
                 _pendingEvaluated = null;
                 _pendingRoot = null;
+                _pendingSnapshot = null;
                 _sweepCompleted = true;
             }
         }
