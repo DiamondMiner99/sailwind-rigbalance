@@ -33,11 +33,26 @@ namespace SailwindRigBalance.UI
     public class BalanceRing
     {
         /// <summary>
-        /// Segments around the full circle, every one of them evaluated. Fifteen degrees is fine
-        /// enough to show where a helm reverses without the sweep becoming the expensive thing in
-        /// the frame it lands on.
+        /// Bearings the rig is actually evaluated at, every ten degrees. This is the expensive
+        /// number: each one drives the game's force function three times per sail.
         /// </summary>
-        private const int Segments = 24;
+        private const int Segments = 36;
+
+        /// <summary>
+        /// Quads the ring is drawn from, every five degrees, with colour interpolated between the
+        /// evaluated bearings. Geometry is nearly free, so the drawn resolution is decoupled from
+        /// the sampled one: the ring reads as a continuous wash rather than a colour wheel, without
+        /// paying for an evaluation per quad.
+        /// </summary>
+        private const int MeshSegments = 72;
+
+        /// <summary>
+        /// How far past the balanced band the helm has to go before the colour saturates, in
+        /// multiples of the band. Inside the band it is flat green, because that is what balanced
+        /// means; beyond it the colour ramps so the ring shows HOW one-handed she is, not merely
+        /// that she is. Three bands is about the point where a rig stops being a trim problem.
+        /// </summary>
+        private const float SaturateAtBands = 3f;
 
         /// <summary>
         /// How much of the rig's best output an angle must produce before the ring will offer a
@@ -301,6 +316,11 @@ namespace SailwindRigBalance.UI
                 var evaluated = new bool[Segments];
                 float best = 0f;
 
+                // Timed, because the sweep is the one thing in this mod that can cost a visible
+                // frame, and the two knobs that set its cost (bearings here, trim poses per sail in
+                // RigModel) are worth tuning from a measurement rather than an estimate.
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+
                 for (int i = 0; i < Segments; i++)
                 {
                     // The CENTRE of the segment this colours, not its leading edge. Sampling the
@@ -320,6 +340,7 @@ namespace SailwindRigBalance.UI
                     if (evaluated[i] && balance.TotalOutput > best) best = balance.TotalOutput;
                 }
 
+                clock.Stop();
                 MaxOutput = best;
 
                 var colours = new Color[Segments];
@@ -330,7 +351,8 @@ namespace SailwindRigBalance.UI
                         : DeadColour;
                 }
 
-                LogSweep(sampled, evaluated, best, balancedMetres);
+                LogSweep(sampled, evaluated, best, balancedMetres,
+                    (float)clock.Elapsed.TotalMilliseconds);
 
                 BuildMesh(radius, band, colours);
                 UpdateArrow(boat);
@@ -354,12 +376,13 @@ namespace SailwindRigBalance.UI
         /// verdict at all. B balanced, W weather, L lee, dash no verdict, x failed to evaluate.
         /// </summary>
         private static void LogSweep(RigBalance[] sampled, bool[] evaluated, float maxOutput,
-            float balancedMetres)
+            float balancedMetres, float milliseconds)
         {
             try
             {
                 var line = new System.Text.StringBuilder(
-                    $"[Ring] sweep, band {balancedMetres:F2} m, best output {maxOutput:F0} N:");
+                    $"[Ring] sweep of {Segments} bearings in {milliseconds:F1} ms, "
+                    + $"band {balancedMetres:F2} m, best output {maxOutput:F0} N:");
 
                 for (int i = 0; i < Segments; i++)
                 {
@@ -397,9 +420,44 @@ namespace SailwindRigBalance.UI
         internal static Color VerdictFor(RigBalance balance, float maxOutput, float balancedMetres)
         {
             if (IsDead(balance, maxOutput)) return DeadColour;
+            return HelmColour(balance.HelmMetres, balancedMetres);
+        }
 
-            if (Mathf.Abs(balance.HelmMetres) < balancedMetres) return ShipyardGizmo.BalancedColour;
-            return balance.HelmMetres > 0f ? ShipyardGizmo.WeatherHelmColour : ShipyardGizmo.LeeHelmColour;
+        /// <summary>
+        /// The helm as a continuous colour rather than one of three.
+        ///
+        /// Green at balanced, ramping out to amber for weather helm and red for lee helm as the
+        /// lever leaves the band. A diverging scale with the safe state in the middle, because the
+        /// quantity is signed and zero is the good value: the two directions are genuinely different
+        /// failures, not two ends of one axis.
+        ///
+        /// Three flat colours threw away the magnitude, which is most of what a player wants. A rig
+        /// half a metre outside the band and a rig five metres outside it both painted the same red,
+        /// so there was no way to see whether an edit had helped unless it crossed a threshold. The
+        /// ramp makes an improvement visible while it is still an improvement.
+        ///
+        /// Used by the ring, the helm link and the reef track alike, so the three cannot drift into
+        /// disagreeing about what a colour means.
+        /// </summary>
+        internal static Color HelmColour(float helmMetres, float balancedMetres)
+        {
+            if (balancedMetres <= 0.0001f) return ShipyardGizmo.BalancedColour;
+
+            float bands = Mathf.Abs(helmMetres) / balancedMetres;
+
+            // Square-rooted, so the HUE separates fast and the brightness keeps climbing after it.
+            // A straight linear ramp put both directions through much the same muddy yellow at half
+            // scale, which is precisely where telling weather from lee matters most: the two are
+            // different failures, and a scale that makes them look alike in the middle defeats the
+            // reason they have different colours at all. This reaches most of the way to amber or
+            // red by a quarter of the range and then deepens.
+            float t = Mathf.Sqrt(Mathf.InverseLerp(1f, SaturateAtBands, bands));
+
+            Color extreme = helmMetres > 0f
+                ? ShipyardGizmo.WeatherHelmColour
+                : ShipyardGizmo.LeeHelmColour;
+
+            return Color.Lerp(ShipyardGizmo.BalancedColour, extreme, t);
         }
 
         /// <summary>
@@ -510,27 +568,44 @@ namespace SailwindRigBalance.UI
         }
 
         /// <summary>
-        /// One flat-coloured quad per segment, with its own four vertices so colours do not blend
-        /// into each other. At 24 segments that is 96 vertices, which is nothing.
+        /// One quad per drawn segment, each edge carrying the colour interpolated for its own
+        /// bearing, so the hardware washes the colour along the ring instead of stepping it.
+        ///
+        /// The quads used to be flat, deliberately, so that neighbouring verdicts could not blend.
+        /// That was the right call while a verdict was one of three colours and blending two of them
+        /// would have invented a fourth. It stopped being right when the colour became a continuous
+        /// function of the helm: with a ramp, the value between two sampled bearings really is
+        /// between the two, and drawing it as a hard step is the lie. Twenty four flat bands also
+        /// hid the magnitude entirely, so a rig just outside the band and a rig hopelessly outside
+        /// it looked identical.
+        ///
+        /// At 72 quads that is 288 vertices, which is still nothing, and the sampling cost is
+        /// unchanged because geometry and evaluation are now separate numbers.
         /// </summary>
         private void BuildMesh(float radius, float band, Color[] colours)
         {
             float inner = radius - band * 0.5f;
             float outer = radius + band * 0.5f;
 
-            var vertices = new Vector3[Segments * 4];
-            var vertexColours = new Color[Segments * 4];
-            var triangles = new int[Segments * 6];
+            var vertices = new Vector3[MeshSegments * 4];
+            var vertexColours = new Color[MeshSegments * 4];
+            var triangles = new int[MeshSegments * 6];
 
-            for (int i = 0; i < Segments; i++)
+            for (int i = 0; i < MeshSegments; i++)
             {
                 // Bearing the wind comes FROM. RigModel puts the wind on the port bow, so angle
                 // grows to port: at 0 the source is dead ahead, at 90 it is on the port beam.
-                float a0 = 360f * i / Segments * Mathf.Deg2Rad;
-                float a1 = 360f * (i + 1) / Segments * Mathf.Deg2Rad;
+                float degrees0 = 360f * i / MeshSegments;
+                float degrees1 = 360f * (i + 1) / MeshSegments;
+
+                float a0 = degrees0 * Mathf.Deg2Rad;
+                float a1 = degrees1 * Mathf.Deg2Rad;
 
                 Vector3 d0 = new Vector3(-Mathf.Sin(a0), 0f, Mathf.Cos(a0));
                 Vector3 d1 = new Vector3(-Mathf.Sin(a1), 0f, Mathf.Cos(a1));
+
+                Color c0 = ColourAt(colours, degrees0);
+                Color c1 = ColourAt(colours, degrees1);
 
                 int v = i * 4;
                 vertices[v + 0] = d0 * inner;
@@ -538,11 +613,10 @@ namespace SailwindRigBalance.UI
                 vertices[v + 2] = d1 * outer;
                 vertices[v + 3] = d1 * inner;
 
-                Color colour = colours[i];
-                vertexColours[v + 0] = colour;
-                vertexColours[v + 1] = colour;
-                vertexColours[v + 2] = colour;
-                vertexColours[v + 3] = colour;
+                vertexColours[v + 0] = c0;
+                vertexColours[v + 1] = c0;
+                vertexColours[v + 2] = c1;
+                vertexColours[v + 3] = c1;
 
                 int t = i * 6;
                 triangles[t + 0] = v + 0;
@@ -558,6 +632,30 @@ namespace SailwindRigBalance.UI
             _mesh.colors = vertexColours;
             _mesh.triangles = triangles;
             _mesh.RecalculateBounds();
+        }
+
+        /// <summary>
+        /// The colour for an arbitrary bearing, interpolated between the two nearest evaluated ones.
+        ///
+        /// Sample i stands for the CENTRE of its arc, at 360*(i+0.5)/Segments, which is why the
+        /// index is offset by half a step before interpolating. Wrapping is explicit and handles
+        /// negative indices, so the seam at dead ahead is as smooth as everywhere else rather than
+        /// being the one hard edge left in the ring.
+        /// </summary>
+        private static Color ColourAt(Color[] colours, float degrees)
+        {
+            int count = colours.Length;
+            if (count == 0) return DeadColour;
+            if (count == 1) return colours[0];
+
+            float position = degrees / 360f * count - 0.5f;
+            int lower = Mathf.FloorToInt(position);
+            float fraction = position - lower;
+
+            int a = ((lower % count) + count) % count;
+            int b = ((lower + 1) % count + count) % count;
+
+            return Color.Lerp(colours[a], colours[b], fraction);
         }
     }
 }

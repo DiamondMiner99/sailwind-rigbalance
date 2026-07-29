@@ -663,9 +663,11 @@ namespace SailwindRigBalance.UI
 
         private void UpdateLinkColour()
         {
-            Color colour = _helmDead ? BalanceRing.NoVerdictColour
-                : (Mathf.Abs(_helmMetres) < _balancedMetres ? BalancedColour
-                : (_helmMetres > 0f ? WeatherHelmColour : LeeHelmColour));
+            // The same continuous ramp the ring is painted with, so the link between the two balls
+            // and the arc behind them cannot mean different things by the same colour.
+            Color colour = _helmDead
+                ? BalanceRing.NoVerdictColour
+                : BalanceRing.HelmColour(_helmMetres, _balancedMetres);
             if (_link == null) return;
 
             // LineRenderer's own colours carry the verdict. The material's _Color is left at the

@@ -180,6 +180,22 @@ namespace SailwindRigBalance.Core
         public const float SyntheticWindSpeed = 10f;
 
         /// <summary>
+        /// Poses tried across a sail's whole swing before the search narrows, and poses tried inside
+        /// the winning bracket afterwards. Ten calls into the game's force function per sail, which
+        /// lands the trim within about twelve degrees on a hundred degree swing, against fifty for
+        /// the three fixed poses it replaced.
+        ///
+        /// Twelve degrees sounds loose and is not, for the force: drive is flat near its own peak,
+        /// so being a few degrees off the optimum costs a couple of percent. It matters for the
+        /// GEOMETRY. windcenter hangs off the sail root, so trim sweeps the centre of effort
+        /// athwartships, and an athwartships error multiplies the largest force in the rig to
+        /// fabricate yaw. That is the same mechanism that made reading the centre at the wrong trim
+        /// the worst defect in the whole model.
+        /// </summary>
+        private const int CoarseTrimSamples = 5;
+        private const int RefineTrimSamples = 5;
+
+        /// <summary>
         /// Evaluate a rig at an apparent wind coming from <paramref name="windAngleDegrees"/> off
         /// the bow, on the port bow (so positive yaw means the bow turns away from the wind).
         /// 45 is close hauled, 90 is a beam reach.
@@ -583,25 +599,70 @@ namespace SailwindRigBalance.Core
 
                 Vector3 euler = sRot.eulerAngles;
                 float waterline = body.position.y;
+                float bestTrim = 0f;
 
-                foreach (float trim in new[] { minTrim, 0f, maxTrim })
+                float low = Mathf.Min(minTrim, maxTrim);
+                float high = Mathf.Max(minTrim, maxTrim);
+                float coarseStep = high - low;
+
+                // Two passes: a coarse scan of the whole swing, then a refinement inside the winning
+                // bracket. Ten evaluations land the trim within about twelve degrees, where the old
+                // three (hard over, centred, hard over) were a fifty degree grid on a hundred
+                // degree swing.
+                //
+                // That grid was not a rounding error, it was a systematic one. Drive against trim is
+                // a smooth hump whose peak walks steadily aft as the wind goes aft, so the three
+                // fixed poses were near the true optimum close hauled and badly wrong on a reach.
+                // Being wrong by a DIFFERENT amount at each bearing is what makes it serious here:
+                // it does not just shift the level of the readout, it bends the shape of the ring,
+                // which is the one thing the ring exists to show.
+                //
+                // Refining rather than sampling uniformly buys the resolution cheaply, and it is
+                // sound because the hump is unimodal in trim over a sail's own limits.
+                for (int pass = 0; pass < 2; pass++)
                 {
-                    sail.transform.localRotation = Quaternion.Euler(euler.x, euler.y, trim);
+                    float from = low, to = high;
+                    int samples = CoarseTrimSamples;
 
-                    MUpdateForce.Invoke(sail, null);
-
-                    Vector3 ceHere = sail.windcenter.position;
-                    float unampF = ToFloat(FUnampFwd.GetValue(sail));
-                    float unampS = ToFloat(FUnampSide.GetValue(sail));
-                    float scale = sail.GetRealSailPower() * CategoryMultiplier(sail.category) * 50f
-                        * CradleHeightCorrection(ceHere.y, waterline);
-                    float fwd = unampF * scale;
-                    if (fwd > bestFwd)
+                    if (pass == 1)
                     {
-                        bestFwd = fwd;
-                        bestSide = unampS * scale * 1.5f;   // the sideways component carries an extra 1.5x
-                        bestCe = ceHere;
+                        if (coarseStep < 0.01f) break;      // no swing to refine
+                        from = Mathf.Max(low, bestTrim - coarseStep);
+                        to = Mathf.Min(high, bestTrim + coarseStep);
+                        samples = RefineTrimSamples;
                     }
+
+                    float span = to - from;
+                    if (span < 0.01f)
+                    {
+                        // A sail with no swing at all: one pose, and no second pass to run.
+                        samples = 1;
+                        if (pass == 1) break;
+                    }
+
+                    for (int k = 0; k < samples; k++)
+                    {
+                        float trim = samples <= 1 ? from : from + span * k / (samples - 1);
+
+                        sail.transform.localRotation = Quaternion.Euler(euler.x, euler.y, trim);
+                        MUpdateForce.Invoke(sail, null);
+
+                        Vector3 ceHere = sail.windcenter.position;
+                        float unampF = ToFloat(FUnampFwd.GetValue(sail));
+                        float unampS = ToFloat(FUnampSide.GetValue(sail));
+                        float scale = sail.GetRealSailPower() * CategoryMultiplier(sail.category) * 50f
+                            * CradleHeightCorrection(ceHere.y, waterline);
+                        float fwd = unampF * scale;
+                        if (fwd > bestFwd)
+                        {
+                            bestFwd = fwd;
+                            bestSide = unampS * scale * 1.5f;   // the sideways component carries an extra 1.5x
+                            bestCe = ceHere;
+                            bestTrim = trim;
+                        }
+                    }
+
+                    if (pass == 0) coarseStep = span / (samples - 1 < 1 ? 1 : samples - 1);
                 }
 
                 Vector3 ce = bestCe;
