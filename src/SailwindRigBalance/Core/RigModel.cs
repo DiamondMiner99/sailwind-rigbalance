@@ -196,8 +196,11 @@ namespace SailwindRigBalance.Core
         private const int RefineTrimSamples = 5;
 
         /// <summary>
-        /// How close two trims' drive has to be before they count as a tie and the centred one wins.
-        /// A thousandth: far above float noise, far below any difference a player could care about.
+        /// How close two trims' drive has to be before they count as a tie and the centred one wins,
+        /// as a fraction of what the sail could make at full power. A thousandth: far above float
+        /// noise, far below any difference a player could care about, and crucially it is measured
+        /// against the sail's OWN capacity rather than against whatever force this particular
+        /// evaluation happened to produce, so the window does not vanish when the forces do.
         /// </summary>
         private const float TieFraction = 0.001f;
 
@@ -608,6 +611,13 @@ namespace SailwindRigBalance.Core
                 float bestTrim = 0f;
                 bool haveBest = false;
 
+                // A fixed slice of what THIS sail could make at full power, computed once and held
+                // constant across every trim, so the tie window means the same thing whether the
+                // sail is driving hard or barely working. Deliberately independent of the forces
+                // actually measured: see the tie-break below.
+                float tieTolerance = sail.GetRealSailPower() * CategoryMultiplier(sail.category)
+                    * 50f * SyntheticWindSpeed * TieFraction;
+
                 float low = Mathf.Min(minTrim, maxTrim);
                 float high = Mathf.Max(minTrim, maxTrim);
                 float coarseStep = high - low;
@@ -675,16 +685,19 @@ namespace SailwindRigBalance.Core
                         // shares, so the forces were mirroring and only the geometry was not.
                         //
                         // Preferring the smaller absolute trim is a rule that is itself symmetric,
-                        // so mirrored winds now resolve to mirrored poses.
+                        // so mirrored winds resolve to mirrored poses.
+                        //
+                        // The tolerance is ABSOLUTE, a fixed fraction of what this sail could make
+                        // at full power, and that is the whole point. Scaling it to the best force
+                        // found so far, which is what it did at first, collapses the window to
+                        // nothing exactly where the forces are near zero, which is the head to wind
+                        // case the tie-break exists for. It never fired, and a second live sweep
+                        // came back disagreeing at the same four bearings as the first.
                         bool better;
                         if (!haveBest) better = true;
-                        else
-                        {
-                            float scaleOfBest = Mathf.Max(Mathf.Abs(bestFwd), 1e-6f);
-                            if (fwd > bestFwd + scaleOfBest * TieFraction) better = true;
-                            else better = fwd > bestFwd - scaleOfBest * TieFraction
-                                && Mathf.Abs(trim) < Mathf.Abs(bestTrim);
-                        }
+                        else if (fwd > bestFwd + tieTolerance) better = true;
+                        else better = fwd > bestFwd - tieTolerance
+                            && Mathf.Abs(trim) < Mathf.Abs(bestTrim);
 
                         if (better)
                         {
