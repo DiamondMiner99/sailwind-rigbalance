@@ -26,8 +26,8 @@ elbow, the horizontal run **is** the gap, at true scale, readable from any camer
 
 | what you see | what it means |
 | --- | --- |
-| magenta **aft** of blue, link **red** | **weather helm** - she rounds up into the wind |
-| magenta **forward** of blue, link **blue** | **lee helm** - she bears away when you let go |
+| magenta **aft** of the blue marker, link **blue** | **weather helm** - she rounds up into the wind |
+| magenta **forward** of the blue marker, link **red** | **lee helm** - she bears away when you let go |
 | close together, link **green** | **balanced** |
 
 A touch of weather helm is what you want. It means letting go of the wheel turns her into

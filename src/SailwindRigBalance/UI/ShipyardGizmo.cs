@@ -105,17 +105,25 @@ namespace SailwindRigBalance.UI
         private static readonly Color MassColour = new Color(1.00f, 0.92f, 0.20f);
         private static readonly Color UnreliableColour = new Color(1.00f, 0.15f, 0.15f);
 
-        // Colour follows danger, not direction.
+        // A DIVERGING scale, cool against warm, not a severity ramp.
         //
         // Lee helm is the state to avoid: let go of the wheel and she bears away, the sails fill
         // harder and she accelerates downwind. Weather helm is the safe residual: let go and she
-        // rounds up into the wind and stops. So lee helm is red, and weather helm is amber, meaning
-        // safe but costing you, because holding any standing helm bleeds speed continuously
-        // (Rudder.cs:57-62 applies 2% of the rudder torque as a backwards force).
+        // rounds up into the wind and stops. It still costs you, because holding any standing helm
+        // bleeds speed continuously (Rudder.cs:57-62 applies 2% of the rudder torque as a backwards
+        // force), but it is a different thing from lee helm, not a milder amount of it.
         //
-        // The first version had weather helm red, which signalled the safe direction as the
-        // dangerous one.
-        internal static readonly Color WeatherHelmColour = new Color(1.00f, 0.68f, 0.15f);
+        // Weather helm was amber for a while and that was wrong for a reason worth recording. Green
+        // to amber to red is the traffic light, and a traffic light is a scale of ONE quantity
+        // getting worse, so amber inevitably read as partway to lee helm rather than as the opposite
+        // direction. Helm is signed, and zero is the good value: the correct picture is two arms
+        // leaving a neutral centre, which needs two hues that differ in KIND. Blue against red does
+        // that and carries the safe-versus-dangerous reading for free. (The version before amber had
+        // weather helm red, which signalled the safe direction as the dangerous one.)
+        //
+        // Lighter and more cyan than the centre-of-resistance marker's blue, so the helm link
+        // arriving at that marker still reads as a separate thing from it.
+        internal static readonly Color WeatherHelmColour = new Color(0.25f, 0.78f, 1.00f);
         internal static readonly Color LeeHelmColour = new Color(1.00f, 0.20f, 0.15f);
         internal static readonly Color BalancedColour = new Color(0.35f, 1.00f, 0.45f);
 
@@ -869,7 +877,7 @@ namespace SailwindRigBalance.UI
         /// <summary>
         /// Works out where the combined centre of effort would end up if the selected sail were
         /// taken to the opposite extreme of its furl state, and colours the track by the verdict at
-        /// that destination: amber if furling this sail would leave weather helm, red for lee helm,
+        /// that destination: blue if furling this sail would leave weather helm, red for lee helm,
         /// green for balanced.
         ///
         /// Two evaluations, and the line between them is an approximation, not the path. The centre
@@ -1067,7 +1075,7 @@ namespace SailwindRigBalance.UI
                 // do. White is not neutral there: Legacy Shaders/Particles/Alpha Blended computes
                 // o.color = 2.0 * v.color * _TintColor, so its neutral value is the 0.5 grey it
                 // ships with, and overwriting that with white doubled every colour and clipped it.
-                // Amber and red both washed toward yellow-white, which is the one distinction the
+                // Both arms washed toward yellow-white, which is the one distinction the
                 // whole readout exists to make, and the grey no-verdict colour lost the alpha that
                 // makes it read as dimmed. A shader's own default is by definition its no-tint
                 // value, so the right move is not to touch it.

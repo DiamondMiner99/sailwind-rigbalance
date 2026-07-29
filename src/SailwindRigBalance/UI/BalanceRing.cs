@@ -15,18 +15,18 @@ namespace SailwindRigBalance.UI
     /// staysails hold 0.480 and 0.500, and those sit at different ends of the boat, so coming up on
     /// the wind quietly reweights the rig fore and aft.
     ///
-    /// Read it exactly like the markers: a ring that is green or amber all the way round is a boat
+    /// Read it exactly like the markers: a ring that is green or blue all the way round is a boat
     /// that behaves; a ring with red in it is a boat that develops lee helm on some heading, and
     /// the coloured arc tells you which.
     ///
-    /// Built as one mesh with per-segment vertex colours rather than a line renderer per segment.
+    /// Built as one mesh with interpolated vertex colours rather than a line renderer per segment.
     /// LineRenderer's gradient tops out at eight keys, far short of the resolution this needs, and
     /// two dozen renderers to draw one ring would be silly. The unlit shader the markers already
     /// use multiplies by vertex colour, so the same shader works unchanged.
     ///
     /// It gets its OWN material, never the helm link's. The link's material carries the current
     /// verdict colour in _Color, and Sprites/Default multiplies _Color into the vertex colour, so
-    /// sharing it multiplied all 24 of the ring's verdicts by the verdict at the one angle the
+    /// sharing it multiplied every one of the ring's verdicts by the verdict at the one angle the
     /// arrow happened to point at. A lee-helm reading painted the entire ring red, which is exactly
     /// the failure the grey guard below was added to prevent, and the two were indistinguishable.
     /// </summary>
@@ -34,7 +34,8 @@ namespace SailwindRigBalance.UI
     {
         /// <summary>
         /// Bearings the rig is actually evaluated at, every ten degrees. This is the expensive
-        /// number: each one drives the game's force function three times per sail.
+        /// number: each one drives the game's force function ten times per sail, and the whole sweep
+        /// is spread across frames because in one go it measured 189 ms.
         /// </summary>
         private const int Segments = 36;
 
@@ -508,7 +509,7 @@ namespace SailwindRigBalance.UI
         /// <summary>
         /// The helm as a continuous colour rather than one of three.
         ///
-        /// Green at balanced, ramping out to amber for weather helm and red for lee helm as the
+        /// Green at balanced, ramping out to blue for weather helm and red for lee helm as the
         /// lever leaves the band. A diverging scale with the safe state in the middle, because the
         /// quantity is signed and zero is the good value: the two directions are genuinely different
         /// failures, not two ends of one axis.
@@ -527,12 +528,10 @@ namespace SailwindRigBalance.UI
 
             float bands = Mathf.Abs(helmMetres) / balancedMetres;
 
-            // Square-rooted, so the HUE separates fast and the brightness keeps climbing after it.
-            // A straight linear ramp put both directions through much the same muddy yellow at half
-            // scale, which is precisely where telling weather from lee matters most: the two are
-            // different failures, and a scale that makes them look alike in the middle defeats the
-            // reason they have different colours at all. This reaches most of the way to amber or
-            // red by a quarter of the range and then deepens.
+            // Square-rooted, so the hue commits early and then deepens. A linear ramp spends most of
+            // its range near the neutral colour, which hides the first and most useful part of the
+            // signal: the point where a rig starts to go one-handed, not the point where it is
+            // hopeless. This is most of the way to blue or red by a quarter of the range.
             float t = Mathf.Sqrt(Mathf.InverseLerp(1f, SaturateAtBands, bands));
 
             Color extreme = helmMetres > 0f

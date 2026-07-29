@@ -21,8 +21,8 @@ markers, for a boat.
 Enter any shipyard and three markers appear on your boat: magenta for the centre of
 effort, blue for the centre of lateral resistance, yellow for the centre of mass. A
 coloured elbow links the first two. The horizontal part of that elbow is your helm
-balance, at true scale. Magenta aft of blue is weather helm and the link turns red;
-magenta forward is lee helm and it turns blue; close together is balanced and it turns
+balance, at true scale. Magenta aft of blue is weather helm and the link turns blue;
+magenta forward is lee helm and it turns red; close together is balanced and it turns
 green. Change a sail and watch it move before you confirm the order.
 
 ## Where the numbers come from

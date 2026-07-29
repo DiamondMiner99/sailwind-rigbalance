@@ -18,7 +18,8 @@ markers, for a boat.
 ## Features
 
 - **Three markers** - centre of effort, centre of lateral resistance, centre of mass
-- **A helm verdict at a glance** - a coloured link between two of them, red for weather helm, blue for lee helm, green for balanced
+- **A helm verdict at a glance** - a coloured link between two of them: blue for weather helm, red for lee helm, green for balanced, and the colour deepens the further out of balance she is
+- **A balance ring** - a rose around the boat showing what the helm would do at every point of sail at once, not just the one you are looking at
 - **Live** - swap, resize or move a sail and the markers follow, before you confirm the order
 - **Measured, not tabulated** - every centre of effort comes from the sail's actual geometry driven through the game's own force function, never a per-sail-type constant
 - **Visible through the hull and at night** - two of the three markers sit inside the boat, and unlit markers hold their colour after dark
@@ -64,14 +65,30 @@ so that gap is the horizontal leg, at true scale, from any camera angle.
 
 | what you see | what it means |
 |--------------|---------------|
-| magenta **aft** of blue, link **red** | weather helm - she rounds up into the wind |
-| magenta **forward** of blue, link **blue** | lee helm - she bears away when you let go |
-| close together, link **green** | balanced |
+| magenta **aft** of the blue marker, link **blue** | weather helm - she rounds up into the wind |
+| magenta **forward** of the blue marker, link **red** | lee helm - she bears away when you let go |
+| the two close together, link **green** | balanced |
+| link **grey** | no verdict: she is running, or the sails are not drawing |
 
-A touch of weather helm is what you want. Lee helm is the one to avoid.
+A touch of weather helm is what you want. Lee helm is the one to avoid. The colour deepens
+the further out of balance she is, so a faint blue is a touch of weather helm and a strong
+one is a fistful.
+
+### The balance ring
+
+A rose is drawn on the water around the boat, coloured the same way. **The top of the ring
+is your bow**, and each arc answers: if the wind came from that bearing, what would the helm
+do? The white arrow marks the bearing the markers are currently reporting, and you can drag
+it round to look at any other.
+
+Read the ring as a whole. Green and blue all the way round is a boat that behaves on every
+point of sail. **Red anywhere is the finding**, because it means she develops lee helm on
+some heading you will eventually sail, and a single close-hauled reading would never have
+shown you that. Grey means no answer: she is running, so there is no side force to balance.
 
 Three round buttons in the top right, coloured to match, hide and show each marker. Hover
-one for a name. Drag the strip anywhere and it stays put.
+one for a name. The strip is fixed there: nothing else in the shipyard can be dragged, and a
+panel that could be would read as belonging to a different program.
 
 **The yellow marker behaves differently.** It does not respond to sails or deck parts - in
 this game a mast, a sail or a forecastle adds weight without moving where the boat
@@ -86,12 +103,13 @@ balances. It does respond to a keel or ballast option where a hull has one.
 | `ShowCentreOfEffort` | true | magenta marker |
 | `ShowCentreOfLateralResistance` | true | blue marker |
 | `ShowCentreOfMass` | true | yellow marker |
+| `ShowReefTrack` | true | where the centre of effort would go if you furled the selected sail |
+| `ShowBalanceRing` | true | the rose showing every point of sail at once |
 | `ShowPanel` | true | the button strip |
 | `DrawThroughHull` | true | draw markers on top of the boat |
 | `MarkerScale` | 1.0 | marker size multiplier |
-| `WindAngleDegrees` | 45 | wind angle used to judge the rig |
-| `BalancedThresholdMetres` | 0.3 | how far off centre still reads as balanced |
-| `PanelPosition` | unset | remembered after you drag the strip |
+| `WindAngleDegrees` | 45 | wind angle the rose starts at; after that the arrow owns it |
+| `BalancedThresholdFraction` | 0.02 | how far off centre still reads as balanced, as a fraction of hull length |
 
 `DrawThroughHull` is the one worth knowing about: it's what makes the two markers inside the
 hull visible at all. Turn it off if it ever conflicts with another mod's rendering.
@@ -110,7 +128,7 @@ Shipyard Expansion.
 ## Troubleshooting
 
 **No markers in the shipyard:**
-- Check `BepInEx/LogOutput.log` for `[Init] 7 shipyard hook(s) applied`. It names any hook
+- Check `BepInEx/LogOutput.log` for `[Init] 9 shipyard hook(s) applied`. It names any hook
   that failed.
 - `rig model available=False` means a game update moved something the force model reads, and
   the gizmo disabled itself rather than guess.

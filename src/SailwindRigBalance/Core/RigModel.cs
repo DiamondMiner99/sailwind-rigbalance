@@ -424,7 +424,7 @@ namespace SailwindRigBalance.Core
         /// That mattered because the two halves of the readout came from different places: the
         /// marker's position from the centroid, the link's colour from the yaw moment. A player
         /// could see magenta plainly forward of blue, which the mod tells them is lee helm, while
-        /// the link between them was painted amber for weather helm, with nothing to say which one
+        /// the link between them was painted blue for weather helm, with nothing to say which one
         /// was lying.
         ///
         /// So the marker is put where the classical picture puts it: on the centreline, at the lever
