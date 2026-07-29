@@ -395,6 +395,13 @@ namespace SailwindRigBalance.UI
             }
 
             _ring.Follow(_boat);
+
+            // Advance an in-progress sweep by one frame's budget. The ring evaluates every bearing
+            // around the boat, which measured at 189 ms in one go on a full square rigger, so it is
+            // spread across frames instead of freezing the shipyard for a fifth of a second every
+            // time a sail is touched. The old ring stays on screen until the new one is complete.
+            _ring.Step(_boat);
+
             _ring.HandleDrag(source, _boat);
 
             // Dragging the arrow recomputes without the usual settle delay: the reason to drag is
@@ -405,6 +412,11 @@ namespace SailwindRigBalance.UI
             // applied while the arrow was being held was evaluated with zero delay, against sails
             // Unity had not finished destroying yet. That is the whole reason RebuildDelay exists.
             if (_ring.ConsumeAngleChanged() && _rebuildAt < 0f) _rebuildAt = Time.unscaledTime;
+
+            // A finished sweep establishes how much output this rig is capable of, which is what the
+            // markers measure "no verdict" against. Re-colour them against it. This does not restart
+            // the sweep: the ring is only rebuilt when the RIG changed, and this is not that.
+            if (_ring.ConsumeSweepCompleted() && _rebuildAt < 0f) _rebuildAt = Time.unscaledTime;
 
             if (_track != null && _track.enabled)
             {

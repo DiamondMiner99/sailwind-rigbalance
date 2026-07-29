@@ -296,71 +296,153 @@ namespace SailwindRigBalance.UI
                 _centreLocal = boat.InverseTransformPoint(current.HullOrigin);
 
                 _radius = Mathf.Max(current.HullLength * 0.55f, 3f);
-                float radius = _radius;
                 float band = Mathf.Max(current.HullLength * 0.030f, 0.25f);
 
-                // The WHOLE circle, one evaluation per segment. 0 is dead ahead, 180 dead astern.
+                // Start the sweep; Step does the work, a few bearings per frame.
                 //
-                // This used to evaluate half and mirror the rest, on the argument that balance is
-                // symmetric port and starboard. It is not, for two reasons. A junk rig sets its
-                // sails to one side of the mast, so the rig itself has no mirror plane, and any
-                // hull whose parts are not symmetric has the same problem. And the trim search picks
-                // each sail's best-drive pose independently at every angle, which need not land on
-                // mirrored poses when the geometry is not mirrored. Halving the cost was buying a
-                // ring that could be quietly wrong on one tack, which is exactly the question the
-                // ring exists to answer.
-                //
-                // Twenty four evaluations instead of twelve, on a debounced rig change only, never
-                // per frame and never while the arrow is being dragged.
-                var sampled = new RigBalance[Segments];
-                var evaluated = new bool[Segments];
-                float best = 0f;
+                // Measured at 189 ms for 36 bearings on a ten-sail square rigger, which as one
+                // synchronous burst is a five frame freeze every time a sail is touched. The cost is
+                // not reflection overhead that could be optimised away: it is the game's own force
+                // function plus a transform write and a world-position read per trim pose, and there
+                // are thirty six times ten times ten of those. Making the answer cruder to fit it
+                // into one frame would be trading the thing the tool is for against a stutter, so it
+                // is spread instead. The ring keeps showing the previous sweep until the new one is
+                // complete, about half a second later, which for a background readout nobody is
+                // staring at is invisible.
+                _pendingRoot = boatRoot;
+                _pendingHullLength = current.HullLength;
+                _pendingBalancedMetres = balancedMetres;
+                _pendingBand = band;
+                _pendingSampled = new RigBalance[Segments];
+                _pendingEvaluated = new bool[Segments];
+                _pendingBest = 0f;
+                _pendingIndex = 0;
+                _pendingMilliseconds = 0f;
 
-                // Timed, because the sweep is the one thing in this mod that can cost a visible
-                // frame, and the two knobs that set its cost (bearings here, trim poses per sail in
-                // RigModel) are worth tuning from a measurement rather than an estimate.
-                var clock = System.Diagnostics.Stopwatch.StartNew();
-
-                for (int i = 0; i < Segments; i++)
-                {
-                    // The CENTRE of the segment this colours, not its leading edge. Sampling the
-                    // edge put the two halves a whole segment out of step back when they were
-                    // mirrored, so a helm reversal at 40 degrees showed at 45 on one tack and 30 on
-                    // the other.
-                    float angle = 360f * (i + 0.5f) / Segments;
-
-                    RigBalance balance;
-                    // The hull cannot change length between samples, so it is measured once by the
-                    // caller and passed in. Measuring walks every collider on the boat, and this
-                    // loop was throwing away one of those measurements per segment.
-                    evaluated[i] = RigModel.TryEvaluate(boatRoot, angle, out balance,
-                        null, 1f, current.HullLength);
-                    sampled[i] = balance;
-
-                    if (evaluated[i] && balance.TotalOutput > best) best = balance.TotalOutput;
-                }
-
-                clock.Stop();
-                MaxOutput = best;
-
-                var colours = new Color[Segments];
-                for (int i = 0; i < Segments; i++)
-                {
-                    colours[i] = evaluated[i]
-                        ? VerdictFor(sampled[i], best, balancedMetres)
-                        : DeadColour;
-                }
-
-                LogSweep(sampled, evaluated, best, balancedMetres,
-                    (float)clock.Elapsed.TotalMilliseconds);
-
-                BuildMesh(radius, band, colours);
-                UpdateArrow(boat);
+                Step(boat);
             }
             catch (Exception e)
             {
                 Plugin.Log.LogWarning("[Ring] rebuild failed: " + e.Message);
+                _pendingIndex = -1;
             }
+        }
+
+        // Sweep in progress. Negative index means idle.
+        private GameObject _pendingRoot;
+        private RigBalance[] _pendingSampled;
+        private bool[] _pendingEvaluated;
+        private float _pendingHullLength;
+        private float _pendingBalancedMetres;
+        private float _pendingBand;
+        private float _pendingBest;
+        private float _pendingMilliseconds;
+        private int _pendingIndex = -1;
+
+        /// <summary>
+        /// Milliseconds of sweep to do per frame. Small enough to disappear into a frame at 30 fps,
+        /// large enough that a full sweep completes in well under a second.
+        /// </summary>
+        private const float FrameBudgetMs = 4f;
+
+        public bool Sweeping => _pendingIndex >= 0;
+
+        /// <summary>
+        /// Advances an in-progress sweep by up to one frame's budget, and finishes it when the last
+        /// bearing is in. Safe to call every frame; does nothing when idle.
+        /// </summary>
+        public void Step(Transform boat)
+        {
+            if (_pendingIndex < 0) return;
+
+            if (_pendingRoot == null || boat == null)
+            {
+                // The boat went away mid-sweep, which a customization does. Drop it rather than
+                // finish a ring built from destroyed sails; the next dirty flag starts a fresh one.
+                _pendingIndex = -1;
+                return;
+            }
+
+            try
+            {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+
+                while (_pendingIndex < Segments)
+                {
+                    int i = _pendingIndex++;
+                    float angle = 360f * (i + 0.5f) / Segments;
+
+                    RigBalance balance;
+                    // The hull cannot change length between bearings, so it is measured once by the
+                    // caller and passed in.
+                    _pendingEvaluated[i] = RigModel.TryEvaluate(_pendingRoot, angle, out balance,
+                        null, 1f, _pendingHullLength);
+                    _pendingSampled[i] = balance;
+
+                    if (_pendingEvaluated[i] && balance.TotalOutput > _pendingBest)
+                        _pendingBest = balance.TotalOutput;
+
+                    if (clock.Elapsed.TotalMilliseconds >= FrameBudgetMs) break;
+                }
+
+                _pendingMilliseconds += (float)clock.Elapsed.TotalMilliseconds;
+                if (_pendingIndex < Segments) return;
+
+                Finish(boat);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning("[Ring] sweep failed: " + e.Message);
+                _pendingIndex = -1;
+            }
+        }
+
+        private void Finish(Transform boat)
+        {
+            try
+            {
+                MaxOutput = _pendingBest;
+
+                var colours = new Color[Segments];
+                for (int i = 0; i < Segments; i++)
+                {
+                    colours[i] = _pendingEvaluated[i]
+                        ? VerdictFor(_pendingSampled[i], _pendingBest, _pendingBalancedMetres)
+                        : DeadColour;
+                }
+
+                BuildMesh(_radius, _pendingBand, colours);
+                UpdateArrow(boat);
+
+                LogSweep(_pendingSampled, _pendingEvaluated, _pendingBest,
+                    _pendingBalancedMetres, _pendingMilliseconds);
+            }
+            finally
+            {
+                _pendingIndex = -1;
+                _pendingSampled = null;
+                _pendingEvaluated = null;
+                _pendingRoot = null;
+                _sweepCompleted = true;
+            }
+        }
+
+        private bool _sweepCompleted;
+
+        /// <summary>
+        /// True once after a sweep finishes, so the caller can re-colour the markers.
+        ///
+        /// MaxOutput is the yardstick the "no verdict" test measures against, and it is only known
+        /// once every bearing has been evaluated. With the sweep spread over frames, the markers and
+        /// the helm link are first drawn against the PREVIOUS sweep's yardstick, or against none at
+        /// all on the first visit of a session. This is the nudge that makes them catch up. It
+        /// cannot loop: the caller only starts a sweep when the RIG changed, and this is not that.
+        /// </summary>
+        public bool ConsumeSweepCompleted()
+        {
+            if (!_sweepCompleted) return false;
+            _sweepCompleted = false;
+            return true;
         }
 
         /// <summary>

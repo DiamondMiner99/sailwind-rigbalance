@@ -196,6 +196,12 @@ namespace SailwindRigBalance.Core
         private const int RefineTrimSamples = 5;
 
         /// <summary>
+        /// How close two trims' drive has to be before they count as a tie and the centred one wins.
+        /// A thousandth: far above float noise, far below any difference a player could care about.
+        /// </summary>
+        private const float TieFraction = 0.001f;
+
+        /// <summary>
         /// Evaluate a rig at an apparent wind coming from <paramref name="windAngleDegrees"/> off
         /// the bow, on the port bow (so positive yaw means the bow turns away from the wind).
         /// 45 is close hauled, 90 is a beam reach.
@@ -600,6 +606,7 @@ namespace SailwindRigBalance.Core
                 Vector3 euler = sRot.eulerAngles;
                 float waterline = body.position.y;
                 float bestTrim = 0f;
+                bool haveBest = false;
 
                 float low = Mathf.Min(minTrim, maxTrim);
                 float high = Mathf.Max(minTrim, maxTrim);
@@ -653,8 +660,35 @@ namespace SailwindRigBalance.Core
                         float scale = sail.GetRealSailPower() * CategoryMultiplier(sail.category) * 50f
                             * CradleHeightCorrection(ceHere.y, waterline);
                         float fwd = unampF * scale;
-                        if (fwd > bestFwd)
+
+                        // Strictly better, or an effective tie resolved toward the centred pose.
+                        //
+                        // The tie-break is not tidiness, it is what keeps the two tacks agreeing.
+                        // Close to head to wind there is almost no drive to maximise, so the curve
+                        // this is hunting over goes flat and several widely separated trims come out
+                        // within float noise of each other. Picking whichever happened to be tested
+                        // first made the choice arbitrary, and trim sweeps the centre of effort
+                        // athwartships, so an arbitrary trim is a wildly different yaw. A live sweep
+                        // on a symmetric square rigger mirrored EXACTLY at 32 of 36 bearings and
+                        // disagreed at the four nearest the bow: 35 degrees read +2.4 m of weather
+                        // helm while its mirror at 325 read -1.6 m of lee, with identical side-force
+                        // shares, so the forces were mirroring and only the geometry was not.
+                        //
+                        // Preferring the smaller absolute trim is a rule that is itself symmetric,
+                        // so mirrored winds now resolve to mirrored poses.
+                        bool better;
+                        if (!haveBest) better = true;
+                        else
                         {
+                            float scaleOfBest = Mathf.Max(Mathf.Abs(bestFwd), 1e-6f);
+                            if (fwd > bestFwd + scaleOfBest * TieFraction) better = true;
+                            else better = fwd > bestFwd - scaleOfBest * TieFraction
+                                && Mathf.Abs(trim) < Mathf.Abs(bestTrim);
+                        }
+
+                        if (better)
+                        {
+                            haveBest = true;
                             bestFwd = fwd;
                             bestSide = unampS * scale * 1.5f;   // the sideways component carries an extra 1.5x
                             bestCe = ceHere;
