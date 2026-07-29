@@ -31,7 +31,7 @@ namespace SailwindRigBalance
         // ("version is invalid") and skip it entirely. Any "alpha" wording lives in prose only.
         // Bump for every shipped zip, including a packaging-only change, so two machines can never
         // silently differ.
-        public const string PluginVersion = "0.10.4";
+        public const string PluginVersion = "0.11.0";
 
         public static Plugin Instance { get; private set; }
         public static ManualLogSource Log { get; private set; }
@@ -99,6 +99,11 @@ namespace SailwindRigBalance
         private void Start()
         {
             ModDetect.InitAndLog();
+
+            // After detection, because it only patches when Shipyard Expansion is actually present,
+            // and in Start for the same reason detection is here: the chainloader roster is only
+            // complete once every plugin's Awake has run.
+            SailScalerHooks.Apply(_harmony);
         }
 
         /// <summary>

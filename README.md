@@ -1,8 +1,11 @@
 # Sailwind Rig Balance
 
-> **Early alpha.** The gizmo works and is safe to run - it only draws, and never touches
-> your boat, your save, or the game's physics. It has been exercised on a small number of
-> hulls so far.
+> **Early alpha.** The gizmo is safe to run: it never writes to your save and never applies
+> a force to anything. The one thing it does change is the furl state of a sail, and only
+> when you press its furl button, which is the same field the shipyard's own furl control
+> writes. Working out the balance drives the game's sail force function directly, so it
+> borrows each sail's trim for the length of that call and puts it straight back. It has
+> been exercised on a small number of hulls so far.
 
 A shipyard tool for [Sailwind](https://store.steampowered.com/app/1764530/Sailwind/) - a
 sailing and trading game on Steam.

@@ -46,14 +46,17 @@ namespace SailwindRigBalance.Config
 
             ShowReefTrack = config.Bind("Markers", "ShowReefTrack", true,
                 "With a sail selected, draw a line from the current centre of effort to where it "
-                + "would sit with that sail furled. The line covers every reef setting in between, "
-                + "and its colour is the verdict at the far end.");
+                + "would sit with that sail furled. Its colour is the verdict at the far end, or "
+                + "grey where the sails are barely drawing. The two ends are exact and the line "
+                + "between them is close but not exact. It is not drawn at all on a heading where "
+                + "there is no helm reading to compare, or where furling the sail reverses which "
+                + "side the rig pushes, because a straight line would be inventing an answer.");
 
             ShowRing = config.Bind("Markers", "ShowBalanceRing", true,
                 "Draw a ring around the boat coloured by what the helm would do at every point of "
-                + "sail: green balanced, amber weather helm, red lee helm, grey where the wind is "
-                + "too fine for the sails to draw at all. Red anywhere on the ring is a boat that "
-                + "develops lee helm on some heading, which a single reading cannot show.");
+                + "sail: green balanced, amber weather helm, red lee helm, grey where the sails are "
+                + "not drawing enough for the question to mean anything. Red anywhere on the ring is "
+                + "a boat that develops lee helm on some heading, which a single reading cannot show.");
 
             ShowPanel = config.Bind("Interface", "ShowPanel", true,
                 "Show the button strip. Turn this off to keep the markers with no interface at all.");

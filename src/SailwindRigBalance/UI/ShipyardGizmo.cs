@@ -9,7 +9,7 @@ namespace SailwindRigBalance.UI
     /// <summary>
     /// The shipyard gizmo: three world-space markers, read the way KSP's CoM/CoL/CoT are read.
     ///
-    ///   magenta  centre of effort      where the whole sail plan pushes
+    ///   magenta  centre of effort      where the sail plan's turning force acts
     ///   blue     centre of resistance  where the hull's lateral drag pushes back
     ///   yellow   centre of mass        the boat's own balance point
     ///
@@ -26,6 +26,18 @@ namespace SailwindRigBalance.UI
     /// The balance answer is the fore-and-aft offset between magenta and blue, and nothing else. Magenta
     /// aft of blue is weather helm, magenta forward is lee helm. A coloured link between the two
     /// carries that verdict so it reads from any camera angle without a number on screen.
+    ///
+    /// The marker and the link colour are the same statement, which took work to make true. Magenta
+    /// is not simply where the sails average out to. It is drawn on the centreline at the lever arm
+    /// the rig's yaw moment about the hull origin works out to, so the fore-and-aft run of the elbow
+    /// IS the balance figure rather than merely correlating with it
+    /// (RigModel.CombineCentreOfEffort). Its height is still the sails' own centroid, because that
+    /// is the heeling lever against yellow and a separate reading.
+    ///
+    /// Without that the two halves came from different quantities and could point opposite ways on
+    /// a square rigger, where the courses carry the drive and the headsails the side force from
+    /// opposite ends of the boat: magenta plainly forward of blue while the link between them was
+    /// painted for weather helm.
     ///
     /// Four decisions carry the whole file:
     ///
@@ -130,6 +142,18 @@ namespace SailwindRigBalance.UI
         private Material _linkMaterial;
         private Texture2D _linkTexture;
 
+        /// <summary>
+        /// The ring's own material, which is never tinted.
+        ///
+        /// The ring used to be handed _linkMaterial. That material's _Color is overwritten with the
+        /// current helm verdict on every recompute, and Sprites/Default multiplies _Color into the
+        /// vertex colour, so all 24 of the ring's independently computed verdicts came out
+        /// multiplied by the verdict at whatever single angle the wind arrow happened to point at.
+        /// A lee-helm reading turned the whole ring red, a balanced one turned it green, and the
+        /// grey no-verdict guard dimmed everything to 55 percent. The ring was reporting the arrow.
+        /// </summary>
+        private Material _ringMaterial;
+
         // The reef track: where the combined centre of effort travels as the selected sail goes
         // between fully set and fully furled. Two endpoints describe every setting in between.
         private LineRenderer _track;
@@ -138,6 +162,18 @@ namespace SailwindRigBalance.UI
         private bool _trackValid;
         private Sail _trackSail;        // owned by Recompute
         private Sail _polledSelection;  // owned by the Update poll, never by Recompute
+
+        // The shipyard lerps a newly admitted boat into its cradle over about two seconds
+        // (Shipyard.cs:435), and AdmitShip's postfix fires at the start of that, so the first
+        // reading was taken with the boat an eighth of the way there and nothing re-read it when it
+        // arrived. Boat pose matters: the wind-height multiplier is taken per sail off world Y, and
+        // the hull length is measured in the boat's own axes. Watching the transform go still covers
+        // the discharge move and any other mod that repositions the boat as well.
+        private Vector3 _lastBoatPosition;
+        private Quaternion _lastBoatRotation;
+        private bool _settleArmed;
+        private float _stillSince;
+        private const float SettleSeconds = 0.15f;
 
         private readonly BalanceRing _ring = new BalanceRing();
 
@@ -149,9 +185,15 @@ namespace SailwindRigBalance.UI
 
         private bool _valid;
         private bool _unreliable;
-        private bool _helmMeaningful = true;
+        /// <summary>
+        /// True when the model has no verdict to give at this angle, either because the sails are
+        /// barely drawing or because there is no side force to balance. Decided by the same test the
+        /// ring uses (BalanceRing.IsDead), so the two cannot contradict each other.
+        /// </summary>
+        private bool _helmDead;
         private bool _ringNeedsRebuild = true;
         private float _helmMetres;      // positive = weather helm, in metres of CE offset
+        private string _lastSummary;    // so an unchanged verdict is not logged every rebuild
 
         private float _rebuildAt = -1f;
 
@@ -189,6 +231,9 @@ namespace SailwindRigBalance.UI
                 return;
             }
 
+            WatchForSettle();
+            Shipyard.UnrollWatch.Tick();
+
             if (ShipyardHooks.ConsumeDirty())
             {
                 _rebuildAt = Time.unscaledTime + RebuildDelay;
@@ -197,6 +242,12 @@ namespace SailwindRigBalance.UI
 
             // Selecting a different sail changes which reef track is meaningful, and the shipyard
             // gives no event for it, so it is polled. Cheap: one accessor, no allocation.
+            //
+            // This is also the frame's single reading of the selection: OnGUI reads the latched
+            // field rather than calling the accessor again. IMGUI needs the same sequence of
+            // layout-emitting calls in its Layout and Repaint passes, and the shipyard's own raycast
+            // picking can null or set the selection between the two, which made the panel emit three
+            // controls in one pass and four in the other.
             //
             // The comparison is against a field owned by THIS poll, not against _trackSail, which
             // Recompute owns. Comparing against _trackSail deadlocked the whole gizmo: the poll
@@ -210,11 +261,62 @@ namespace SailwindRigBalance.UI
                 if (_valid) _rebuildAt = Time.unscaledTime + RebuildDelay;
             }
 
-            if (_rebuildAt > 0f && Time.unscaledTime >= _rebuildAt)
+            // Tested against the same sentinel LateUpdate tests, >= 0 here and < 0 there. With a
+            // strict > 0 here, a deadline of exactly zero would have satisfied neither: Update would
+            // never have fired it and LateUpdate would never have been allowed to replace it, so the
+            // gizmo would have latched dead for the session with nothing in the log.
+            if (_rebuildAt >= 0f && Time.unscaledTime >= _rebuildAt)
             {
                 _rebuildAt = -1f;
                 Recompute();
             }
+        }
+
+        /// <summary>
+        /// Marks the rig dirty once the boat has stopped moving.
+        ///
+        /// Shipyard.AdmitShip starts a coroutine that lerps the hull into its cradle over roughly two
+        /// seconds (Shipyard.cs:274, :435) and returns immediately, so the postfix that opens a
+        /// session fires at the very start of that move and the 0.25 s rebuild delay lands about an
+        /// eighth of the way in. MoveShip's tail calls only ShipyardUI.UpdateMastButtons
+        /// (Shipyard.cs:445-448), never UpdateOrder or LoadData, so nothing this mod patches fires
+        /// when the boat arrives.
+        ///
+        /// That mattered because two inputs move with the hull. Every sail's force is scaled by
+        /// GetWindHeightMult of its own windcenter's world Y (Sail.cs:411), and the curve saturates,
+        /// so a rig hanging lower is not merely scaled down, it is reweighted low sails against high
+        /// ones. And the hull length is measured along the boat's own axis at whatever yaw it has
+        /// reached. A player who walked in, read the gizmo and walked out got an answer computed for
+        /// a boat in mid-air, and not the same answer twice, because it depended on the frame rate
+        /// during that quarter second.
+        /// </summary>
+        private void WatchForSettle()
+        {
+            GameObject boat = ShipyardHooks.CurrentBoat;
+            if (boat == null)
+            {
+                _settleArmed = false;
+                return;
+            }
+
+            Transform t = boat.transform;
+            bool moved = (t.position - _lastBoatPosition).sqrMagnitude > 1e-6f
+                || Quaternion.Angle(t.rotation, _lastBoatRotation) > 0.01f;
+            _lastBoatPosition = t.position;
+            _lastBoatRotation = t.rotation;
+
+            if (moved)
+            {
+                _settleArmed = true;
+                _stillSince = Time.unscaledTime;
+                return;
+            }
+
+            // Armed only by a move, so a boat that has been sitting still cannot keep re-triggering.
+            if (!_settleArmed || Time.unscaledTime - _stillSince < SettleSeconds) return;
+
+            _settleArmed = false;
+            ShipyardHooks.MarkDirty();
         }
 
         /// <summary>
@@ -297,7 +399,12 @@ namespace SailwindRigBalance.UI
 
             // Dragging the arrow recomputes without the usual settle delay: the reason to drag is
             // to watch the markers move, and a quarter second of lag would destroy that.
-            if (_ring.ConsumeAngleChanged()) _rebuildAt = Time.unscaledTime;
+            //
+            // Only when nothing else is already waiting, though. Writing the deadline
+            // unconditionally overwrote a pending rig-change settle with "now", so a customization
+            // applied while the arrow was being held was evaluated with zero delay, against sails
+            // Unity had not finished destroying yet. That is the whole reason RebuildDelay exists.
+            if (_ring.ConsumeAngleChanged() && _rebuildAt < 0f) _rebuildAt = Time.unscaledTime;
 
             if (_track != null && _track.enabled)
             {
@@ -365,14 +472,11 @@ namespace SailwindRigBalance.UI
 
             Vector3 centreOfMass = ReadCentreOfMass(boat, balance.HullOrigin);
 
-            // The offset that IS the answer, in metres, along the boat's own fore-aft axis.
-            // Dividing the yaw moment by the side force turns a size-dependent torque into a lever
-            // arm, which compares honestly between a dinghy and a brig.
-            float lever = Mathf.Abs(balance.TotalSideForce) > 0.01f
-                ? balance.YawMoment / balance.TotalSideForce
-                : 0f;
-            _helmMetres = -lever;               // positive = CE aft of CLR = weather helm
-            _helmMeaningful = balance.HelmMeaningful;
+            // The offset that IS the answer, in metres, along the boat's own fore-aft axis. Computed
+            // once, by the model, and read from there by the marker colour, the ring and the reef
+            // track alike; it used to be derived separately in all three, which is three chances for
+            // the sign convention to drift apart.
+            _helmMetres = balance.HelmMetres;
             _unreliable = balance.AnySailHasFrozenCe;
 
             // Scaled to the boat. A flat threshold in metres is a tight tolerance on a brig and a
@@ -392,14 +496,13 @@ namespace SailwindRigBalance.UI
             _local[Resistance] = _boat.InverseTransformPoint(balance.HullOrigin);
             _local[Mass] = _boat.InverseTransformPoint(centreOfMass);
 
-            Repaint(Effort, _unreliable ? UnreliableColour : EffortColour);
-            UpdateLinkColour();
-            UpdateTrack(boat, balance);
-
             // The ring is a sweep of every wind angle, so its colours do not depend on where the
             // arrow points. Rebuilding it while the arrow is being dragged was doing thirteen full
             // rig evaluations per frame on top of the two the markers need, which is what dropped
             // the frame rate by half. It is rebuilt when the RIG changes, not when the wind moves.
+            //
+            // It runs BEFORE the marker colours, because the sweep is what establishes how much
+            // output this rig is capable of, and that is the yardstick the "no verdict" test uses.
             bool wantRing = Config.Settings.ShowRing == null || Config.Settings.ShowRing.Value;
             if (wantRing && (_ringNeedsRebuild || !_ring.Exists))
             {
@@ -409,18 +512,65 @@ namespace SailwindRigBalance.UI
                     _ring.SetWindAngle(Config.Settings.WindAngle.Value);
 
                 _ring.Rebuild(boat, _boat, balance, _balancedMetres,
-                    _linkMaterial, _layer, _root == null ? null : _root.transform);
+                    _ringMaterial, _layer, _root == null ? null : _root.transform);
                 _ringNeedsRebuild = false;
             }
 
+            _helmDead = BalanceRing.IsDead(balance, _ring.MaxOutput);
+
+            Repaint(Effort, _unreliable ? UnreliableColour : EffortColour);
+            UpdateLinkColour();
+            UpdateTrack(boat, balance);
+
             SetValid(true);
 
-            string verdict = !_helmMeaningful ? "no side force to balance, running"
+            LogBalance(balance);
+        }
+
+        /// <summary>
+        /// One line when the answer changes, and the per-sail detail only for whoever asked for it.
+        ///
+        /// This used to be unconditional Info logging, which was written for a rare debounced event
+        /// and then inherited by the wind arrow: dragging it recomputes every frame, so a seven-sail
+        /// brig at 60 fps wrote about 480 formatted lines a second straight to disk through BepInEx's
+        /// listener, for as long as the arrow was held.
+        ///
+        /// Nothing at Info level is written WHILE the arrow is held. Deduplicating on the formatted
+        /// line is not enough on its own, because the line carries the wind angle and the offset and
+        /// both of those move on essentially every frame of a real drag: that turns a thousand lines
+        /// a second into sixty, not into none. The state when the player lets go is the one worth
+        /// recording, and it still is.
+        /// </summary>
+        private void LogBalance(RigBalance balance)
+        {
+            string verdict = _helmDead ? "no verdict here, the sails are not working"
                 : (Mathf.Abs(_helmMetres) < _balancedMetres ? "balanced"
                 : (_helmMetres > 0f ? "weather helm" : "lee helm"));
-            Plugin.Log.LogInfo($"[Gizmo] {balance.Sails.Count} sail(s); wind {balance.WindAngle:F0} deg off the bow; "
+
+            string summary = $"[Gizmo] {balance.Sails.Count} sail(s); wind {balance.WindAngle:F0} deg off the bow; "
                 + $"CE offset {_helmMetres:F2} m ({verdict}, band {_balancedMetres:F2} m, hull {balance.HullLength:F1} m)"
-                + $"{(_unreliable ? "; a sail's CE does not track its size" : "")}");
+                + $"{(_unreliable ? "; a sail's CE does not track its size" : "")}";
+
+            if (summary != _lastSummary && !_ring.Dragging)
+            {
+                _lastSummary = summary;
+                Plugin.Log.LogInfo(summary);
+            }
+
+            // The raw quantities behind that one line, for a pasted support log: when a verdict
+            // looks wrong, whether the yaw or the side force moved is the first thing to know.
+            //
+            // Suppressed during a drag like the summary above, and for a structural reason rather
+            // than a tidiness one. Debug is off in BepInEx's disk listener by DEFAULT, but that is a
+            // user-editable setting, so anyone who enabled it for another mod would get the original
+            // per-frame flood straight back. The guard also skips building the strings, which
+            // LogDebug's object parameter would otherwise format on every frame of a drag whether
+            // anything consumed them or not.
+            if (_ring.Dragging) return;
+
+            Plugin.Log.LogDebug($"[Gizmo]   yaw={balance.YawMoment:F0} Nm fwd={balance.TotalForwardForce:F0} N "
+                + $"side={balance.TotalSideForce:F0} N output={balance.TotalOutput:F0} N "
+                + $"(rig best {_ring.MaxOutput:F0} N)");
 
             // Per sail, so a furl that does not move the balance can be told apart from a furl that
             // never reached the model. Note Sail.cs:415 floors the multiplier at
@@ -428,10 +578,23 @@ namespace SailwindRigBalance.UI
             // windage rather than dropping to nothing.
             foreach (SailContribution c in balance.Sails)
             {
-                Plugin.Log.LogInfo($"[Gizmo]   {c.Name}: cat={c.Category} upwindEff={c.UpwindEfficiency:F3} "
+                Plugin.Log.LogDebug($"[Gizmo]   {c.Name}: cat={c.Category} upwindEff={c.UpwindEfficiency:F3} "
                     + $"unroll={c.Unroll:F2} fwd={c.ForwardForce:F0} side={c.SideForce:F0} "
-                    + $"lever={c.LeverFromOrigin:F2} m yaw={c.YawMoment:F0}");
+                    + $"lever={c.LeverFromOrigin:F2} m height={c.HeightAboveWaterline:F1} m "
+                    + $"yaw={c.YawMoment:F0}");
             }
+        }
+
+        /// <summary>
+        /// Says why the reef track is not being drawn. Without this an absent track is
+        /// indistinguishable from the feature being switched off or from no sail being selected,
+        /// and there is no other feedback at all. Suppressed during an arrow drag for the same
+        /// reason the rest of the logging is.
+        /// </summary>
+        private void LogTrackRefusal(string reason)
+        {
+            if (_ring.Dragging) return;
+            Plugin.Log.LogDebug("[Gizmo] no reef track: " + reason + ".");
         }
 
         /// <summary>
@@ -499,13 +662,17 @@ namespace SailwindRigBalance.UI
 
         private void UpdateLinkColour()
         {
-            Color colour = !_helmMeaningful ? new Color(0.55f, 0.55f, 0.55f, 0.75f)
+            Color colour = _helmDead ? BalanceRing.NoVerdictColour
                 : (Mathf.Abs(_helmMetres) < _balancedMetres ? BalancedColour
                 : (_helmMetres > 0f ? WeatherHelmColour : LeeHelmColour));
             if (_link == null) return;
+
+            // LineRenderer's own colours carry the verdict. The material's _Color is left at the
+            // white MakeMaterial set it to, because the shader multiplies the two: tinting both
+            // squared the colour, so the drawn line never matched the swatch on the panel button.
             _link.startColor = colour;
             _link.endColor = colour;
-            Tint(_linkMaterial, colour);
+            TintFallbackOnly(_linkMaterial, colour);
         }
 
         // ------------------------------------------------------------------ visuals
@@ -548,6 +715,7 @@ namespace SailwindRigBalance.UI
 
             MakeLink();
             MakeTrack();
+            MakeRingMaterial();
             MakeOverlayCamera();
         }
 
@@ -667,18 +835,47 @@ namespace SailwindRigBalance.UI
         }
 
         /// <summary>
+        /// The ring's material. Separate from the track's so that a failure in either cannot leave
+        /// the other without one, and never passed to TintFallbackOnly: see _ringMaterial.
+        /// </summary>
+        private void MakeRingMaterial()
+        {
+            try
+            {
+                _ringMaterial = MakeMaterial(_linkTexture);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning("[Gizmo] ring material failed: " + e.Message);
+                _ringMaterial = null;
+            }
+        }
+
+        /// <summary>
         /// Works out where the combined centre of effort would end up if the selected sail were
         /// taken to the opposite extreme of its furl state, and colours the track by the verdict at
-        /// that destination. Blue means furling this sail would give you lee helm; red, weather.
+        /// that destination: amber if furling this sail would leave weather helm, red for lee helm,
+        /// green for balanced.
         ///
-        /// Only two evaluations are needed for a continuous answer. The path between them is a
-        /// straight segment, because the combined centre is a force-weighted average of fixed
-        /// points and reefing sweeps exactly one weight (see TryEvaluate's overrideSail).
+        /// Two evaluations, and the line between them is an approximation, not the path. The centre
+        /// is now drawn at the lever arm -YawMoment/TotalSideForce, and sweeping one sail's unroll
+        /// moves numerator and denominator independently, so the true path is a ratio of two affine
+        /// functions rather than a weighted average of fixed points. Over a normal sweep that curve
+        /// is gentle and a straight segment between exact endpoints reads correctly.
+        ///
+        /// It is refused outright in the two cases where it would not. If either end has no helm
+        /// reading the endpoints are not even the same KIND of point, one being a lever arm and the
+        /// other the sails' own centroid, so a line joining them means nothing. And if the net side
+        /// force changes sign across the sweep the real path runs off through infinity somewhere in
+        /// the middle, which a straight line would quietly draw straight through: that is a genuine
+        /// case on a square rigger with backed sails, the same rig the HelmMetres note calls out.
+        /// Both refusals write a debug line, because a track that is simply absent looks identical
+        /// to the feature being turned off.
         /// </summary>
         private void UpdateTrack(GameObject boat, RigBalance current)
         {
             _trackValid = false;
-            _trackSail = SelectedSail();
+            _trackSail = _polledSelection;
 
             bool wanted = Config.Settings.ShowReefTrack == null || Config.Settings.ShowReefTrack.Value;
             if (!wanted || _trackSail == null || _boat == null) return;
@@ -686,25 +883,52 @@ namespace SailwindRigBalance.UI
             float destinationUnroll = _trackSail.currentUnroll > 0.5f ? 0f : 1f;
 
             RigBalance other;
-            if (!RigModel.TryEvaluate(boat, WindAngleDegrees, out other, _trackSail, destinationUnroll))
+            if (!RigModel.TryEvaluate(boat, WindAngleDegrees, out other, _trackSail, destinationUnroll,
+                    current.HullLength))
                 return;
+
+            // Both ends must be the same KIND of point before a line between them says anything.
+            // Without a meaningful helm reading the centre of effort is drawn as the sails' own
+            // centroid, up in the rig and off the centreline, rather than as a lever arm on it, so
+            // joining one of each draws a confident segment across two incomparable quantities.
+            //
+            // Note this is HelmMeaningful and not the wider IsDead. IsDead also covers "the sails
+            // are barely drawing at this angle", and both ends of that are still lever arms and
+            // still perfectly comparable: the honest answer there is to draw the track in the
+            // no-verdict grey, which VerdictFor does below, not to make it disappear. Gating the
+            // geometry on IsDead made the track vanish whenever furling the selected sail dropped
+            // the rig under a tenth of its best output, with nothing on screen to distinguish that
+            // from the feature being switched off.
+            if (!current.HelmMeaningful || !other.HelmMeaningful)
+            {
+                LogTrackRefusal("one end has no helm reading, so the two ends are not the same "
+                    + "kind of point");
+                return;
+            }
+
+            // A sign change in the net side force puts a pole in the middle of the swept path, so
+            // the two endpoints say nothing about what happens between them. Safe against
+            // Mathf.Sign's +1 at exactly zero only because the gate above already guarantees both
+            // magnitudes exceed 0.01 N: do not reorder these two.
+            if (Mathf.Sign(current.TotalSideForce) != Mathf.Sign(other.TotalSideForce))
+            {
+                LogTrackRefusal("the net side force changes sign across the sweep");
+                return;
+            }
 
             _trackFrom = _boat.InverseTransformPoint(current.CombinedCentreOfEffort);
             _trackTo = _boat.InverseTransformPoint(other.CombinedCentreOfEffort);
 
-            float otherLever = Mathf.Abs(other.TotalSideForce) > 0.01f
-                ? other.YawMoment / other.TotalSideForce
-                : 0f;
-            float otherHelm = -otherLever;
-
-            Color colour = Mathf.Abs(otherHelm) < _balancedMetres ? BalancedColour
-                : (otherHelm > 0f ? WeatherHelmColour : LeeHelmColour);
+            // Grey when the destination carries no verdict. The track used to be the only one of
+            // the three readouts that turned no-verdict into a positive one, painting green because
+            // a forced zero lever sits inside the balanced band.
+            Color colour = BalanceRing.VerdictFor(other, _ring.MaxOutput, _balancedMetres);
 
             if (_track != null)
             {
                 _track.startColor = colour;
                 _track.endColor = colour;
-                Tint(_trackMaterial, colour);
+                TintFallbackOnly(_trackMaterial, colour);
             }
 
             _trackValid = true;
@@ -720,14 +944,20 @@ namespace SailwindRigBalance.UI
         {
             if (Config.Settings.DrawThroughHull != null && !Config.Settings.DrawThroughHull.Value)
             {
-                // Markers stay on the default layer so the shipyard camera still renders them; the
-                // two inside the hull will simply be occluded.
+                // Everything goes back to the default layer so the shipyard camera still renders it;
+                // the two markers inside the hull will simply be occluded.
+                //
+                // The whole hierarchy, not a hand-written list. Naming the markers and the link
+                // individually left the reef track behind on the private layer, and Camera.main's
+                // culling mask has every bit above 23 clear, so with no overlay camera created on
+                // this branch nothing rendered it at all: the feature vanished silently in the exact
+                // configuration the mod advertises as the safe fallback. The ring escaped only by
+                // accident, being built later from the already-rewritten field.
                 _layer = 0;
-                foreach (GameObject marker in _markers)
+                foreach (Transform t in _root.GetComponentsInChildren<Transform>(true))
                 {
-                    if (marker != null) marker.layer = 0;
+                    t.gameObject.layer = 0;
                 }
-                if (_link != null) _link.gameObject.layer = 0;
                 Plugin.Log.LogInfo("[Gizmo] DrawThroughHull is off; markers inside the hull will be hidden by it.");
                 return;
             }
@@ -797,18 +1027,36 @@ namespace SailwindRigBalance.UI
             {
                 _shaderResolved = true;
                 _unlit = FindUnlitShader();
-                Plugin.Log.LogInfo("[Gizmo] marker shader: "
-                    + (_unlit != null ? _unlit.name : "none found, falling back to emissive Standard"));
+                if (_unlit != null)
+                {
+                    Plugin.Log.LogInfo("[Gizmo] marker shader: " + _unlit.name);
+                }
+                else
+                {
+                    Plugin.Log.LogWarning("[Gizmo] no unlit shader in this build; falling back to "
+                        + "emissive Standard. Standard ignores vertex colour, so the balance ring "
+                        + "will draw plain instead of per-angle. Everything else is unaffected.");
+                }
             }
 
             Material material;
             if (_unlit != null)
             {
                 material = new Material(_unlit);
-                // The colour is already in the texture, so any tint slot must be neutral or it
-                // multiplies twice and the markers come out muddy.
+
+                // The colour is already in the texture and in the vertex colours, so the material's
+                // own tint must be neutral or it multiplies twice.
+                //
+                // _Color is forced to white because white IS neutral for it on every candidate.
+                // _TintColor is deliberately LEFT ALONE, which is the opposite of what this used to
+                // do. White is not neutral there: Legacy Shaders/Particles/Alpha Blended computes
+                // o.color = 2.0 * v.color * _TintColor, so its neutral value is the 0.5 grey it
+                // ships with, and overwriting that with white doubled every colour and clipped it.
+                // Amber and red both washed toward yellow-white, which is the one distinction the
+                // whole readout exists to make, and the grey no-verdict colour lost the alpha that
+                // makes it read as dimmed. A shader's own default is by definition its no-tint
+                // value, so the right move is not to touch it.
                 if (material.HasProperty("_Color")) material.SetColor("_Color", Color.white);
-                if (material.HasProperty("_TintColor")) material.SetColor("_TintColor", Color.white);
             }
             else
             {
@@ -831,19 +1079,31 @@ namespace SailwindRigBalance.UI
             return material;
         }
 
-        private void Tint(Material material, Color colour)
+        /// <summary>
+        /// Colours a line on the emissive-Standard fallback path ONLY, and does nothing on the
+        /// normal one.
+        ///
+        /// Every candidate in FindUnlitShader multiplies vertex colour, so where one of them
+        /// resolved the LineRenderer's own start and end colours already carry the verdict and
+        /// writing the material as well multiplies the colour by itself. Standard ignores vertex
+        /// colour entirely, so on that path the material is the only place a colour can live.
+        ///
+        /// This is per renderer, which is why it is safe for the link and the track and NOT for the
+        /// ring: the ring is one mesh carrying two dozen different verdicts, and a material can only
+        /// hold one. On the fallback path the ring is drawn plain, which is stated in the log.
+        /// </summary>
+        private void TintFallbackOnly(Material material, Color colour)
         {
-            if (material == null) return;
-            if (material.HasProperty("_Color") && _unlit != null) material.SetColor("_Color", colour);
-            if (material.HasProperty("_TintColor")) material.SetColor("_TintColor", colour);
-            if (_unlit == null) material.SetColor("_EmissionColor", colour);
+            if (material == null || _unlit != null) return;
+            material.SetColor("_EmissionColor", colour);
         }
 
         /// <summary>
         /// Searched by name and in order, because a Unity build only contains the shaders something
         /// in it actually references. Every candidate is unlit, textured and alpha blended, which
-        /// is what a round marker on a square quad needs. Which one exists is a property of this
-        /// build, not something to assume, so the resolved name is logged.
+        /// is what a round marker on a square quad needs, AND every one of them multiplies vertex
+        /// colour, which the link, the track and the ring all depend on. Which one exists is a
+        /// property of this build, not something to assume, so the resolved name is logged.
         /// </summary>
         private static Shader FindUnlitShader()
         {
@@ -854,8 +1114,13 @@ namespace SailwindRigBalance.UI
                 "Particles/Standard Unlit",
                 "Legacy Shaders/Particles/Alpha Blended",
                 "Mobile/Particles/Alpha Blended",
-                "Unlit/Transparent",
             };
+
+            // Unlit/Transparent is deliberately NOT a candidate, though it fits every other
+            // requirement. It has no vertex colour input at all, so the helm link, the reef track
+            // and the balance ring would all draw plain white through it while the code believed it
+            // had a working shader and stayed silent. Falling through to the emissive Standard path
+            // below is worse looking but honest, and it says so in the log.
 
             foreach (string name in candidates)
             {
@@ -868,23 +1133,38 @@ namespace SailwindRigBalance.UI
         private void Teardown()
         {
             Shipyard.FurlSailButton.Destroy();
+            Shipyard.UnrollWatch.Clear();
+
+            // The ring first, because it holds _ringMaterial as its sharedMaterial.
             _ring.Destroy();
+
             _furlAttempts = 0;
             _valid = false;
             _source = null;
             _overlay = null;
             _link = null;
-            _linkMaterial = null;
             _track = null;
-            _trackMaterial = null;
             _trackValid = false;
             _trackSail = null;
             _polledSelection = null;
+            _lastSummary = null;
+            _settleArmed = false;
             _boat = null;
+
+            // Materials are destroyed, not merely dropped. Unity only cleans up a material it
+            // instantiated itself through the renderer.material getter; these were constructed here
+            // and assigned in, so they are this object's to destroy, and destroying _root does not
+            // touch them. Teardown runs on every shipyard exit and EnsureVisuals builds a fresh set
+            // on the next visit, so leaking them meant five orphaned native objects per visit,
+            // reclaimed by nothing short of a scene unload.
+            DestroyMaterial(ref _linkMaterial);
+            DestroyMaterial(ref _trackMaterial);
+            DestroyMaterial(ref _ringMaterial);
 
             for (int i = 0; i < _markers.Length; i++)
             {
                 _markers[i] = null;
+                if (_materials[i] != null) Destroy(_materials[i]);
                 _materials[i] = null;
                 if (_textures[i] != null) Destroy(_textures[i]);
                 _textures[i] = null;
@@ -902,6 +1182,12 @@ namespace SailwindRigBalance.UI
                 Destroy(_root);
                 _root = null;
             }
+        }
+
+        private void DestroyMaterial(ref Material material)
+        {
+            if (material != null) Destroy(material);
+            material = null;
         }
 
         // ------------------------------------------------------------------ textures
@@ -1010,8 +1296,15 @@ namespace SailwindRigBalance.UI
 
             // The furl button only exists while a sail is selected, so the panel has to grow and
             // shrink with it or the fourth button spills past the background.
+            //
+            // From the field Update latched, never a fresh accessor call. IMGUI requires the same
+            // sequence of layout-emitting calls in a frame's Layout and Repaint passes, and the
+            // shipyard's own picking runs in Update and can change the selection between the two.
+            // When it did, DrawPanel emitted three controls in one pass and four in the other, and
+            // Unity threw "Getting control N's position in a group with only M controls" every frame
+            // until it settled.
             float width = PanelWidth
-                + (!Shipyard.FurlSailButton.Exists && SelectedSail() != null ? 27f : 0f);
+                + (!Shipyard.FurlSailButton.Exists && _polledSelection != null ? 27f : 0f);
             _panel = new Rect(Screen.width - width - PanelMargin, PanelMargin,
                 width, PanelHeightFor(width));
 
@@ -1184,7 +1477,9 @@ namespace SailwindRigBalance.UI
         /// </summary>
         private void FurlToggle()
         {
-            Sail selected = SelectedSail();
+            // The frame's latched selection, so this button's existence cannot change between the
+            // Layout and Repaint passes of one OnGUI frame.
+            Sail selected = _polledSelection;
             if (selected == null) return;
 
             bool set = selected.currentUnroll > 0.5f;
@@ -1201,22 +1496,7 @@ namespace SailwindRigBalance.UI
             if (!clicked) return;
 
             // The reef track already showed where this would land; clicking commits to it.
-            selected.currentUnroll = set ? 0f : 1f;
-
-            // Mirrors what Shipyard Expansion does after writing the field. The boom and cloth reef
-            // effects poll currentUnroll every Update and need no prompting, but the animation-driven
-            // one does, and not every sail carries it.
-            try
-            {
-                var reef = selected.GetComponent<ReefEffectAnimUniversal>();
-                if (reef != null) reef.RefreshCloth();
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogWarning("[Gizmo] reef refresh failed: " + e.Message);
-            }
-
-            ShipyardHooks.MarkDirty();
+            Shipyard.FurlSailButton.SetUnroll(ShipyardHooks.CurrentBoat, selected, set ? 0f : 1f);
         }
 
         /// <summary>

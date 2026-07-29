@@ -15,28 +15,46 @@ namespace SailwindRigBalance.UI
     /// staysails hold 0.480 and 0.500, and those sit at different ends of the boat, so coming up on
     /// the wind quietly reweights the rig fore and aft.
     ///
-    /// Read it exactly like the markers: a ring that is green or red all the way round is a boat
-    /// that behaves; a ring with blue in it is a boat that develops lee helm on some heading, and
+    /// Read it exactly like the markers: a ring that is green or amber all the way round is a boat
+    /// that behaves; a ring with red in it is a boat that develops lee helm on some heading, and
     /// the coloured arc tells you which.
     ///
     /// Built as one mesh with per-segment vertex colours rather than a line renderer per segment.
     /// LineRenderer's gradient tops out at eight keys, far short of the resolution this needs, and
     /// two dozen renderers to draw one ring would be silly. The unlit shader the markers already
-    /// use multiplies by vertex colour, so the same material works unchanged.
+    /// use multiplies by vertex colour, so the same shader works unchanged.
+    ///
+    /// It gets its OWN material, never the helm link's. The link's material carries the current
+    /// verdict colour in _Color, and Sprites/Default multiplies _Color into the vertex colour, so
+    /// sharing it multiplied all 24 of the ring's verdicts by the verdict at the one angle the
+    /// arrow happened to point at. A lee-helm reading painted the entire ring red, which is exactly
+    /// the failure the grey guard below was added to prevent, and the two were indistinguishable.
     /// </summary>
     public class BalanceRing
     {
         /// <summary>
         /// Segments around the full circle. Balance is symmetric port and starboard, so only half
-        /// are evaluated and the rest mirrored: 24 segments costs 13 evaluations, not 24.
+        /// are evaluated and the rest mirrored: 24 segments costs 12 evaluations, not 24.
         /// </summary>
         private const int Segments = 24;
 
         /// <summary>
-        /// Below this apparent wind angle Sail.cs:416 ramps every sail's force to nothing, so there
-        /// is no balance to report and the ring says so in grey rather than inventing a verdict.
+        /// How much of the rig's best output an angle must produce before the ring will offer a
+        /// verdict on it. Below this the sails are not drawing and there is nothing to balance.
+        ///
+        /// This used to be a fixed 16 degrees off the bow, justified by Sail.cs:416 ramping the
+        /// force to nothing below 16. That threshold is real but it is not measured in degrees off
+        /// the BOW: relativeWindAngle (Sail.cs:409, :495-516) is the angle between the apparent wind
+        /// and the sail's own axis, taken off windcenter and scaled by a verticality factor, so it
+        /// depends on how the sail is trimmed, which is the very thing the model sweeps over. A
+        /// square rigger with its yards braced round draws hard at 10 degrees off the bow and the
+        /// ring painted it grey; a fore-and-aft rig sheeted flat can be under the ramp at 30 and the
+        /// ring painted a confident verdict on forces of order a newton.
+        ///
+        /// Comparing each angle's output against the best output anywhere on the sweep asks the
+        /// question directly, in the rig's own terms, and needs no assumption about geometry.
         /// </summary>
-        private const float NoSailAngle = 16f;
+        internal const float DeadOutputFraction = 0.10f;
 
         private static readonly Color DeadColour = new Color(0.45f, 0.45f, 0.45f, 0.55f);
 
@@ -51,6 +69,14 @@ namespace SailwindRigBalance.UI
         private Mesh _arrowMesh;
         private bool _dragging;
         private bool _angleChanged;
+
+        /// <summary>
+        /// The best total output found anywhere on the last sweep. The markers and the helm link
+        /// evaluate one angle only and so cannot work this out for themselves; taking it from here
+        /// is what keeps the ring and the panel from contradicting each other about whether there is
+        /// a verdict to give. Zero until the first rebuild, which reads as "no opinion yet".
+        /// </summary>
+        public float MaxOutput { get; private set; }
 
         /// <summary>
         /// Where the wind is coming from, in degrees off the bow, positive to port. This is the
@@ -80,6 +106,10 @@ namespace SailwindRigBalance.UI
         {
             if (_go != null && _go.activeSelf != visible) _go.SetActive(visible);
             if (_arrowGo != null && _arrowGo.activeSelf != visible) _arrowGo.SetActive(visible);
+
+            // A drag in progress holds the shipyard camera still every frame. Hiding the ring
+            // mid-drag would leave that suppression running with nothing on screen to explain it.
+            if (!visible) _dragging = false;
         }
 
         public void Destroy()
@@ -95,6 +125,7 @@ namespace SailwindRigBalance.UI
             _arrowMesh = null;
             _arrowGo = null;
             _dragging = false;
+            MaxOutput = 0f;
         }
 
         /// <summary>Keeps the ring on the boat without parenting to it, as the markers do.</summary>
@@ -120,6 +151,12 @@ namespace SailwindRigBalance.UI
         {
             if (_go == null || camera == null || boat == null) return;
 
+            // Hidden means gone, not merely invisible. SetVisible deactivates the object without
+            // nulling it, so without this a hidden ring left an invisible grab target in the water
+            // that swallowed a click, jumped the wind angle to wherever the cursor was, and held the
+            // shipyard camera still with nothing on screen to explain any of it.
+            if (!_go.activeSelf) return;
+
             Vector3 centre = _go.transform.position;
             Vector3 handle = centre + DirectionFor(WindAngle, boat) * _radius;
 
@@ -144,6 +181,13 @@ namespace SailwindRigBalance.UI
             {
                 _dragging = false;
                 SetArrowHighlight(false);
+
+                // One more rebuild on release, so the settled state is evaluated and logged with
+                // _dragging already false. Without it the last frame of the drag recomputed while
+                // still dragging, which the gizmo suppresses from the log, and then nothing was ever
+                // scheduled again: the last line in the log described the angle the arrow was at
+                // BEFORE the drag, with nothing to say it had moved.
+                _angleChanged = true;
                 return;
             }
 
@@ -220,6 +264,10 @@ namespace SailwindRigBalance.UI
         /// <summary>
         /// Sweeps the apparent wind right round the boat and rebuilds the ring from the verdicts.
         /// Runs on the debounced rebuild, never per frame.
+        ///
+        /// Two passes over the half circle, not one: the dead-angle test compares each angle's
+        /// output against the best found anywhere on the sweep, so every angle has to be evaluated
+        /// before any of them can be coloured.
         /// </summary>
         public void Rebuild(GameObject boatRoot, Transform boat, RigBalance current,
             float balancedMetres, Material material, int layer, Transform parent)
@@ -237,18 +285,42 @@ namespace SailwindRigBalance.UI
 
                 // Half the circle, mirrored. 0 is dead ahead, 180 dead astern.
                 int half = Segments / 2;
-                var colours = new Color[Segments];
+                var sampled = new RigBalance[half];
+                var evaluated = new bool[half];
+                float best = 0f;
 
-                for (int i = 0; i <= half; i++)
+                for (int i = 0; i < half; i++)
                 {
-                    float angle = 180f * i / half;
-                    Color colour = VerdictAt(boatRoot, angle, balancedMetres);
+                    // The CENTRE of the segment this will colour, not its leading edge. Sampling the
+                    // edge and mirroring to (Segments - i) put the starboard half a whole segment
+                    // out of step with the port half: the physics is exactly mirror-symmetric, so
+                    // the ring has to look symmetric, and it did not. A rig whose helm reversed at
+                    // 40 degrees showed the reversal at 45 on one side and 30 on the other, which
+                    // reads as a boat that behaves differently on each tack.
+                    float angle = 360f * (i + 0.5f) / Segments;
 
-                    colours[i % Segments] = colour;
-                    // Mirror onto the starboard half. Segment 0 and the one at 180 are on the
-                    // centreline and have no mirror image, hence the guard.
-                    int mirrored = (Segments - i) % Segments;
-                    colours[mirrored] = colour;
+                    RigBalance balance;
+                    // The hull cannot change length between samples, so it is measured once by the
+                    // caller and passed in. Measuring walks every collider on the boat, and this
+                    // loop was throwing away eleven of them per rebuild.
+                    evaluated[i] = RigModel.TryEvaluate(boatRoot, angle, out balance,
+                        null, 1f, current.HullLength);
+                    sampled[i] = balance;
+
+                    if (evaluated[i] && balance.TotalOutput > best) best = balance.TotalOutput;
+                }
+
+                MaxOutput = best;
+
+                var colours = new Color[Segments];
+                for (int i = 0; i < half; i++)
+                {
+                    Color colour = evaluated[i]
+                        ? VerdictFor(sampled[i], best, balancedMetres)
+                        : DeadColour;
+
+                    colours[i] = colour;
+                    colours[Segments - 1 - i] = colour;
                 }
 
                 BuildMesh(radius, band, colours);
@@ -260,23 +332,29 @@ namespace SailwindRigBalance.UI
             }
         }
 
-        private Color VerdictAt(GameObject boatRoot, float angle, float balancedMetres)
+        /// <summary>
+        /// The verdict colour for one evaluated angle. Shared with the helm link through
+        /// <see cref="IsDead"/> so the ring behind the markers cannot disagree with them.
+        /// </summary>
+        internal static Color VerdictFor(RigBalance balance, float maxOutput, float balancedMetres)
         {
-            if (angle < NoSailAngle) return DeadColour;
+            if (IsDead(balance, maxOutput)) return DeadColour;
 
-            RigBalance balance;
-            if (!RigModel.TryEvaluate(boatRoot, angle, out balance)) return DeadColour;
-
-            // Grey rather than a verdict. Downwind the side force vanishes and the helm ratio is
-            // meaningless, which is what painted the whole ring red.
-            if (!balance.HelmMeaningful) return DeadColour;
-
-            float lever = balance.YawMoment / balance.TotalSideForce;
-            float helm = -lever;    // positive = weather
-
-            if (Mathf.Abs(helm) < balancedMetres) return ShipyardGizmo.BalancedColour;
-            return helm > 0f ? ShipyardGizmo.WeatherHelmColour : ShipyardGizmo.LeeHelmColour;
+            if (Mathf.Abs(balance.HelmMetres) < balancedMetres) return ShipyardGizmo.BalancedColour;
+            return balance.HelmMetres > 0f ? ShipyardGizmo.WeatherHelmColour : ShipyardGizmo.LeeHelmColour;
         }
+
+        /// <summary>
+        /// Whether this reading carries no verdict at all: either the sails are barely drawing, or
+        /// there is so little side force that the ratio underneath the verdict is noise.
+        /// </summary>
+        internal static bool IsDead(RigBalance balance, float maxOutput)
+        {
+            if (maxOutput > 0f && balance.TotalOutput < DeadOutputFraction * maxOutput) return true;
+            return !balance.HelmMeaningful;
+        }
+
+        internal static Color NoVerdictColour => DeadColour;
 
         /// <summary>
         /// Rebuilds the arrow so it sits at the current wind bearing, pointing inward at the boat,

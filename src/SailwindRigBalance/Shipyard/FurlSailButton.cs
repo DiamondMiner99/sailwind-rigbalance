@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using SailwindRigBalance.Core;
 using UnityEngine;
 
 namespace SailwindRigBalance.Shipyard
@@ -20,6 +22,14 @@ namespace SailwindRigBalance.Shipyard
     {
         private TextMesh _label;
         private static FurlSailButton _instance;
+
+        /// <summary>
+        /// Cached in TryCreate rather than gathered every frame. The clone's hierarchy never
+        /// changes, and this ran GetComponentsInChildren for the whole shipyard session purely to
+        /// toggle a bool, allocating a fresh array each frame.
+        /// </summary>
+        private Renderer[] _renderers;
+        private Collider _collider;
 
         /// <summary>
         /// Vertical gap below the anchor button, as a multiple of the anchor's own height. The
@@ -70,6 +80,8 @@ namespace SailwindRigBalance.Shipyard
 
                 _instance = clone.AddComponent<FurlSailButton>();
                 _instance._label = clone.GetComponentInChildren<TextMesh>();
+                _instance._renderers = clone.GetComponentsInChildren<Renderer>(true);
+                _instance._collider = clone.GetComponent<Collider>();
                 clone.SetActive(true);
 
                 Plugin.Log.LogInfo($"[Furl] button cloned from '{anchor.name}' and placed beneath it.");
@@ -115,15 +127,30 @@ namespace SailwindRigBalance.Shipyard
             return null;
         }
 
+        /// <summary>
+        /// The anchor button's height expressed in its PARENT's space, because that is the space the
+        /// caller adds the gap in.
+        ///
+        /// It used to take renderer.bounds.size, which is the size of a world-space axis-aligned box
+        /// and not a direction, and push it through the button's own InverseTransformVector as
+        /// though it were one, then use the result as an offset in the parent's frame: three
+        /// coordinate systems in one expression, correct only when the button's local rotation is
+        /// identity and its world box happens to line up with it. The shipyard's UI is world-space
+        /// geometry tilted toward the camera, so it was neither, and the clone landed overlapping
+        /// the anchor or below the panel.
+        /// </summary>
         private static float HeightOf(GameObject go)
         {
-            var renderer = go.GetComponent<Renderer>();
-            if (renderer == null) return 0.25f;
+            // The mesh's own bounds are in the object's local space, so scaling them by the object's
+            // own scale gives a height in the PARENT's space with no world-space box involved. This
+            // assumes the button is not rotated relative to the panel it sits on, which holds by
+            // construction for a column of sibling buttons laid out along the panel's own axes.
+            var filter = go.GetComponent<MeshFilter>();
+            Mesh mesh = filter != null ? filter.sharedMesh : null;
+            if (mesh == null) return 0.25f;
 
-            // Local height, so the offset survives whatever scale the shipyard panel is drawn at.
-            Vector3 world = renderer.bounds.size;
-            Vector3 local = go.transform.InverseTransformVector(world);
-            return Mathf.Max(Mathf.Abs(local.y), 0.05f);
+            float height = mesh.bounds.size.y * Mathf.Abs(go.transform.localScale.y);
+            return height > 0.001f ? Mathf.Max(height, 0.05f) : 0.25f;
         }
 
         private void Update()
@@ -132,12 +159,14 @@ namespace SailwindRigBalance.Shipyard
             bool show = selected != null;
 
             // "which appears only when a sail is selected"
-            foreach (Renderer renderer in GetComponentsInChildren<Renderer>(true))
+            if (_renderers != null)
             {
-                if (renderer.enabled != show) renderer.enabled = show;
+                foreach (Renderer renderer in _renderers)
+                {
+                    if (renderer != null && renderer.enabled != show) renderer.enabled = show;
+                }
             }
-            var collider = GetComponent<Collider>();
-            if (collider != null && collider.enabled != show) collider.enabled = show;
+            if (_collider != null && _collider.enabled != show) _collider.enabled = show;
 
             if (!show || _label == null) return;
 
@@ -154,21 +183,54 @@ namespace SailwindRigBalance.Shipyard
             Sail selected = SelectedSail();
             if (selected == null) return;
 
-            selected.currentUnroll = selected.currentUnroll > 0.5f ? 0f : 1f;
+            SetUnroll(ShipyardHooks.CurrentBoat, selected, selected.currentUnroll > 0.5f ? 0f : 1f);
+        }
 
-            // Mirrors what Shipyard Expansion does after writing the field. The boom and cloth reef
-            // effects poll currentUnroll every Update and need no prompting, but the animation
-            // driven one does, and not every sail carries it.
-            try
+        /// <summary>
+        /// Sets one sail's furl state, and with it every sail the game will drag along.
+        ///
+        /// RopeControllerMirror.Update copies parentSail.currentUnroll onto its own sail every
+        /// frame, unconditionally and with no shipyard guard (RopeControllerMirror.cs:22). Writing
+        /// only the selected sail of a mirrored pair therefore either did nothing at all, because
+        /// the next frame put it back before the gizmo's quarter-second rebuild delay had elapsed,
+        /// or moved half the area the player was asking about. Either way the button read as dead
+        /// and the markers did not move, with nothing in the log to say why.
+        ///
+        /// So the whole chained set is written, which is what the game is going to do anyway, and
+        /// the result is checked on the next frame: if something else owns the field after all, the
+        /// player is told rather than left guessing.
+        /// </summary>
+        public static void SetUnroll(GameObject boatRoot, Sail sail, float unroll)
+        {
+            if (sail == null) return;
+
+            HashSet<Sail> group = RigModel.UnrollGroupOf(boatRoot, sail);
+            foreach (Sail member in group)
             {
-                var reef = selected.GetComponent<ReefEffectAnimUniversal>();
-                if (reef != null) reef.RefreshCloth();
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogWarning("[Furl] reef refresh failed: " + e.Message);
+                if (member == null) continue;
+                member.currentUnroll = unroll;
+
+                // Mirrors what Shipyard Expansion does after writing the field. The boom and cloth
+                // reef effects poll currentUnroll every Update and need no prompting, but the
+                // animation driven one does, and not every sail carries it.
+                try
+                {
+                    var reef = member.GetComponent<ReefEffectAnimUniversal>();
+                    if (reef != null) reef.RefreshCloth();
+                }
+                catch (Exception e)
+                {
+                    Plugin.Log.LogWarning("[Furl] reef refresh failed: " + e.Message);
+                }
             }
 
+            if (group.Count > 1)
+            {
+                Plugin.Log.LogInfo($"[Furl] '{sail.sailName}' is mirrored; set {group.Count} sails "
+                    + $"to unroll {unroll:F2} together.");
+            }
+
+            UnrollWatch.Watch(sail, unroll);
             ShipyardHooks.MarkDirty();
         }
 

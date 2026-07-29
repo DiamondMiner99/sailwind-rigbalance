@@ -98,5 +98,32 @@ namespace SailwindRigBalance.Shipyard
         {
             private static void Postfix() => MarkDirty();
         }
+
+        // Resizing a sail. UpdateOrder is NOT reached on every path to it, so hooking the funnel is
+        // not enough: Shipyard.ChangeSailScale goes through ShipyardSailInstaller.ChangeSailScale,
+        // which calls Sail.ChangeScale and then MoveHeldSail(0) - and MoveHeldSail returns at
+        // ShipyardSailInstaller.cs:122-126 when the mast is onlySquareSails, before the
+        // ApplySailPosition that would have called UpdateOrder. So on a spritsail mast the player
+        // drags the sail bigger, the game accepts it, the price updates, and every hook here stayed
+        // quiet while the sail's area AND its centre of effort both moved.
+        //
+        // Sail.SetSailArea is the one point every resize goes through, vanilla (Sail.cs:188) and
+        // Shipyard Expansion (SailScaler.cs:190) alike, and it is the method that rewrites the
+        // sailArea field the model reads back through GetRealSailPower. It also fires from Sail.Start
+        // and from AddNewSail, which is harmless: the flag is only consumed inside a shipyard and
+        // the rebuild is debounced.
+        [HarmonyPatch(typeof(Sail), nameof(Sail.SetSailArea))]
+        private static class SetSailAreaPatch
+        {
+            private static void Postfix() => MarkDirty();
+        }
+
+        // Sliding a sail up or down its mast moves the centre of effort without changing anything
+        // else about it.
+        [HarmonyPatch(typeof(Sail), nameof(Sail.ChangeInstallHeight))]
+        private static class ChangeInstallHeightPatch
+        {
+            private static void Postfix() => MarkDirty();
+        }
     }
 }
