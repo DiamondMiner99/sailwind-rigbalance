@@ -426,6 +426,8 @@ namespace SailwindRigBalance.UI
 
                 LogSweep(_pendingSampled, _pendingEvaluated, _pendingBest,
                     _pendingBalancedMetres, _pendingMilliseconds);
+
+                LogMirrorAudit(_pendingSampled, _pendingEvaluated, boat);
             }
             finally
             {
@@ -503,6 +505,176 @@ namespace SailwindRigBalance.UI
             catch (Exception e)
             {
                 Plugin.Log.LogWarning("[Ring] could not log the sweep: " + e.Message);
+            }
+        }
+
+        /// <summary>
+        /// How far two mirror-paired readings may differ before the audit calls it asymmetric, as a
+        /// fraction of the larger. One percent: far above the last bits of a sum of a dozen floats,
+        /// far below any difference that could bend the ring where a player would see it.
+        /// </summary>
+        private const float MirrorTolerance = 0.01f;
+
+        /// <summary>The bearing a sample stands for: the centre of its arc, not its lower edge.</summary>
+        private static float Bearing(int index)
+        {
+            return 360f * (index + 0.5f) / Segments;
+        }
+
+        /// <summary>
+        /// Relative gap between two readings, or zero when both are too small in newtons to compare.
+        /// Absolute rather than relative below one newton, because near head to wind the quantities
+        /// being compared are sums that cancel to almost nothing and a relative test there reports
+        /// enormous disagreement between two numbers that are both, physically, no force at all.
+        /// </summary>
+        private static float RelativeGap(float a, float b)
+        {
+            float scale = Mathf.Max(Mathf.Abs(a), Mathf.Abs(b));
+            if (scale < 1f) return 0f;
+            return Mathf.Abs(a - b) / scale;
+        }
+
+        /// <summary>
+        /// Checks the one property a sweep cannot be argued out of, and names what breaks it.
+        ///
+        /// A hull is symmetric and so is its rig, so a wind from bearing b and a wind from 360-b are
+        /// one situation and its reflection port for starboard. Every quantity the model produces has
+        /// to either match exactly or negate exactly: forward force matches, side force negates, the
+        /// chosen trim negates, a centre of effort keeps its height and its station along the boat and
+        /// negates its offset from the centreline. The helm lever, a ratio of two quantities that both
+        /// negate, matches.
+        ///
+        /// Sample i covers bearing 10i+5, so its reflection at 355-10i is sample Segments-1-i. No
+        /// extra evaluation is needed: the finished sweep already holds every sail's contribution at
+        /// every bearing, so this is arithmetic over numbers that were going to be thrown away.
+        ///
+        /// This exists because three separate fixes for a lopsided ring were each argued from the
+        /// source, each looked right, and each changed nothing measurable. A screenshot cannot say
+        /// which sail disagrees, and neither can a helm lever that has already averaged ten of them
+        /// together. This can, and it reports the per-sail detail only when something is actually
+        /// wrong, so a healthy rig costs one line.
+        /// </summary>
+        private static void LogMirrorAudit(RigBalance[] sampled, bool[] evaluated, Transform boat)
+        {
+            try
+            {
+                if (boat == null || sampled == null || evaluated == null) return;
+
+                int pairs = 0, broken = 0, worst = -1;
+                float worstGap = 0f;
+
+                for (int i = 0; i < Segments / 2; i++)
+                {
+                    int j = Segments - 1 - i;
+                    if (!evaluated[i] || !evaluated[j]) continue;
+                    pairs++;
+
+                    // Total output and side force, not the lever: the lever is a ratio and can agree
+                    // by luck while both of its terms are wrong, and it is suppressed outright wherever
+                    // the reading is judged meaningless, which is exactly where the trouble is.
+                    float gap = Mathf.Max(
+                        RelativeGap(sampled[i].TotalOutput, sampled[j].TotalOutput),
+                        RelativeGap(Mathf.Abs(sampled[i].TotalSideForce),
+                                    Mathf.Abs(sampled[j].TotalSideForce)));
+
+                    if (gap <= MirrorTolerance) continue;
+
+                    broken++;
+                    if (gap > worstGap) { worstGap = gap; worst = i; }
+                }
+
+                if (broken == 0 || worst < 0)
+                {
+                    Plugin.Log.LogInfo($"[Ring] mirror audit: {pairs} pairs, symmetric.");
+                    return;
+                }
+
+                Plugin.Log.LogWarning($"[Ring] mirror audit: {broken} of {pairs} pairs asymmetric, "
+                    + $"worst {Bearing(worst):F0}/{Bearing(Segments - 1 - worst):F0} off by "
+                    + $"{worstGap * 100f:F1} percent.");
+
+                DumpMirrorPair(sampled[worst], sampled[Segments - 1 - worst], boat,
+                    Bearing(worst), Bearing(Segments - 1 - worst));
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning("[Ring] mirror audit failed: " + e.Message);
+            }
+        }
+
+        /// <summary>
+        /// The full disagreement for one mirror pair: the totals, then every sail that does not
+        /// reflect, with what it should have been. Sails are matched by identity rather than by name,
+        /// because a rig carries several sails with the same name and a mismatch between two of THOSE
+        /// is the interesting case, not something to be hidden by pairing them wrongly.
+        /// </summary>
+        private static void DumpMirrorPair(RigBalance a, RigBalance b, Transform boat,
+            float bearingA, float bearingB)
+        {
+            Plugin.Log.LogWarning($"[Ring] mirror {bearingA:F0} vs {bearingB:F0}: "
+                + $"output {a.TotalOutput:F0} vs {b.TotalOutput:F0} N, "
+                + $"side {a.TotalSideForce:F0} vs {b.TotalSideForce:F0} N (want negated), "
+                + $"yawSide {a.YawFromSide:F0} vs {b.YawFromSide:F0}, "
+                + $"yawThrust {a.YawFromThrust:F0} vs {b.YawFromThrust:F0}, "
+                + $"lever {a.HelmMetres:F2} vs {b.HelmMetres:F2} m");
+
+            if (a.Sails == null || b.Sails == null) return;
+
+            for (int k = 0; k < a.Sails.Count; k++)
+            {
+                SailContribution ca = a.Sails[k];
+
+                int m = -1;
+                for (int n = 0; n < b.Sails.Count; n++)
+                {
+                    if (ReferenceEquals(b.Sails[n].Sail, ca.Sail)) { m = n; break; }
+                }
+
+                if (m < 0)
+                {
+                    // Dropped by the no-force test in TryEvaluate on one tack and not the other, which
+                    // would change the sail SET between two readings that are supposed to be one.
+                    Plugin.Log.LogWarning($"[Ring]   '{ca.Name}': counted at {bearingA:F0}, "
+                        + $"dropped at {bearingB:F0}");
+                    continue;
+                }
+
+                SailContribution cb = b.Sails[m];
+
+                // Boat-local, so "negates" and "matches" mean what they say regardless of the hull's
+                // heading in the world. Both are read through the same transform, and the hull does
+                // not move in a shipyard, so this comparison is not itself a source of error.
+                Vector3 pa = boat.InverseTransformPoint(ca.CentreOfEffort);
+                Vector3 pb = boat.InverseTransformPoint(cb.CentreOfEffort);
+
+                bool trimOk = Mathf.Abs(ca.Trim + cb.Trim) < 0.05f;
+                bool fwdOk = RelativeGap(ca.ForwardForce, cb.ForwardForce) <= MirrorTolerance;
+                bool sideOk = RelativeGap(ca.SideForce, -cb.SideForce) <= MirrorTolerance;
+                bool ceOk = Mathf.Abs(pa.x + pb.x) < 0.02f && Mathf.Abs(pa.z - pb.z) < 0.02f;
+
+                if (trimOk && fwdOk && sideOk && ceOk) continue;
+
+                Plugin.Log.LogWarning($"[Ring]   '{ca.Name}': "
+                    + $"trim {ca.Trim:F1} vs {cb.Trim:F1}{(trimOk ? "" : $" WANT {-ca.Trim:F1}")}, "
+                    + $"fwd {ca.ForwardForce:F0} vs {cb.ForwardForce:F0}{(fwdOk ? "" : " WANT EQUAL")}, "
+                    + $"side {ca.SideForce:F0} vs {cb.SideForce:F0}{(sideOk ? "" : $" WANT {-ca.SideForce:F0}")}, "
+                    + $"ce.x {pa.x:F2} vs {pb.x:F2}{(ceOk ? "" : $" WANT {-pa.x:F2}")}, "
+                    + $"ce.z {pa.z:F2} vs {pb.z:F2}");
+            }
+
+            for (int n = 0; n < b.Sails.Count; n++)
+            {
+                bool seen = false;
+                for (int k = 0; k < a.Sails.Count; k++)
+                {
+                    if (ReferenceEquals(a.Sails[k].Sail, b.Sails[n].Sail)) { seen = true; break; }
+                }
+
+                if (!seen)
+                {
+                    Plugin.Log.LogWarning($"[Ring]   '{b.Sails[n].Name}': dropped at {bearingA:F0}, "
+                        + $"counted at {bearingB:F0}");
+                }
             }
         }
 

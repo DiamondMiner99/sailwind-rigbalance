@@ -30,6 +30,16 @@ namespace SailwindRigBalance.Core
         public bool CeTracksResizes;     // false only for a Shipyard Expansion added sail
         public float Unroll;             // what the model actually evaluated this sail at
 
+        /// <summary>
+        /// The trim the search settled on, in degrees about the sail's swing axis.
+        ///
+        /// Recorded for the mirror audit. A rig read at bearing b and at 360-b must choose trims that
+        /// are exact negations, and when the ring comes out lopsided this is the first number worth
+        /// seeing, because it separates a bad CHOICE of pose from a bad force at a good pose. Those
+        /// two have opposite fixes and no other logged quantity tells them apart.
+        /// </summary>
+        public float Trim;
+
         // Sail.cs:415 drags a sail's force from its full value at 90 degrees down toward
         // totalWindForce * upwindEfficiency as the apparent wind closes on the bow. Sails with
         // different efficiencies therefore lose force at different rates coming up on the wind,
@@ -745,6 +755,7 @@ namespace SailwindRigBalance.Core
                 c.YawFromThrust = yawFromThrust;
                 c.CeTracksResizes = CeTracksResizes(sail);
                 c.Unroll = unroll;
+                c.Trim = TrimCandidates[winner].Trim;
                 c.UpwindEfficiency = sail.upwindEfficiency;
                 c.Category = sail.category;
                 return true;
