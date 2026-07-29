@@ -330,12 +330,63 @@ namespace SailwindRigBalance.UI
                         : DeadColour;
                 }
 
+                LogSweep(sampled, evaluated, best, balancedMetres);
+
                 BuildMesh(radius, band, colours);
                 UpdateArrow(boat);
             }
             catch (Exception e)
             {
                 Plugin.Log.LogWarning("[Ring] rebuild failed: " + e.Message);
+            }
+        }
+
+        /// <summary>
+        /// The whole sweep on one line, at Info, once per rig change.
+        ///
+        /// A ring is a picture, and a picture cannot be argued with. When it looks wrong the only
+        /// question worth asking is what the numbers behind each arc actually were, and screenshots
+        /// cannot answer it. One line per rebuild is cheap, it never fires during a drag, and it
+        /// turns "the ring has gone red" into a reading anyone can check.
+        ///
+        /// Per segment: the bearing, the verdict letter, the lever in metres, and the side force as
+        /// a percentage of total output, which is the quantity that decides whether there is a
+        /// verdict at all. B balanced, W weather, L lee, dash no verdict, x failed to evaluate.
+        /// </summary>
+        private static void LogSweep(RigBalance[] sampled, bool[] evaluated, float maxOutput,
+            float balancedMetres)
+        {
+            try
+            {
+                var line = new System.Text.StringBuilder(
+                    $"[Ring] sweep, band {balancedMetres:F2} m, best output {maxOutput:F0} N:");
+
+                for (int i = 0; i < Segments; i++)
+                {
+                    float angle = 360f * (i + 0.5f) / Segments;
+                    if (!evaluated[i])
+                    {
+                        line.Append($" {angle:F0}:x");
+                        continue;
+                    }
+
+                    RigBalance b = sampled[i];
+                    char verdict = IsDead(b, maxOutput) ? '-'
+                        : (Mathf.Abs(b.HelmMetres) < balancedMetres ? 'B'
+                        : (b.HelmMetres > 0f ? 'W' : 'L'));
+
+                    float share = b.TotalOutput > 0.0001f
+                        ? 100f * Mathf.Abs(b.TotalSideForce) / b.TotalOutput
+                        : 0f;
+
+                    line.Append($" {angle:F0}:{verdict}{b.HelmMetres:F1}/{share:F0}%");
+                }
+
+                Plugin.Log.LogInfo(line.ToString());
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning("[Ring] could not log the sweep: " + e.Message);
             }
         }
 
