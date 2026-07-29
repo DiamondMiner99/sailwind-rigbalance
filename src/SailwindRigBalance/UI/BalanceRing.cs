@@ -33,8 +33,9 @@ namespace SailwindRigBalance.UI
     public class BalanceRing
     {
         /// <summary>
-        /// Segments around the full circle. Balance is symmetric port and starboard, so only half
-        /// are evaluated and the rest mirrored: 24 segments costs 12 evaluations, not 24.
+        /// Segments around the full circle, every one of them evaluated. Fifteen degrees is fine
+        /// enough to show where a helm reverses without the sweep becoming the expensive thing in
+        /// the frame it lands on.
         /// </summary>
         private const int Segments = 24;
 
@@ -283,26 +284,35 @@ namespace SailwindRigBalance.UI
                 float radius = _radius;
                 float band = Mathf.Max(current.HullLength * 0.030f, 0.25f);
 
-                // Half the circle, mirrored. 0 is dead ahead, 180 dead astern.
-                int half = Segments / 2;
-                var sampled = new RigBalance[half];
-                var evaluated = new bool[half];
+                // The WHOLE circle, one evaluation per segment. 0 is dead ahead, 180 dead astern.
+                //
+                // This used to evaluate half and mirror the rest, on the argument that balance is
+                // symmetric port and starboard. It is not, for two reasons. A junk rig sets its
+                // sails to one side of the mast, so the rig itself has no mirror plane, and any
+                // hull whose parts are not symmetric has the same problem. And the trim search picks
+                // each sail's best-drive pose independently at every angle, which need not land on
+                // mirrored poses when the geometry is not mirrored. Halving the cost was buying a
+                // ring that could be quietly wrong on one tack, which is exactly the question the
+                // ring exists to answer.
+                //
+                // Twenty four evaluations instead of twelve, on a debounced rig change only, never
+                // per frame and never while the arrow is being dragged.
+                var sampled = new RigBalance[Segments];
+                var evaluated = new bool[Segments];
                 float best = 0f;
 
-                for (int i = 0; i < half; i++)
+                for (int i = 0; i < Segments; i++)
                 {
-                    // The CENTRE of the segment this will colour, not its leading edge. Sampling the
-                    // edge and mirroring to (Segments - i) put the starboard half a whole segment
-                    // out of step with the port half: the physics is exactly mirror-symmetric, so
-                    // the ring has to look symmetric, and it did not. A rig whose helm reversed at
-                    // 40 degrees showed the reversal at 45 on one side and 30 on the other, which
-                    // reads as a boat that behaves differently on each tack.
+                    // The CENTRE of the segment this colours, not its leading edge. Sampling the
+                    // edge put the two halves a whole segment out of step back when they were
+                    // mirrored, so a helm reversal at 40 degrees showed at 45 on one tack and 30 on
+                    // the other.
                     float angle = 360f * (i + 0.5f) / Segments;
 
                     RigBalance balance;
                     // The hull cannot change length between samples, so it is measured once by the
                     // caller and passed in. Measuring walks every collider on the boat, and this
-                    // loop was throwing away eleven of them per rebuild.
+                    // loop was throwing away one of those measurements per segment.
                     evaluated[i] = RigModel.TryEvaluate(boatRoot, angle, out balance,
                         null, 1f, current.HullLength);
                     sampled[i] = balance;
@@ -313,14 +323,11 @@ namespace SailwindRigBalance.UI
                 MaxOutput = best;
 
                 var colours = new Color[Segments];
-                for (int i = 0; i < half; i++)
+                for (int i = 0; i < Segments; i++)
                 {
-                    Color colour = evaluated[i]
+                    colours[i] = evaluated[i]
                         ? VerdictFor(sampled[i], best, balancedMetres)
                         : DeadColour;
-
-                    colours[i] = colour;
-                    colours[Segments - 1 - i] = colour;
                 }
 
                 BuildMesh(radius, band, colours);

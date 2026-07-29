@@ -568,9 +568,10 @@ namespace SailwindRigBalance.UI
             // anything consumed them or not.
             if (_ring.Dragging) return;
 
-            Plugin.Log.LogDebug($"[Gizmo]   yaw={balance.YawMoment:F0} Nm fwd={balance.TotalForwardForce:F0} N "
-                + $"side={balance.TotalSideForce:F0} N output={balance.TotalOutput:F0} N "
-                + $"(rig best {_ring.MaxOutput:F0} N)");
+            Plugin.Log.LogDebug($"[Gizmo]   yaw={balance.YawMoment:F0} Nm "
+                + $"(side {balance.YawFromSide:F0} / thrust {balance.YawFromThrust:F0}) "
+                + $"fwd={balance.TotalForwardForce:F0} N side={balance.TotalSideForce:F0} N "
+                + $"output={balance.TotalOutput:F0} N (rig best {_ring.MaxOutput:F0} N)");
 
             // Per sail, so a furl that does not move the balance can be told apart from a furl that
             // never reached the model. Note Sail.cs:415 floors the multiplier at

@@ -17,6 +17,16 @@ namespace SailwindRigBalance.Core
         public float SideForce;          // N
         public float LeverFromOrigin;    // m, positive forward
         public float YawMoment;          // Nm, positive turns the bow to starboard
+
+        /// <summary>
+        /// The two halves YawMoment splits into, in boat axes: side force acting at a fore-and-aft
+        /// lever, and forward thrust acting off the centreline. They are tracked apart because only
+        /// the first one is what a centre of effort against a centre of lateral resistance describes.
+        /// Dividing their SUM by the side force, which is what this used to do, produces nonsense
+        /// wherever the side force vanishes but the thrust asymmetry does not.
+        /// </summary>
+        public float YawFromSide;
+        public float YawFromThrust;
         public bool CeTracksResizes;     // false only for a Shipyard Expansion added sail
         public float Unroll;             // what the model actually evaluated this sail at
 
@@ -44,6 +54,16 @@ namespace SailwindRigBalance.Core
         // of the two moved is the first thing worth knowing from a pasted log.
         public float TotalForwardForce;
         public float YawMoment;          // about the hull origin
+
+        /// <summary>
+        /// YawMoment split into the half that is side force at a lever, which is what a balance
+        /// reading is about, and the half that is thrust acting off the centreline, which is not.
+        /// The verdict is only offered while the first is the larger of the two. Both are printed in
+        /// the debug summary, because "which half moved" is the first question when a reading looks
+        /// wrong.
+        /// </summary>
+        public float YawFromSide;
+        public float YawFromThrust;
 
         public Vector3 CombinedCentreOfEffort;
         public Vector3 HullOrigin;
@@ -205,7 +225,8 @@ namespace SailwindRigBalance.Core
             HashSet<Sail> overridden = overrideSail == null ? null : UnrollGroupOf(boatRoot, overrideSail);
 
             var sails = new List<SailContribution>();
-            float totalSide = 0f, totalFwd = 0f, totalYaw = 0f;
+            float totalSide = 0f, totalFwd = 0f;
+            float yawFromSide = 0f, yawFromThrust = 0f;
             float weightSum = 0f;
             Vector3 ceAccum = Vector3.zero;
             bool anyFrozen = false;
@@ -237,7 +258,8 @@ namespace SailwindRigBalance.Core
                     sails.Add(c);
                     totalSide += c.SideForce;
                     totalFwd += c.ForwardForce;
-                    totalYaw += c.YawMoment;
+                    yawFromSide += c.YawFromSide;
+                    yawFromThrust += c.YawFromThrust;
                     if (!c.CeTracksResizes) anyFrozen = true;
 
                     float w = Mathf.Abs(c.SideForce) + Mathf.Abs(c.ForwardForce);
@@ -246,10 +268,19 @@ namespace SailwindRigBalance.Core
                 }
             }
 
+            // The hull's own windage, added last because it is not a sail and does not belong in the
+            // sail list or in the drawn centre's weighting.
+            AddHullWindage(boatRoot, boat, body, windWorld, ref totalSide, ref totalFwd,
+                ref yawFromSide, ref yawFromThrust);
+
+            float totalYaw = yawFromSide + yawFromThrust;
+
             result.Sails = sails;
             result.TotalSideForce = totalSide;
             result.TotalForwardForce = totalFwd;
             result.YawMoment = totalYaw;
+            result.YawFromSide = yawFromSide;
+            result.YawFromThrust = yawFromThrust;
             result.HullOrigin = body.position;
             result.AnySailHasFrozenCe = anyFrozen;
             result.HullLength = knownHullLength > 0f ? knownHullLength : MeasureHullLength(boatRoot, boat);
@@ -260,24 +291,102 @@ namespace SailwindRigBalance.Core
             // sits underneath means anything. A twentieth is generous: at a beam reach the two are
             // comparable, and by the time the side force is below this the boat is running and
             // there is nothing to balance.
-            result.HelmMeaningful = Mathf.Abs(totalSide) > 0.05f * result.TotalOutput
-                && Mathf.Abs(totalSide) > 0.01f;
-
             // Positive = centre of effort aft of the hull origin = weather helm. See HelmMetres.
+            float lever = Mathf.Abs(totalSide) > 0.0001f ? -totalYaw / totalSide : 0f;
+
+            // A centre of effort against a centre of lateral resistance is a statement about SIDE
+            // force acting at a lever, and it says nothing once the side force it is divided by is
+            // on its way through zero. As the wind goes aft the net side force crosses zero, but the
+            // rest of the yaw does NOT vanish with it, so the ratio runs off to infinity, changes
+            // sign and comes back. A live log on a fourteen-sail junk read -1.8 m, -3.3 m, -13.5 m,
+            // then +9.8 m over ten degrees of arrow movement, on a 29.7 m hull with a 0.59 m band.
+            // On the ring that is a spike of lee helm hard against a spike of weather helm, which is
+            // what a pole looks like when you draw it.
             //
-            // Gated on the SAME predicate the marker and every colour read, not on a second
-            // threshold of its own. With a relative test here and an absolute one there, a rig
-            // producing under about a fifth of a newton fell into the gap: HelmMeaningful said yes
-            // while HelmMetres was forced to zero, so the marker pinned itself exactly on the hull
-            // origin and the link reported a confident "balanced" for a yaw moment it had not
-            // reproduced at all.
-            result.HelmMetres = result.HelmMeaningful ? -totalYaw / totalSide : 0f;
+            // Two bounds, and it takes both. The share test is the honest statement of when the
+            // question applies at all, but a fifth of the way to the crossing the side force is
+            // small without yet being a small SHARE, which is how the old 5 percent let a 13 m lever
+            // through. The lever bound then catches whatever the share test misses, and it needs no
+            // guess about which term ought to dominate: a centre of effort a quarter of a hull from
+            // the hull's own centre is already a dozen times outside the balanced band, so nothing
+            // real is lost by declining to put a number on it, whereas a pole drawn as a verdict is
+            // actively misleading.
+            //
+            // Deliberately NOT a test of whether the side-force half of the yaw beats the thrust
+            // half. That reads well on paper and would have been wrong here: a junk sets its sails
+            // to one side of the mast, so thrust acting off the centreline is a large and entirely
+            // genuine term on every heading, and the ring would have gone grey all the way round on
+            // the very boat this was found on. The two halves are tracked and logged so the split
+            // can be seen, not used as a gate.
+            result.HelmMeaningful =
+                Mathf.Abs(totalSide) > 0.15f * result.TotalOutput
+                && Mathf.Abs(totalSide) > 0.01f
+                && Mathf.Abs(lever) < 0.25f * Mathf.Max(result.HullLength, DefaultHullLength);
+
+            // Gated on the SAME predicate the marker and every colour read, never on a threshold of
+            // its own: a reading that is meaningful but has no number, or has a number nothing else
+            // trusts, is how the marker ends up pinned on the hull origin reporting a confident
+            // "balanced" for a yaw moment it never reproduced.
+            result.HelmMetres = result.HelmMeaningful ? lever : 0f;
 
             result.CombinedCentreOfEffort = CombineCentreOfEffort(
                 boat, body, weightSum > 0.0001f ? ceAccum / weightSum : body.position,
                 result.HelmMetres, result.HelmMeaningful, result.HullLength);
 
             return sails.Count > 0;
+        }
+
+        /// <summary>
+        /// Folds in the force the wind puts on the hull itself, masts and all.
+        ///
+        /// BoatWind.FixedUpdate (BoatWind.cs:25-33) pushes the boat downwind with a force whose
+        /// magnitude lerps between frontForce and sideForce by how square the wind is on the beam,
+        /// applied at transform.TransformPoint(forceOffset), which sits 7 to 12 m AFT on every
+        /// playable hull. That is a vane behind the pivot, so it is weather helm on every heading
+        /// and every tack: it never cancels, and it does not shrink at other wind speeds because
+        /// both it and the sails are linear in apparent wind.
+        ///
+        /// It was left out at first, on the grounds that it is a property of the hull rather than
+        /// the rig and so cancels out of "does this sail plan balance better than that one", and
+        /// that folding it in would drag the magenta marker off the sail plan's own centre of
+        /// effort. The second half of that argument died when the marker stopped being the sail
+        /// plan's centroid and became the lever arm the yaw moment works out to. A lever arm is
+        /// about the whole force balance, so leaving out a real term of it was simply an error of
+        /// about 0.09 m in the same direction every time, against a band of 0.59 m on a junk.
+        ///
+        /// The sails' own list and the drawn centre's weighting are untouched: this is a force on
+        /// the hull, not a sail, and the per-sail readout stays about sails.
+        /// </summary>
+        private static void AddHullWindage(GameObject boatRoot, Transform boat, Rigidbody body,
+            Vector3 windWorld, ref float totalSide, ref float totalFwd,
+            ref float yawFromSide, ref float yawFromThrust)
+        {
+            try
+            {
+                var windage = boatRoot.GetComponent<BoatWind>();
+                if (windage == null) return;
+
+                // BoatWind.cs:26-32, with the synthetic wind standing in for Wind.currentWind minus
+                // the boat's velocity. The boat is kinematic at a shipyard, so velocity is zero and
+                // the apparent wind IS the wind.
+                float offBow = Mathf.Abs(Vector3.SignedAngle(boat.forward, windWorld.normalized, Vector3.up));
+                if (offBow > 90f) offBow = 180f - offBow;
+                float magnitude = Mathf.Lerp(windage.frontForce, windage.sideForce,
+                    Mathf.InverseLerp(0f, 90f, offBow));
+
+                Vector3 forceLocal = boat.InverseTransformVector(windWorld * magnitude);
+                Vector3 armLocal = windage.forceOffset;   // already in the boat's own frame
+
+                totalSide += forceLocal.x;
+                totalFwd += forceLocal.z;
+                yawFromSide += armLocal.z * forceLocal.x;
+                yawFromThrust += -armLocal.x * forceLocal.z;
+            }
+            catch (Exception e)
+            {
+                WarnOnce("windage", "[RigModel] the hull's own windage could not be read, so the "
+                    + "balance reading leaves out a small weather-helm term: " + e.Message);
+            }
         }
 
         /// <summary>
@@ -496,10 +605,14 @@ namespace SailwindRigBalance.Core
                 }
 
                 Vector3 ce = bestCe;
-                Vector3 arm = ce - body.position;                       // about the HULL ORIGIN
-                Vector3 armLocal = boat.InverseTransformVector(arm);
-                Vector3 force = boat.forward * bestFwd + boat.right * bestSide;
-                float yaw = Vector3.Dot(Vector3.Cross(arm, force), boat.up);
+                Vector3 armLocal = boat.InverseTransformVector(ce - body.position);  // about the HULL ORIGIN
+
+                // Boat axes: x starboard, z forward. Unity's cross product about up reduces to
+                // arm.z * force.x - arm.x * force.z, which is exactly these two terms. Taken in the
+                // boat's own frame rather than through a world-space cross product so the two halves
+                // are separable, and so they provably sum to the same number.
+                float yawFromSide = armLocal.z * bestSide;
+                float yawFromThrust = -armLocal.x * bestFwd;
 
                 c.Sail = sail;
                 c.Name = sail.sailName;
@@ -508,7 +621,9 @@ namespace SailwindRigBalance.Core
                 c.ForwardForce = bestFwd;
                 c.SideForce = bestSide;
                 c.LeverFromOrigin = armLocal.z;
-                c.YawMoment = yaw;
+                c.YawMoment = yawFromSide + yawFromThrust;
+                c.YawFromSide = yawFromSide;
+                c.YawFromThrust = yawFromThrust;
                 c.CeTracksResizes = CeTracksResizes(sail);
                 c.Unroll = unroll;
                 c.UpwindEfficiency = sail.upwindEfficiency;
