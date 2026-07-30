@@ -884,3 +884,107 @@ Refreshing is confirmed too: `ShipyardPartsInstaller.cs:53` calls `Shipyard.Upda
 reaches `partsInstaller.UpdateOrder()` at `Shipyard.cs:158` and then
 `RefreshPartsWithOrder` at `ShipyardPartsInstaller.cs:62`, which activates the option and fires
 `OnEnable`. The mod's postfix on `UpdateOrder(bool)` runs after all of that.
+
+---
+
+## 14. Two knife edges in the force model, and why the ring came out lopsided
+
+Measured on a brig in a shipyard, from the balance ring's own mirror audit. A ring drawn for a
+symmetric hull has to be symmetric: bearing `b` and bearing `360 - b` are one situation and its
+reflection. It was not, and three separate fixes reasoned from the source changed nothing, because
+neither the drawn ring nor a helm lever can say which of ten sails disagrees. Only a per-sail
+comparison of the two tacks could, and once it existed the cause took one reading.
+
+### 14.1 The drive multiplier, `Sail.cs:427-429`
+
+```
+num3 = Vector3.Angle(forceVectorOnSail, boat forward)
+if (num3 > 90f) num4 = -0.33f;
+unamplifiedForwardForce = num4 * appliedWindForce * num7;      // :446
+```
+
+The test is **strict**, and `num3 == 90` means the sail's force is exactly abeam. A fore-and-aft
+sail sheeted exactly amidships is precisely that, so the comparison is deciding the sign of a dot
+product whose true value is **zero**.
+
+Trim 0 is its own reflection. So the identical pose is evaluated on both tacks, lands on opposite
+sides of the test, and one tack is awarded `+1` while the other gets `-0.33`: a factor of `-3` on one
+sail in one attitude. `num7` (`:441`, `Lerp((90 - num3) / 90, 1, upwindEfficiency)`) has a floor of
+`upwindEfficiency` rather than falling to zero, so the awarded branch is large, and the error is
+whole newtons rather than a rounding.
+
+Measured, at 15 degrees against 345:
+
+| sail | trim | forward force | sideways share | aback |
+|------|------|---------------|----------------|-------|
+| brig jib | 0.0 vs 0.0 | +163 vs -53 N | 1.00 | false vs **true** |
+| short genoa | 0.0 vs 0.0 | +85 vs -23 N | 1.00 | false vs **true** |
+| short genoa | 0.0 vs 0.0 | +102 vs -28 N | 1.00 | false vs **true** |
+
+Every ratio is about `-0.33`. Every square sail on the same boat mirrored its trim and both its
+forces exactly, because a yard braced athwartships puts its force along the boat's own axis, nowhere
+near the edge.
+
+**Why only near the bow.** Trim 0 is knife-decided only while no *other* sampled pose drives at all.
+With swing limits of plus or minus 89 the refine spacing is `89 / 4 = 22.25` degrees, and a rival pose enters the
+driving window at `b - 13 > 22.25`, i.e. `b > 35.25`. So 15, 25 and 35 are decided by the edge and 45
+outward is not: at 45 an interior pose wins by about 4 percent, some seventeen times the tie window,
+so the answer mirrors bit-exactly. That is the observed boundary to the bearing, and it also predicts
+that with the unmodded plus or minus 50 limits the boundary would fall at 25.5 and 35/325 would agree. They do
+not agree, which independently confirms Sail Collision Fix's `Ignore angle limits` is on.
+
+Resolved by taking the answer that does not depend on the sign of a zero: a force with no component
+along the bow is not driving her, so within half a degree of abeam the pessimistic branch is used on
+both tacks. It fires only on a pose whose forward force is zero by construction, which is why the
+thirteen bearing pairs on the beam keep vanilla's answer untouched.
+
+### 14.2 The sideways sign, `Sail.cs:432-436`, and a pose family that does not mirror
+
+```
+num5 = Vector3.Angle(forceVectorOnSail, boat right)
+if (num5 > 90f) num6 = -1f;
+unamplifiedSidewayForce = num6 * appliedWindForce * num8;      // :447
+```
+
+Same shape of test. This one is mostly self-damping: `num5` near 90 means the force lies in the
+fore-and-aft plane, which forces `num3` near 0 and hence `num8 = num3 / 90` near 0, so the sign it
+decides is applied to almost nothing.
+
+It bites anyway at 175 and 185, where one square sail reported `side -169 N` on **both** tacks
+instead of negating. A 338 N swing, and `-757 + 338 = -419` against `+419` on the other side, so that
+single sail accounts for the whole residual.
+
+The reason is not the test but the pose handed to it. The model builds each trim as
+`Quaternion.Euler(euler.x, euler.y, trim)`, preserving the live rest attitude's first two angles.
+Unity composes `Ry * Rx * Rz`, and reflecting through the centreline maps `Euler(x, y, z)` to
+`Euler(x, -y, -z)`: **`euler.x` is harmless, `euler.y` is not.** With a nonzero `euler.y` the sampled
+pose family is not closed under reflection, so the mirror of a pose the search tries is a pose it
+never tries. That sail's force sat 35 degrees off the boat's axis at trim 0 (`sideShare 0.39`), so its
+own attitude decided which side the force went, and the plus or minus 5 degrees of wind available at dead astern
+cannot flip a 35 degree bias.
+
+Vanilla treats a sail's local rotation as a pure Z rotation: `SquareAngleMaster.cs:46` reads the
+brace angle as `transform.localEulerAngles.z`, and `JibAngleMaster.cs:75` resets a sail with
+`localRotation = Quaternion.identity`. So a nonzero `euler.x` or `euler.y` in the live attitude is
+hinge jitter or stale drift rather than rigging, and preserving it bakes that in.
+
+**Not yet changed.** Building the pose on the hinge axis alone would close the family under
+reflection, but it moves every sail at every bearing and Shipyard Expansion's `SailScaler.SetAngle`
+rotates spars, so it needs its own pass rather than being folded into the fix above. The residual it
+leaves is 169 N on one sail at two bearings that both report no verdict, where the ring is drawn flat
+grey and the difference cannot be seen.
+
+### 14.3 What the audit is for
+
+The lesson is not either knife edge, it is that a picture cannot be argued with. The ring is now
+checked against its own mirror at the end of every sweep, per sail, for free, because the finished
+sweep already holds every contribution at all 36 bearings. Sample `i` reflects to `Segments-1-i`.
+Forward force must match, side force and trim must negate, and an arm must keep its station and
+negate its offset from the centreline. Compare the **arm captured at each sail's own instant**, never
+two world positions transformed later: a sweep spans about 36 frames and `Shipyard.MoveShip` is still
+lerping the hull across them, which invented a 3.6 m disagreement for every sail on the first
+attempt.
+
+A sweep that straddles a rig change reports most pairs asymmetric, because the sail set itself
+changes mid-sweep. That is transient and is immediately superseded by the rebuild the change
+triggers.
