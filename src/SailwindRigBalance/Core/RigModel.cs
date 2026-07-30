@@ -57,6 +57,24 @@ namespace SailwindRigBalance.Core
         /// </summary>
         public float SideShare;
         public bool Aback;
+
+        /// <summary>True when this sail's drive was resolved off vanilla's knife edge. See
+        /// RigModel.AthwartshipsShare.</summary>
+        public bool DriveClamped;
+
+        /// <summary>
+        /// The centre of effort as an arm from the hull origin in BOAT axes, x to starboard and z
+        /// forward, captured at the instant the sail was evaluated.
+        ///
+        /// CentreOfEffort is a world position, and a sweep spans about thirty six frames during which
+        /// the shipyard cradle is still lerping the hull into place (Shipyard.MoveShip runs over
+        /// roughly two seconds). Comparing two world positions taken that far apart therefore measures
+        /// the cradle's travel as well as the rig, which made the mirror audit report a fictitious 3.6
+        /// m disagreement in every sail's station. The yaw moments never had that problem, because each
+        /// was taken in the hull's own frame at its own instant; only a later comparison of the raw
+        /// positions did. This is that same frame-correct arm, kept so the audit can use it.
+        /// </summary>
+        public Vector3 Arm;
     }
 
     /// <summary>The whole answer for one rig at one synthetic wind.</summary>
@@ -182,6 +200,15 @@ namespace SailwindRigBalance.Core
         public static bool Available =>
             FUnampFwd != null && FUnampSide != null && MUpdateForce != null;
 
+        /// <summary>
+        /// True when the two vanilla readings needed to recognise a pose lying on vanilla's own drive
+        /// knife edge both resolved. Deliberately NOT part of Available: without them the model still
+        /// produces every force and every centre it ever did, so disabling the gizmo outright would
+        /// cost far more than the one defect it would avoid. See AthwartshipsShare.
+        /// </summary>
+        private static bool CanResolveKnifeEdge =>
+            FOutSideShare != null && FPushingBack != null;
+
         /// <summary>Names already complained about, so a warning cannot repeat every rebuild.</summary>
         private static readonly HashSet<string> Warned = new HashSet<string>();
 
@@ -224,6 +251,44 @@ namespace SailwindRigBalance.Core
         /// evaluation happened to produce, so the window does not vanish when the forces do.
         /// </summary>
         private const float TieFraction = 0.001f;
+
+        /// <summary>
+        /// Vanilla's own drive multiplier for a sail whose force is pushing the boat backwards
+        /// (Sail.cs:429). Named here only so the correction below can state that it is reproducing
+        /// vanilla's other branch rather than inventing a factor.
+        /// </summary>
+        private const float AbackDriveMultiplier = -0.33f;
+
+        /// <summary>
+        /// How close to dead abeam a sail's force may be before vanilla's drive test stops being a
+        /// statement about geometry, as a sideways share where 1 is exactly abeam.
+        ///
+        /// Sail.cs:425-429 flips the drive multiplier from +1 to -0.33 across a STRICT num3 > 90,
+        /// num3 being the angle between the sail's force and the bow, and Sail.cs:446 multiplies the
+        /// forward force by it. A fore-and-aft sail sheeted exactly amidships puts its force exactly
+        /// abeam, so that comparison is made on a dot product whose true value is ZERO and whose sign
+        /// is therefore whatever the last bit of the arithmetic says. Trim 0 is its own reflection, so
+        /// the identical pose is evaluated on both tacks, lands on opposite sides of the test, and one
+        /// tack is awarded +1 while the other gets -0.33: a factor of -3 on one sail in one attitude.
+        ///
+        /// That is what tore the bearings nearest the bow apart, and it was measured, not reasoned:
+        /// on a brig at 15 against 345 degrees the jib read +163 N of drive against -53 N, and two
+        /// genoas +85/-23 and +102/-28, each pair a ratio of about -0.33, all three at trim 0.0 with a
+        /// sideways share of 1.00. Vanilla's num7 floor (Sail.cs:441, Lerp toward upwindEfficiency)
+        /// is what makes the awarded branch large rather than negligible, so the error was whole
+        /// newtons rather than a rounding.
+        ///
+        /// Square sails are untouched by this: at trim 0 a yard braced athwartships puts its force
+        /// along the boat's axis, where num3 is nowhere near 90. The log bears that out, every square
+        /// sail mirroring its trim and both forces exactly.
+        ///
+        /// Half a degree, written as a share. Four orders of magnitude above the noise in the
+        /// comparison it is guarding, far below any attitude a player could set or notice, and it can
+        /// only ever change a pose whose forward force is zero by construction. Poses off the knife
+        /// edge keep vanilla's answer untouched, which is why the thirteen bearing pairs on the beam
+        /// stay exact.
+        /// </summary>
+        private const float AthwartshipsShare = 89.5f / 90f;
 
         /// <summary>
         /// Evaluate a rig at an apparent wind coming from <paramref name="windAngleDegrees"/> off
@@ -615,6 +680,20 @@ namespace SailwindRigBalance.Core
                 else WarnOnce("shadowCol", "[RigModel] Sail.shadowCol did not resolve, so the "
                     + "balance reading includes whatever sail shading today's weather produces.");
 
+                // Both of these are vanilla OUTPUTS, so the model runs without them and Available does
+                // not require them. What it loses is the ability to recognise a pose whose force is
+                // dead abeam, where vanilla's drive test is deciding the sign of a zero and decides it
+                // oppositely on each tack. Said out loud rather than left to be rediscovered: the ring
+                // going lopsided at the bow again is precisely the bug this guards, and it cost three
+                // releases to find the first time.
+                if (!CanResolveKnifeEdge)
+                {
+                    WarnOnce("knifeEdge", "[RigModel] Sail.outSidewayShare or "
+                        + "Sail.pushingBoatBackwards did not resolve, so a sail sheeted amidships "
+                        + "cannot be told from one merely near it. The bearings nearest the bow will "
+                        + "disagree between port and starboard.");
+                }
+
                 // The caller passes the sail's own currentUnroll, so this is normally a no-op; it
                 // differs only for the one sail a reef track is being drawn for. Sail.cs:415
                 // multiplies the wind force by it linearly, so a furled sail contributes nothing and
@@ -720,7 +799,22 @@ namespace SailwindRigBalance.Core
                         float scale = sail.GetRealSailPower() * CategoryMultiplier(sail.category) * 50f
                             * CradleHeightCorrection(ceHere.y, waterline);
 
+                        float sideShare = ToFloat(FOutSideShare?.GetValue(sail));
                         object abackHere = FPushingBack?.GetValue(sail);
+                        bool aback = abackHere is bool && (bool)abackHere;
+
+                        // The pose is dead abeam, so vanilla just decided the sign of a zero and it
+                        // decides the other way on the other tack. Take the answer that does not
+                        // depend on that sign: a force with no component along the bow is not driving
+                        // her. See AthwartshipsShare. Only the +1 branch is corrected, because the
+                        // -0.33 branch is already the value this settles on, so applying it twice
+                        // would undo it.
+                        bool clamped = false;
+                        if (sideShare >= AthwartshipsShare && !aback)
+                        {
+                            unampF *= AbackDriveMultiplier;
+                            clamped = true;
+                        }
 
                         TrimCandidates.Add(new TrimCandidate
                         {
@@ -728,8 +822,9 @@ namespace SailwindRigBalance.Core
                             Fwd = unampF * scale,
                             Side = unampS * scale * 1.5f,   // the sideways component carries an extra 1.5x
                             Ce = ceHere,
-                            SideShare = ToFloat(FOutSideShare?.GetValue(sail)),
-                            Aback = abackHere is bool && (bool)abackHere,
+                            SideShare = sideShare,
+                            Aback = aback,
+                            DriveClamped = clamped,
                         });
                     }
 
@@ -773,6 +868,8 @@ namespace SailwindRigBalance.Core
                 c.Trim = TrimCandidates[winner].Trim;
                 c.SideShare = TrimCandidates[winner].SideShare;
                 c.Aback = TrimCandidates[winner].Aback;
+                c.DriveClamped = TrimCandidates[winner].DriveClamped;
+                c.Arm = armLocal;
                 c.UpwindEfficiency = sail.upwindEfficiency;
                 c.Category = sail.category;
                 return true;
@@ -1111,6 +1208,13 @@ namespace SailwindRigBalance.Core
             /// </summary>
             public float SideShare;
             public bool Aback;
+
+            /// <summary>
+            /// Set when this pose was dead abeam and its drive was resolved against vanilla's noisy
+            /// branch. Diagnostic: it is how the audit shows the correction firing where it should
+            /// and, more usefully, shows it firing on BOTH tacks rather than one.
+            /// </summary>
+            public bool DriveClamped;
         }
 
         /// <summary>

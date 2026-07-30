@@ -427,7 +427,7 @@ namespace SailwindRigBalance.UI
                 LogSweep(_pendingSampled, _pendingEvaluated, _pendingBest,
                     _pendingBalancedMetres, _pendingMilliseconds);
 
-                LogMirrorAudit(_pendingSampled, _pendingEvaluated, boat);
+                LogMirrorAudit(_pendingSampled, _pendingEvaluated);
             }
             finally
             {
@@ -554,11 +554,11 @@ namespace SailwindRigBalance.UI
         /// together. This can, and it reports the per-sail detail only when something is actually
         /// wrong, so a healthy rig costs one line.
         /// </summary>
-        private static void LogMirrorAudit(RigBalance[] sampled, bool[] evaluated, Transform boat)
+        private static void LogMirrorAudit(RigBalance[] sampled, bool[] evaluated)
         {
             try
             {
-                if (boat == null || sampled == null || evaluated == null) return;
+                if (sampled == null || evaluated == null) return;
 
                 int pairs = 0, broken = 0, worst = -1;
                 float worstGap = 0f;
@@ -593,7 +593,7 @@ namespace SailwindRigBalance.UI
                     + $"worst {Bearing(worst):F0}/{Bearing(Segments - 1 - worst):F0} off by "
                     + $"{worstGap * 100f:F1} percent.");
 
-                DumpMirrorPair(sampled[worst], sampled[Segments - 1 - worst], boat,
+                DumpMirrorPair(sampled[worst], sampled[Segments - 1 - worst],
                     Bearing(worst), Bearing(Segments - 1 - worst));
             }
             catch (Exception e)
@@ -608,7 +608,7 @@ namespace SailwindRigBalance.UI
         /// because a rig carries several sails with the same name and a mismatch between two of THOSE
         /// is the interesting case, not something to be hidden by pairing them wrongly.
         /// </summary>
-        private static void DumpMirrorPair(RigBalance a, RigBalance b, Transform boat,
+        private static void DumpMirrorPair(RigBalance a, RigBalance b,
             float bearingA, float bearingB)
         {
             Plugin.Log.LogWarning($"[Ring] mirror {bearingA:F0} vs {bearingB:F0}: "
@@ -641,11 +641,13 @@ namespace SailwindRigBalance.UI
 
                 SailContribution cb = b.Sails[m];
 
-                // Boat-local, so "negates" and "matches" mean what they say regardless of the hull's
-                // heading in the world. Both are read through the same transform, and the hull does
-                // not move in a shipyard, so this comparison is not itself a source of error.
-                Vector3 pa = boat.InverseTransformPoint(ca.CentreOfEffort);
-                Vector3 pb = boat.InverseTransformPoint(cb.CentreOfEffort);
+                // The arm each sail was evaluated at, in boat axes, taken at its OWN instant. Not the
+                // world centre of effort transformed here: the two readings are up to thirty six
+                // frames apart and the shipyard cradle is still lerping the hull into place across
+                // them, so transforming both by one late transform measures the cradle's travel and
+                // reported a fictitious 3.6 m disagreement in every sail. See SailContribution.Arm.
+                Vector3 pa = ca.Arm;
+                Vector3 pb = cb.Arm;
 
                 bool trimOk = Mathf.Abs(ca.Trim + cb.Trim) < 0.05f;
                 bool fwdOk = RelativeGap(ca.ForwardForce, cb.ForwardForce) <= MirrorTolerance;
@@ -667,7 +669,8 @@ namespace SailwindRigBalance.UI
                     // step rather than by the rig, and it is the one case a force comparison alone
                     // cannot identify.
                     + $"sideShare {ca.SideShare:F2} vs {cb.SideShare:F2}, "
-                    + $"aback {ca.Aback} vs {cb.Aback}");
+                    + $"aback {ca.Aback} vs {cb.Aback}, "
+                    + $"clamped {ca.DriveClamped} vs {cb.DriveClamped}");
             }
 
             for (int n = 0; n < b.Sails.Count; n++)
