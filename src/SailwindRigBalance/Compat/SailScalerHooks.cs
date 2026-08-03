@@ -48,11 +48,15 @@ namespace SailwindRigBalance.Compat
                     return;
                 }
 
-                var postfix = new HarmonyMethod(AccessTools.Method(typeof(SailScalerHooks), nameof(Invalidate)));
-
+                // One postfix each rather than one shared, so the log names which of SE's controls
+                // fired. These two are the whole reason this file exists: neither reaches any vanilla
+                // funnel, so if one silently stops matching, the markers keep showing the pre-edit
+                // answer and nothing else in the log would ever say so.
                 int applied = 0;
-                applied += Patch(harmony, scaler, "FlipJib", new[] { typeof(bool) }, postfix);
-                applied += Patch(harmony, scaler, "SetAngle", new[] { typeof(float) }, postfix);
+                applied += Patch(harmony, scaler, "FlipJib", new[] { typeof(bool) },
+                    new HarmonyMethod(AccessTools.Method(typeof(SailScalerHooks), nameof(InvalidateFlip))));
+                applied += Patch(harmony, scaler, "SetAngle", new[] { typeof(float) },
+                    new HarmonyMethod(AccessTools.Method(typeof(SailScalerHooks), nameof(InvalidateAngle))));
 
                 Plugin.Log.LogInfo($"[Compat] {applied} Shipyard Expansion sail-edit hook(s) applied.");
             }
@@ -91,6 +95,9 @@ namespace SailwindRigBalance.Compat
         }
 
         /// <summary>Sets a flag and nothing else, so a throw here cannot break SE's own button.</summary>
-        private static void Invalidate() => ShipyardHooks.MarkDirty();
+        private static void InvalidateFlip() => ShipyardHooks.MarkDirty("SE FlipJib");
+
+        /// <summary>As above, for SE's spar rotation. Named apart so the log distinguishes them.</summary>
+        private static void InvalidateAngle() => ShipyardHooks.MarkDirty("SE SetAngle");
     }
 }

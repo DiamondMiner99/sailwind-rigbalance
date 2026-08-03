@@ -231,7 +231,7 @@ namespace SailwindRigBalance.Shipyard
             }
 
             UnrollWatch.Watch(sail, unroll);
-            ShipyardHooks.MarkDirty();
+            ShipyardHooks.MarkDirty("furl button");
         }
 
         /// <summary>

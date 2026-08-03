@@ -276,6 +276,13 @@ namespace SailwindRigBalance.UI
             if (_rebuildAt >= 0f && Time.unscaledTime >= _rebuildAt)
             {
                 _rebuildAt = -1f;
+
+                // What asked for this, named. Taken here rather than where the dirty flag is consumed
+                // because the rebuild is debounced: one rebuild absorbs a whole drag's worth of
+                // flags, and reporting them at the flag would be a line per frame. "unknown" is a
+                // real answer and means something re-ran that no hook claimed, which is worth seeing.
+                Plugin.Log.LogInfo("[Gizmo] rebuild: " + ShipyardHooks.TakeReasons());
+
                 Recompute();
             }
         }
@@ -324,7 +331,7 @@ namespace SailwindRigBalance.UI
             if (!_settleArmed || Time.unscaledTime - _stillSince < SettleSeconds) return;
 
             _settleArmed = false;
-            ShipyardHooks.MarkDirty();
+            ShipyardHooks.MarkDirty("boat settled");
         }
 
         /// <summary>

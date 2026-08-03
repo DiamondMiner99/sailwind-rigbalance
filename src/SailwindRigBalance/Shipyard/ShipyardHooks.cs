@@ -21,6 +21,23 @@ namespace SailwindRigBalance.Shipyard
 
         private static bool _dirty;
 
+        /// <summary>
+        /// Which hooks have asked for a rebuild since the last one actually ran, named and without
+        /// repeats.
+        ///
+        /// Kept because the log recorded THAT a rebuild happened and never what caused it, so a hook
+        /// that silently stopped matching its target was indistinguishable from a hook whose event
+        /// the player had not triggered. That matters most for the paths that exist precisely because
+        /// they have no vanilla funnel: Shipyard Expansion's jib flip and spar rotation reach nothing
+        /// else, so if either patch fails to apply, the markers keep showing the pre-edit answer and
+        /// the gizmo looks live while being wrong. Naming the trigger turns testing that from a
+        /// description of what someone thought they saw into a line anyone can read back.
+        ///
+        /// Bounded, because a drag-resize fires SetSailArea every frame.
+        /// </summary>
+        private static readonly System.Collections.Generic.List<string> Reasons =
+            new System.Collections.Generic.List<string>(8);
+
         /// <summary>True once since the last call. Recompute when it returns true.</summary>
         public static bool ConsumeDirty()
         {
@@ -29,14 +46,41 @@ namespace SailwindRigBalance.Shipyard
             return true;
         }
 
-        public static void MarkDirty() => _dirty = true;
+        /// <summary>
+        /// Every distinct trigger since the last time this was called, and clears them.
+        ///
+        /// Deliberately NOT cleared by ConsumeDirty. The rebuild is debounced, so one rebuild absorbs
+        /// many dirty flags, and clearing on the flag would report whichever trigger happened to be
+        /// last rather than all of them. Called where the rebuild really runs, so a whole drag
+        /// collapses to one line naming one cause.
+        /// </summary>
+        public static string TakeReasons()
+        {
+            if (Reasons.Count == 0) return "unknown";
+            string joined = string.Join(", ", Reasons.ToArray());
+            Reasons.Clear();
+            return joined;
+        }
+
+        public static void MarkDirty(string reason)
+        {
+            _dirty = true;
+            if (reason == null) return;
+
+            for (int i = 0; i < Reasons.Count; i++)
+            {
+                if (Reasons[i] == reason) return;
+            }
+
+            if (Reasons.Count < 8) Reasons.Add(reason);
+        }
 
         private static void Enter(global::Shipyard shipyard)
         {
             try
             {
                 CurrentBoat = shipyard != null ? shipyard.GetCurrentBoat() : null;
-                _dirty = true;
+                MarkDirty("AdmitShip");
                 Plugin.Log.LogInfo($"[Shipyard] entered with '{(CurrentBoat == null ? "<null>" : CurrentBoat.name)}'");
             }
             catch (Exception e)
@@ -48,7 +92,7 @@ namespace SailwindRigBalance.Shipyard
         private static void Exit()
         {
             CurrentBoat = null;
-            _dirty = true;
+            MarkDirty("DischargeShip");
             Plugin.Log.LogInfo("[Shipyard] left");
         }
 
@@ -71,32 +115,32 @@ namespace SailwindRigBalance.Shipyard
         [HarmonyPatch(typeof(global::Shipyard), nameof(global::Shipyard.UpdateOrder), new Type[] { typeof(bool) })]
         private static class UpdateOrderBoolPatch
         {
-            private static void Postfix() => MarkDirty();
+            private static void Postfix() => MarkDirty("UpdateOrder(bool)");
         }
 
         [HarmonyPatch(typeof(global::Shipyard), nameof(global::Shipyard.UpdateOrder), new Type[0])]
         private static class UpdateOrderPatch
         {
-            private static void Postfix() => MarkDirty();
+            private static void Postfix() => MarkDirty("UpdateOrder()");
         }
 
         // The rig rebuild path: destroys and re-instantiates every sail from PrefabsDirectory.
         [HarmonyPatch(typeof(SaveableBoatCustomization), nameof(SaveableBoatCustomization.LoadData))]
         private static class LoadDataPatch
         {
-            private static void Postfix() => MarkDirty();
+            private static void Postfix() => MarkDirty("LoadData");
         }
 
         [HarmonyPatch(typeof(Mast), nameof(Mast.AttachSailToMast))]
         private static class AttachSailPatch
         {
-            private static void Postfix() => MarkDirty();
+            private static void Postfix() => MarkDirty("AttachSailToMast");
         }
 
         [HarmonyPatch(typeof(Mast), nameof(Mast.DetachSailFromMast))]
         private static class DetachSailPatch
         {
-            private static void Postfix() => MarkDirty();
+            private static void Postfix() => MarkDirty("DetachSailFromMast");
         }
 
         // Resizing a sail. UpdateOrder is NOT reached on every path to it, so hooking the funnel is
@@ -115,7 +159,7 @@ namespace SailwindRigBalance.Shipyard
         [HarmonyPatch(typeof(Sail), nameof(Sail.SetSailArea))]
         private static class SetSailAreaPatch
         {
-            private static void Postfix() => MarkDirty();
+            private static void Postfix() => MarkDirty("SetSailArea");
         }
 
         // Sliding a sail up or down its mast moves the centre of effort without changing anything
@@ -123,7 +167,7 @@ namespace SailwindRigBalance.Shipyard
         [HarmonyPatch(typeof(Sail), nameof(Sail.ChangeInstallHeight))]
         private static class ChangeInstallHeightPatch
         {
-            private static void Postfix() => MarkDirty();
+            private static void Postfix() => MarkDirty("ChangeInstallHeight");
         }
     }
 }
