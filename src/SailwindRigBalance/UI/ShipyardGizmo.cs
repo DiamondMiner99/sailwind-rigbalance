@@ -212,8 +212,9 @@ namespace SailwindRigBalance.UI
 
         private float _rebuildAt = -1f;
 
-        private GUIStyle _circleStyle, _tipStyle, _panelStyle, _panelInnerStyle;
+        private GUIStyle _circleStyle, _ringStyle, _tipStyle, _panelStyle, _panelInnerStyle;
         private Texture2D _circleTex;
+        private Texture2D _ringTex;
         private Texture2D _panelTex;
         private Texture2D _paperTex;
         private Color _paperTint = Color.white;
@@ -222,8 +223,9 @@ namespace SailwindRigBalance.UI
 
 
         // Sized to the buttons and nothing more: 8 padding, then 24 wide buttons separated by 3 of
-        // margin. Any slack here shows up as dead background beside the last button.
-        private const float PanelWidth = 8f + 3f + 24f + 3f + 24f + 3f + 24f + 3f + 8f;
+        // margin. Any slack here shows up as dead background beside the last button. Four buttons:
+        // the three markers and the balance ring.
+        private const float PanelWidth = 8f + 3f + 24f + 3f + 24f + 3f + 24f + 3f + 24f + 3f + 8f;
         private const float PanelHeight = 8f + 3f + 24f + 3f + 8f;
         private const float PanelMargin = 20f;
 
@@ -532,6 +534,7 @@ namespace SailwindRigBalance.UI
         {
             Teardown();
             if (_circleTex != null) Destroy(_circleTex);
+            if (_ringTex != null) Destroy(_ringTex);
             if (_panelTex != null) Destroy(_panelTex);
         }
 
@@ -1524,6 +1527,7 @@ namespace SailwindRigBalance.UI
             Toggle(Effort, _unreliable ? UnreliableColour : EffortColour, "Centre of effort");
             Toggle(Resistance, ResistanceColour, "Centre of lateral resistance");
             Toggle(Mass, MassColour, "Centre of mass");
+            RingToggle();
             // Only a fallback. The real furl control is a clone of the shipyard's own furl-all
             // button, sitting directly beneath it; this appears only when there was no such button
             // to clone, which is the normal case without Shipyard Expansion installed.
@@ -1629,6 +1633,48 @@ namespace SailwindRigBalance.UI
         }
 
         /// <summary>
+        /// The fourth button: the balance ring itself. Not routed through Toggle because the ring is
+        /// not a marker. Its button is an annulus rather than a disc, so its shape says which control
+        /// it is, and its state lives in the ShowBalanceRing config entry rather than in _visible,
+        /// because both places that gate the ring already read that entry: hiding it this way also
+        /// stops the 36-bearing sweep from running at all, which is most of what the gizmo costs.
+        ///
+        /// The texture carries its own colours, so the tint is white when on, unlike the marker
+        /// buttons whose white discs exist to BE tinted. Off gets the same grey as everything else.
+        /// </summary>
+        private void RingToggle()
+        {
+            ConfigEntry<bool> entry = Config.Settings.ShowRing;
+            bool on = entry == null || entry.Value;
+
+            Color previous = GUI.color;
+            GUI.color = on ? Color.white : new Color(0.32f, 0.32f, 0.32f, 0.85f);
+
+            bool clicked = GUILayout.Button(new GUIContent(string.Empty, "Balance ring"), _ringStyle,
+                GUILayout.Width(24f), GUILayout.Height(24f));
+
+            GUI.color = previous;
+
+            if (!clicked || entry == null) return;
+
+            entry.Value = !on;
+
+            if (entry.Value)
+            {
+                // While the ring is off no sweeps run, so whatever mesh still exists describes the
+                // rig as it stood when it was hidden. Shown stale it would be quietly wrong about
+                // every edit made since, so re-showing asks for a rebuild instead of a reveal; the
+                // debounced recompute sweeps and shows it fresh.
+                _ringNeedsRebuild = true;
+                ShipyardHooks.MarkDirty("ring shown");
+            }
+            else
+            {
+                _ring.SetVisible(false);
+            }
+        }
+
+        /// <summary>
         /// Furls or sets the sail the player currently has selected in the shipyard, and nothing
         /// else. Appears only while a sail is selected.
         ///
@@ -1697,6 +1743,14 @@ namespace SailwindRigBalance.UI
             _circleStyle.normal.background = _circleTex;
             _circleStyle.hover.background = _circleTex;
             _circleStyle.active.background = _circleTex;
+
+            // Same box, different face: the ring button shares the circle style's geometry so the
+            // row stays even, and only its background is the coloured annulus.
+            _ringTex = MakeRingTexture(28);
+            _ringStyle = new GUIStyle(_circleStyle);
+            _ringStyle.normal.background = _ringTex;
+            _ringStyle.hover.background = _ringTex;
+            _ringStyle.active.background = _ringTex;
 
             // Boxed rather than a bare label so the text stays legible over the shipyard's pale
             // paper panels as well as over the night sky.
@@ -1865,6 +1919,49 @@ namespace SailwindRigBalance.UI
                     tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
                 }
             }
+            tex.Apply();
+            tex.hideFlags = HideFlags.HideAndDontSave;
+            return tex;
+        }
+
+        /// <summary>
+        /// The balance ring's button: an annulus wearing the ring's own verdict colours, so the
+        /// button is a miniature of the thing it controls. It runs through the same diverging ramp
+        /// the rose draws with: weather blue at the top, balanced green on the beams, lee red at the
+        /// bottom, eased by the same square root HelmColour uses, and mirror symmetric port for
+        /// starboard because the rose it stands for is. Built from the vertical component of each
+        /// pixel's direction rather than from its angle, which gives that symmetry with no seam to
+        /// hide.
+        /// </summary>
+        private static Texture2D MakeRingTexture(int size)
+        {
+            var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
+            float r = size * 0.5f;
+            // Proportioned like the drawn rose: a band, not a hoop so thin it reads as an outline,
+            // and not so thick it reads as a disc with a hole poked in it.
+            float inner = r * 0.52f;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = x + 0.5f - r;
+                    float dy = y + 0.5f - r;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy);
+
+                    // One pixel of feathering on both edges of the band.
+                    float a = Mathf.Clamp01(r - d) * Mathf.Clamp01(d - inner);
+
+                    // Texture row 0 is the bottom, so +dy is up on screen.
+                    float t = d > 0.001f ? dy / d : 0f;
+                    Color extreme = t > 0f ? WeatherHelmColour : LeeHelmColour;
+                    Color colour = Color.Lerp(BalancedColour, extreme, Mathf.Sqrt(Mathf.Abs(t)));
+
+                    colour.a = a;
+                    tex.SetPixel(x, y, colour);
+                }
+            }
+
             tex.Apply();
             tex.hideFlags = HideFlags.HideAndDontSave;
             return tex;

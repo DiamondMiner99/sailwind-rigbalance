@@ -86,9 +86,12 @@ point of sail. **Red anywhere is the finding**, because it means she develops le
 some heading you will eventually sail, and a single close-hauled reading would never have
 shown you that. Grey means no answer: she is running, so there is no side force to balance.
 
-Three round buttons in the top right, coloured to match, hide and show each marker. Hover
-one for a name. The strip is fixed there: nothing else in the shipyard can be dragged, and a
-panel that could be would read as belonging to a different program.
+Four round buttons in the top right hide and show things. The three coloured discs match
+the three markers; the fourth, a small ring wearing the rose's own colours, is the balance
+ring itself, and turning it off also stops the sweep behind it, which is most of what the
+mod spends on each rig change. Hover any button for a name. The strip is fixed there:
+nothing else in the shipyard can be dragged, and a panel that could be would read as
+belonging to a different program.
 
 **The yellow marker behaves differently.** It does not respond to sails or deck parts - in
 this game a mast, a sail or a forecastle adds weight without moving where the boat
