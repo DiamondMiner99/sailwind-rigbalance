@@ -63,6 +63,22 @@ namespace SailwindRigBalance.Core
         public bool DriveClamped;
 
         /// <summary>
+        /// The sail's rest attitude, as the Euler angles the trim search substitutes into.
+        ///
+        /// This is the measurement that decides how far the remaining mirror defect reaches. The model
+        /// poses each sail as Euler(rest.x, rest.y, trim), and Unity composes Ry * Rx * Rz, so
+        /// reflecting through the centreline maps Euler(x, y, z) to Euler(x, -y, -z). The x term is
+        /// harmless; a nonzero y is not, because then the mirror of a pose the search tries is a pose
+        /// it never tries, and that is true at EVERY bearing rather than only where it shows.
+        ///
+        /// So if y is zero across a boat, the defect really is confined to where it was seen and the
+        /// symptom bounds the cause. If it is not, every reading carries a small error and the pose
+        /// family has to be rebuilt on the hinge axis instead. Those have opposite conclusions and
+        /// nothing already logged separates them.
+        /// </summary>
+        public Vector3 RestEuler;
+
+        /// <summary>
         /// The centre of effort as an arm from the hull origin in BOAT axes, x to starboard and z
         /// forward, captured at the instant the sail was evaluated.
         ///
@@ -870,6 +886,7 @@ namespace SailwindRigBalance.Core
                 c.Aback = TrimCandidates[winner].Aback;
                 c.DriveClamped = TrimCandidates[winner].DriveClamped;
                 c.Arm = armLocal;
+                c.RestEuler = euler;
                 c.UpwindEfficiency = sail.upwindEfficiency;
                 c.Category = sail.category;
                 return true;

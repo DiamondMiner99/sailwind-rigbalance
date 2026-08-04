@@ -609,7 +609,59 @@ namespace SailwindRigBalance.UI
 
             SetValid(true);
 
+            LogRestAttitudes(balance);
             LogBalance(balance);
+        }
+
+        /// <summary>True once a boat's rest attitudes have been reported. Cleared on teardown.</summary>
+        private bool _restAttitudesLogged;
+
+        /// <summary>
+        /// Every sail's rest attitude, once per boat, so the reach of the remaining mirror defect can
+        /// be settled by measurement rather than argued about.
+        ///
+        /// The model poses each sail as Euler(rest.x, rest.y, trim). Unity composes Ry * Rx * Rz, and
+        /// reflecting through the centreline maps Euler(x, y, z) to Euler(x, -y, -z), so a nonzero y
+        /// means the mirror of a pose the search tries is a pose it never tries. That is true at every
+        /// bearing, not only at the two where the audit currently notices, which is why the size of
+        /// the symptom does not bound the size of the cause.
+        ///
+        /// A boat that reports y = 0 everywhere confines the defect to where it was seen and the ring
+        /// can be released as it stands. A boat that does not means every reading carries a small
+        /// error and the pose family has to be rebuilt on the hinge axis first. One line per sail,
+        /// once, is the whole cost of telling those apart.
+        /// </summary>
+        private void LogRestAttitudes(RigBalance balance)
+        {
+            if (_restAttitudesLogged || balance.Sails == null || balance.Sails.Count == 0) return;
+            _restAttitudesLogged = true;
+
+            int offAxis = 0;
+            foreach (SailContribution c in balance.Sails)
+            {
+                // Euler angles come back in [0, 360), so a rest attitude of "none" reads as 0 or as
+                // 360 minus a hair. Folded to a signed offset from zero before it is judged.
+                float x = Mathf.DeltaAngle(0f, c.RestEuler.x);
+                float y = Mathf.DeltaAngle(0f, c.RestEuler.y);
+                bool breaksMirror = Mathf.Abs(y) > 0.5f;
+                if (breaksMirror) offAxis++;
+
+                Plugin.Log.LogInfo($"[Pose] '{c.Name}': rest x={x:F2} y={y:F2} deg"
+                    + (breaksMirror ? "  <- y is not zero, this sail's poses cannot mirror" : ""));
+            }
+
+            if (offAxis == 0)
+            {
+                Plugin.Log.LogInfo($"[Pose] {balance.Sails.Count} sail(s), every rest yaw zero: the "
+                    + "pose family is closed under reflection and the remaining mirror defect is "
+                    + "confined to where it was measured.");
+            }
+            else
+            {
+                Plugin.Log.LogWarning($"[Pose] {offAxis} of {balance.Sails.Count} sail(s) carry a rest "
+                    + "yaw, so their poses cannot mirror at ANY bearing. The trim search needs to be "
+                    + "built on the hinge axis rather than by substituting into Euler angles.");
+            }
         }
 
         /// <summary>
@@ -1240,6 +1292,9 @@ namespace SailwindRigBalance.UI
             // and the next session starts against no previous answer.
             FlushRepeatedRebuilds();
             _lastRebuildReason = null;
+
+            // The next boat reports its own rest attitudes rather than inheriting this one's.
+            _restAttitudesLogged = false;
 
             Shipyard.FurlSailButton.Destroy();
             Shipyard.UnrollWatch.Clear();
