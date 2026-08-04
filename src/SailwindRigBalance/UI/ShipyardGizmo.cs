@@ -613,11 +613,93 @@ namespace SailwindRigBalance.UI
             SetValid(true);
 
             LogRestAttitudes(balance);
+            LogUiSurvey();
             LogBalance(balance);
         }
 
         /// <summary>True once a boat's rest attitudes have been reported. Cleared on teardown.</summary>
         private bool _restAttitudesLogged;
+
+        /// <summary>Once per game run: the survey describes scene structure, which does not change.</summary>
+        private static bool _uiSurveyLogged;
+
+        /// <summary>
+        /// Measures the rendering surface the gizmo has to coexist with, because it has now been
+        /// guessed at twice and one of the guesses shipped wrong. FINDINGS section 6 measured the
+        /// MAST BUTTONS on layer 23 WorldUI, and the fix for the gizmo drawing over the shipyard
+        /// menu generalised that to the whole menu: the overlay camera redraws WorldUI, the layer
+        /// name resolves, and the parchment panels still sit under the gizmo, so the panels are not
+        /// on that layer and nothing read so far says where they are.
+        ///
+        /// Two sweeps. Every camera in the scene, because the panels may be drawn by one this mod
+        /// has never considered, and the fix may be camera order rather than layers. Then every
+        /// renderer under ShipyardUI and under the main camera, the latter because a panel that
+        /// holds a fixed place on screen is probably parented to the camera. Grouped by layer,
+        /// shader and queue rather than listed, so the answer is a handful of lines whatever the
+        /// hierarchy holds.
+        /// </summary>
+        private static void LogUiSurvey()
+        {
+            if (_uiSurveyLogged) return;
+            _uiSurveyLogged = true;
+
+            try
+            {
+                foreach (Camera cam in FindObjectsOfType<Camera>())
+                {
+                    if (cam == null || cam.name == "RigBalanceOverlayCamera") continue;
+                    Plugin.Log.LogInfo($"[Survey] camera '{cam.name}' depth={cam.depth} "
+                        + $"enabled={cam.enabled} clear={cam.clearFlags} mask=0x{cam.cullingMask:X8} "
+                        + $"parent='{(cam.transform.parent == null ? "<root>" : cam.transform.parent.name)}'");
+                }
+
+                var groups = new System.Collections.Generic.Dictionary<string, int>();
+                var examples = new System.Collections.Generic.Dictionary<string, string>();
+
+                SurveyRenderers(ShipyardUI.instance == null ? null : ShipyardUI.instance.transform,
+                    "ShipyardUI", groups, examples);
+                SurveyRenderers(Camera.main == null ? null : Camera.main.transform,
+                    "main camera", groups, examples);
+
+                if (groups.Count == 0)
+                {
+                    Plugin.Log.LogInfo("[Survey] no renderers found under ShipyardUI or the main camera.");
+                    return;
+                }
+
+                foreach (var kv in groups)
+                {
+                    Plugin.Log.LogInfo($"[Survey] {kv.Value} renderer(s): {kv.Key}, e.g. '{examples[kv.Key]}'");
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning("[Survey] failed: " + e.Message);
+            }
+        }
+
+        private static void SurveyRenderers(Transform root, string where,
+            System.Collections.Generic.Dictionary<string, int> groups,
+            System.Collections.Generic.Dictionary<string, string> examples)
+        {
+            if (root == null) return;
+
+            foreach (Renderer r in root.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null || r.sharedMaterial == null) continue;
+
+                Material mat = r.sharedMaterial;
+                string shader = mat.shader == null ? "<none>" : mat.shader.name;
+                string key = $"under {where}, layer {r.gameObject.layer} "
+                    + $"'{LayerMask.LayerToName(r.gameObject.layer)}', shader '{shader}', "
+                    + $"queue {mat.renderQueue}";
+
+                int n;
+                groups.TryGetValue(key, out n);
+                groups[key] = n + 1;
+                if (!examples.ContainsKey(key)) examples[key] = r.gameObject.name;
+            }
+        }
 
         /// <summary>
         /// Every sail's rest attitude, once per boat, so the reach of the remaining mirror defect can

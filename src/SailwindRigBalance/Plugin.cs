@@ -31,7 +31,7 @@ namespace SailwindRigBalance
         // ("version is invalid") and skip it entirely. Any "alpha" wording lives in prose only.
         // Bump for every shipped zip, including a packaging-only change, so two machines can never
         // silently differ.
-        public const string PluginVersion = "0.15.1";
+        public const string PluginVersion = "0.15.2";
 
         public static Plugin Instance { get; private set; }
         public static ManualLogSource Log { get; private set; }
