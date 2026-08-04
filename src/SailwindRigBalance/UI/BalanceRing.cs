@@ -831,6 +831,15 @@ namespace SailwindRigBalance.UI
             var arrowFilter = _arrowGo.AddComponent<MeshFilter>();
             var arrowRenderer = _arrowGo.AddComponent<MeshRenderer>();
             arrowRenderer.sharedMaterial = material;
+
+            // The arrow and the band are two coplanar transparent meshes sharing one material, so
+            // Unity orders them by distance from the camera to each mesh's bounds centre. The band's
+            // centre is the boat; the arrow's is out at its bearing. Orbit the camera and whichever
+            // centre happens to be nearer wins, which had the arrow ducking underneath the band on
+            // one side of the boat and riding on top on the other. Sorting order outranks distance
+            // for transparent renderers, so this pins the arrow above the band from every angle.
+            arrowRenderer.sortingOrder = 1;
+
             arrowRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             arrowRenderer.receiveShadows = false;
             arrowRenderer.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;

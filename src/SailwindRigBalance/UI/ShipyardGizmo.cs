@@ -1138,6 +1138,24 @@ namespace SailwindRigBalance.UI
                 _overlay.allowHDR = false;
                 _overlay.allowMSAA = false;
                 _overlay.enabled = false;
+
+                // The shipyard menu has to win over the gizmo, and this camera is why it did not:
+                // it clears depth and renders after the main camera, so everything only the main
+                // camera drew sits underneath whatever this one draws. The entire shipyard menu is
+                // world-space quads and TextMesh on the WorldUI layer, main camera only (FINDINGS
+                // section 6, measured: mast buttons all on layer 23, menu layered by renderQueue
+                // 3001-3002, text on ZTest-Always materials). So the ring, the arrow and the markers
+                // were stamped over the parchment.
+                //
+                // Redrawing that layer here puts the menu back on top: within this camera's pass the
+                // menu's quads outrank the gizmo by renderQueue, its text ignores depth outright,
+                // and both sit nearer the camera than a marker on the boat, while on pixels the menu
+                // already covered the redraw lands on the same image. A gizmo genuinely in front of a
+                // panel still draws in front, which is where it genuinely is.
+                int worldUi = LayerMask.NameToLayer("WorldUI");
+                if (worldUi >= 0) _overlay.cullingMask |= 1 << worldUi;
+                else Plugin.Log.LogWarning("[Gizmo] no WorldUI layer on this build; the markers "
+                    + "will draw over the shipyard menu.");
             }
             catch (Exception e)
             {
