@@ -289,12 +289,51 @@ namespace SailwindRigBalance.UI
                 _rebuildAt = -1f;
 
                 // What asked for this, named. Taken here rather than where the dirty flag is consumed
-                // because the rebuild is debounced: one rebuild absorbs a whole drag's worth of
-                // flags, and reporting them at the flag would be a line per frame. "unknown" is a
-                // real answer and means something re-ran that no hook claimed, which is worth seeing.
-                Plugin.Log.LogInfo("[Gizmo] rebuild: " + ShipyardHooks.TakeReasons());
+                // because the rebuild is debounced: one rebuild absorbs a whole drag's worth of flags,
+                // and reporting them at the flag would be a line per frame.
+                LogRebuild(ShipyardHooks.TakeReasons());
 
                 Recompute();
+            }
+        }
+
+        private string _lastRebuildReason;
+        private int _repeatedRebuilds;
+
+        /// <summary>
+        /// Reports what asked for a rebuild, collapsing an unbroken run of the same answer.
+        ///
+        /// Some rebuilds are legitimately per frame. Dragging the wind arrow deliberately skips the
+        /// settle delay, because the whole reason to drag it is to watch the markers move, so it
+        /// recomputes on every frame the cursor moves and is right to. Logged plainly that produced
+        /// 938 lines from one shipyard visit, of which 876 were consecutive and identical: about
+        /// fifteen seconds of dragging at sixty frames a second. It read like a runaway loop and was
+        /// nothing of the sort, which cost a round of diagnosis on its own.
+        ///
+        /// The first of a run is logged immediately, so nothing is ever hidden behind a later event,
+        /// and the repeats are counted and flushed when the answer changes or the session ends.
+        /// Deliberately general rather than a test for dragging: any future path that recomputes every
+        /// frame gets the same treatment without anyone having to notice it first.
+        /// </summary>
+        private void LogRebuild(string reason)
+        {
+            if (reason == _lastRebuildReason)
+            {
+                _repeatedRebuilds++;
+                return;
+            }
+
+            FlushRepeatedRebuilds();
+            Plugin.Log.LogInfo("[Gizmo] rebuild: " + reason);
+            _lastRebuildReason = reason;
+        }
+
+        private void FlushRepeatedRebuilds()
+        {
+            if (_repeatedRebuilds > 0)
+            {
+                Plugin.Log.LogInfo($"[Gizmo]   ...and {_repeatedRebuilds} more of the same.");
+                _repeatedRebuilds = 0;
             }
         }
 
@@ -1196,6 +1235,11 @@ namespace SailwindRigBalance.UI
         {
             // So the next boat describes itself rather than being silently compared to the last one.
             _loggedComDrift = 0f;
+
+            // Whatever was still repeating when the session ended is reported rather than dropped,
+            // and the next session starts against no previous answer.
+            FlushRepeatedRebuilds();
+            _lastRebuildReason = null;
 
             Shipyard.FurlSailButton.Destroy();
             Shipyard.UnrollWatch.Clear();
