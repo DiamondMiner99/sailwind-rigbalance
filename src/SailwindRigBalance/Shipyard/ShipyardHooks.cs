@@ -65,6 +65,20 @@ namespace SailwindRigBalance.Shipyard
         public static void MarkDirty(string reason)
         {
             _dirty = true;
+            NoteReason(reason);
+        }
+
+        /// <summary>
+        /// Records what is about to cause a rebuild WITHOUT asking for one.
+        ///
+        /// Separate from MarkDirty because the gizmo schedules its own rebuilds for things no vanilla
+        /// hook knows about: the selected sail changing, the wind arrow being dragged, and a finished
+        /// sweep needing the markers re-coloured against it. Those already own their deadline, and
+        /// routing them through MarkDirty would ALSO raise the dirty flag, which is what makes the ring
+        /// re-sweep. On "sweep finished" that is a sweep that schedules a sweep, forever.
+        /// </summary>
+        public static void NoteReason(string reason)
+        {
             if (reason == null) return;
 
             for (int i = 0; i < Reasons.Count; i++)

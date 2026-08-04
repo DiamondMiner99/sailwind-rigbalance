@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using BepInEx.Configuration;
 using SailwindRigBalance.Core;
 using SailwindRigBalance.Shipyard;
@@ -171,6 +171,13 @@ namespace SailwindRigBalance.UI
         private Sail _trackSail;        // owned by Recompute
         private Sail _polledSelection;  // owned by the Update poll, never by Recompute
 
+        /// <summary>
+        /// The keel drift last reported, so an unchanged boat is not described every frame. Static
+        /// because the method that reads it is. Cleared on teardown, so a second shipyard visit
+        /// reports its own boat rather than staying quiet because the previous one happened to match.
+        /// </summary>
+        private static float _loggedComDrift;
+
         // The shipyard lerps a newly admitted boat into its cradle over about two seconds
         // (Shipyard.cs:435), and AdmitShip's postfix fires at the start of that, so the first
         // reading was taken with the boat an eighth of the way there and nothing re-read it when it
@@ -266,7 +273,11 @@ namespace SailwindRigBalance.UI
             if (selection != _polledSelection)
             {
                 _polledSelection = selection;
-                if (_valid) _rebuildAt = Time.unscaledTime + RebuildDelay;
+                if (_valid)
+                {
+                    _rebuildAt = Time.unscaledTime + RebuildDelay;
+                    ShipyardHooks.NoteReason("selection changed");
+                }
             }
 
             // Tested against the same sentinel LateUpdate tests, >= 0 here and < 0 there. With a
@@ -426,12 +437,20 @@ namespace SailwindRigBalance.UI
             // unconditionally overwrote a pending rig-change settle with "now", so a customization
             // applied while the arrow was being held was evaluated with zero delay, against sails
             // Unity had not finished destroying yet. That is the whole reason RebuildDelay exists.
-            if (_ring.ConsumeAngleChanged() && _rebuildAt < 0f) _rebuildAt = Time.unscaledTime;
+            if (_ring.ConsumeAngleChanged() && _rebuildAt < 0f)
+            {
+                _rebuildAt = Time.unscaledTime;
+                ShipyardHooks.NoteReason("wind arrow");
+            }
 
             // A finished sweep establishes how much output this rig is capable of, which is what the
             // markers measure "no verdict" against. Re-colour them against it. This does not restart
             // the sweep: the ring is only rebuilt when the RIG changed, and this is not that.
-            if (_ring.ConsumeSweepCompleted() && _rebuildAt < 0f) _rebuildAt = Time.unscaledTime;
+            if (_ring.ConsumeSweepCompleted() && _rebuildAt < 0f)
+            {
+                _rebuildAt = Time.unscaledTime;
+                ShipyardHooks.NoteReason("sweep finished");
+            }
 
             if (_track != null && _track.enabled)
             {
@@ -664,12 +683,25 @@ namespace SailwindRigBalance.UI
             // Same space the rigidbody uses, so this matches Unity's own worldCenterOfMass maths.
             Vector3 fromKeel = body.position + body.rotation * keel.centerOfMass;
 
+            // Reported when it CHANGES, not on every rebuild. This is a statement about the boat, and
+            // the boat does not change between two rebuilds a frame apart, so logging it per rebuild
+            // says nothing new 938 times: that is the count from one shipyard visit, and it buried
+            // every line worth reading. A tenth of a metre is far below anything the drift would
+            // move by for a real reason and far above float noise in a distance.
             float drift = Vector3.Distance(fromKeel, fromBody);
             if (drift > 0.05f)
             {
-                Plugin.Log.LogInfo($"[Gizmo] centre of mass from BoatKeel {keel.centerOfMass}, "
-                    + $"rigidbody differs by {drift:F2} m (BoatMass is not maintaining this boat, "
-                    + "or cargo is aboard). Using BoatKeel.");
+                if (Mathf.Abs(drift - _loggedComDrift) > 0.1f)
+                {
+                    _loggedComDrift = drift;
+                    Plugin.Log.LogInfo($"[Gizmo] centre of mass from BoatKeel {keel.centerOfMass}, "
+                        + $"rigidbody differs by {drift:F2} m (BoatMass is not maintaining this boat, "
+                        + "or cargo is aboard). Using BoatKeel.");
+                }
+            }
+            else
+            {
+                _loggedComDrift = 0f;
             }
 
             return fromKeel;
@@ -1162,6 +1194,9 @@ namespace SailwindRigBalance.UI
 
         private void Teardown()
         {
+            // So the next boat describes itself rather than being silently compared to the last one.
+            _loggedComDrift = 0f;
+
             Shipyard.FurlSailButton.Destroy();
             Shipyard.UnrollWatch.Clear();
 
