@@ -29,21 +29,56 @@ elbow, the horizontal run **is** the gap, at true scale, readable from any camer
 | magenta **aft** of the blue marker, link **blue** | **weather helm** - she rounds up into the wind |
 | magenta **forward** of the blue marker, link **red** | **lee helm** - she bears away when you let go |
 | close together, link **green** | **balanced** |
+| link **gray** | **no verdict** - she is running, or the sails are not drawing |
 
 A touch of weather helm is what you want. It means letting go of the wheel turns her into
 the wind and stops her, rather than away from it. Lee helm is the one to avoid.
 
-The green band is 0.3 m either side by default, and configurable.
+The color is a gradient, not three flat states: a faint blue is a touch of weather helm
+and a deep blue is a fistful, and the same goes for red. The balanced band is 2 percent
+of the hull's length either side of the blue marker by default, which is about 0.6 m on a
+brig, and configurable as `BalancedThresholdFraction`.
+
+Gray means the question does not apply: with the wind well aft there is almost no side
+force, and a center of effort measured against a center of lateral resistance is a
+statement about side force. The gizmo declines to answer rather than printing a confident
+number that means nothing.
+
+## The balance ring
+
+A rose is drawn on the water around the boat, colored the same way as the link. **The top
+of the ring is your bow**, and each arc answers one question: if the wind came from that
+bearing, what would the helm do? The white arrow marks the bearing the markers are
+currently reporting, and you can drag it around the ring to look at any other.
+
+Read the ring as a whole. Green and blue all the way round is a boat that behaves on every
+point of sail. **Red anywhere is the finding**: she develops lee helm on some heading you
+will eventually sail, and a single close-hauled reading would never have shown you it.
+Gray arcs near the bow and stern are normal; no boat sails straight into the wind, and
+dead downwind there is nothing to balance.
+
+The ring is the same measurement as the markers, taken at 36 bearings, so it rebuilds a
+moment after each rig change rather than instantly. The old ring stays up until the new
+one is ready.
 
 ## Judging a rig
 
-Swap a sail, resize one, raise or lower a spar. The markers rebuild a moment later, before
-you confirm the order and before any money changes hands. Adding sail area forward pulls
-the center of effort forward, toward lee helm; adding it aft pushes toward weather helm.
+Swap a sail, resize one, raise or lower a spar. The markers and the ring rebuild a moment
+later, before you confirm the order and before any money changes hands. Adding sail area
+forward pulls the center of effort forward, toward lee helm; adding it aft pushes toward
+weather helm.
 
-The wind angle used is close hauled, 45 degrees off the bow, because that is where balance
-bites. Near a run there is barely any side force to balance and every rig would read as
-neutral.
+The markers start at close hauled, 45 degrees off the bow, because that is where balance
+bites. After that the arrow owns the angle: drag it and the markers re-read at whatever
+bearing you leave it on.
+
+## The reef track
+
+Select a sail and a thin second line appears: where the center of effort would go if that
+one sail were reefed away, with every other sail left alone. It is the answer to "is this
+sail pushing her bow up or down", read before touching anything. It is not drawn when
+reefing that sail would swing the reading through a sign change, where a straight line
+would lie about the path.
 
 ## The yellow marker
 
@@ -67,9 +102,11 @@ heeling lever.
 
 ## The buttons
 
-A strip of three round buttons, colored to match the markers, sits in the top right.
-Click one to hide or show that marker. Hover for a name. Drag the strip anywhere and it
-stays there, across sessions.
+Four round buttons sit in the top right. The three colored discs match the three markers;
+click one to hide or show that marker, and the choice is remembered across sessions. The
+fourth, a small ring wearing the rose's own colors, hides the balance ring, and turning it
+off also skips the sweep behind it, which is most of what the mod spends on each rig
+change. Hover any button for its name. The strip itself is fixed in place.
 
 ## The red marker
 
