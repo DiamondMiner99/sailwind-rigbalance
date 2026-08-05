@@ -1676,19 +1676,34 @@ namespace SailwindRigBalance.UI
                 : (hoverReady ? _hoverTracked : null);
             if (string.IsNullOrEmpty(note)) return;
 
-            // Sized to the words, not to a constant. A fixed 230 fit the longest message and made
-            // every short one a mostly empty sheet of paper with its label tucked in a corner.
-            // CalcSize with a word-wrapping style returns the UNWRAPPED single-line width, which is
-            // exactly the natural width wanted here; the cap only exists for the unreliable-sail
-            // sentence, which then wraps as before.
+            // One line, box sized to the line. Measured with wrapping OFF, because CalcSize on a
+            // word-wrapping style is not the single-line size: with the shipyard's adopted font it
+            // returned a narrower preferred width, the label wrapped to two lines inside it, and the
+            // height came up short, clipping the second line. Wrapping stays off for the draw too,
+            // so what was measured is what is drawn. The one message longer than the cap, the
+            // unreliable-sail warning, is the only case that wraps, at the height computed FOR that
+            // wrapped width.
             const float MaxNoteWidth = 230f;
             var content = new GUIContent(note);
-            float noteWidth = Mathf.Min(_tipStyle.CalcSize(content).x, MaxNoteWidth);
-            float noteHeight = _tipStyle.CalcHeight(content, noteWidth);
+
+            _tipStyle.wordWrap = false;
+            Vector2 line = _tipStyle.CalcSize(content);
+
+            // Two pixels of slack so a rounding difference between measure and draw cannot re-wrap.
+            float noteWidth = line.x + 2f;
+            float noteHeight = line.y;
+            if (noteWidth > MaxNoteWidth)
+            {
+                noteWidth = MaxNoteWidth;
+                _tipStyle.wordWrap = true;
+                noteHeight = _tipStyle.CalcHeight(content, noteWidth);
+            }
+
             // Right edge aligned with the panel's, so the two read as one control wherever it sits.
             var rect = new Rect(_panel.xMax - noteWidth, _panel.yMax + 6f, noteWidth, noteHeight);
             DrawPaper(rect);
             GUI.Label(rect, content, _tipStyle);
+            _tipStyle.wordWrap = true;
         }
 
         private void DrawPanel(int id)
