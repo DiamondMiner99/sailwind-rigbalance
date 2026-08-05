@@ -422,6 +422,8 @@ namespace SailwindRigBalance.UI
                 _overlay.rect = source.rect;
                 _overlay.depth = source.depth + 1f;
                 _overlay.enabled = true;
+
+                EnsureUiCameraAboveOverlay();
             }
 
             Vector3 eye = source.transform.position;
@@ -1259,6 +1261,69 @@ namespace SailwindRigBalance.UI
             return -1;
         }
 
+        private Camera _gameUiCamera;
+        private float _gameUiCameraDepth;
+        private bool _gameUiCameraBumped;
+        private bool _gameUiCameraSearched;
+
+        /// <summary>
+        /// Keeps the game's own interface above the gizmo, by camera order, which is the only
+        /// ordering that exists between them.
+        ///
+        /// The whole shipyard menu, and every panel the player ever reads, is world-space geometry
+        /// on layer 5, drawn by a dedicated camera literally named 'UI camera', a child of the main
+        /// camera with culling mask 0x20 and clear flags Depth, at depth 0. Measured in the shipyard
+        /// on 2026-08-04 by the renderer survey: 338 layer-5 renderers under ShipyardUI and the main
+        /// camera against 256 on WorldUI, and the WorldUI set is only the mast buttons. The previous
+        /// fix redrew WorldUI in the overlay pass and changed nothing the player could see, because
+        /// the panels were never on it.
+        ///
+        /// The overlay camera has to render after the main camera to draw through the hull, and it
+        /// sits at main + 1 while the UI camera sits level with main at 0, so the gizmo landed on
+        /// top of every panel. Vanilla's own layering between those two equal-depth cameras is
+        /// undefined in the asset data (FINDINGS section 6) and holds by engine accident. Nudging
+        /// the UI camera one step above the overlay makes main, then gizmo, then interface explicit,
+        /// which is the order the game itself intends: the UI camera clears its own depth, so it
+        /// draws over whatever came before it regardless of where that came from.
+        ///
+        /// Restored on teardown, so outside a shipyard the scene is exactly as shipped.
+        /// </summary>
+        private void EnsureUiCameraAboveOverlay()
+        {
+            if (_gameUiCamera == null)
+            {
+                if (_gameUiCameraSearched) return;
+                _gameUiCameraSearched = true;
+
+                foreach (Camera cam in FindObjectsOfType<Camera>())
+                {
+                    if (cam != null && cam != _overlay && cam.name == "UI camera")
+                    {
+                        _gameUiCamera = cam;
+                        break;
+                    }
+                }
+
+                if (_gameUiCamera == null)
+                {
+                    Plugin.Log.LogWarning("[Gizmo] no 'UI camera' found; the markers will draw over "
+                        + "the shipyard menu.");
+                    return;
+                }
+            }
+
+            if (_gameUiCamera.depth <= _overlay.depth)
+            {
+                if (!_gameUiCameraBumped)
+                {
+                    _gameUiCameraDepth = _gameUiCamera.depth;
+                    _gameUiCameraBumped = true;
+                }
+
+                _gameUiCamera.depth = _overlay.depth + 1f;
+            }
+        }
+
         private Camera ResolveSourceCamera()
         {
             if (_source != null && _source.enabled && _source.gameObject.activeInHierarchy) return _source;
@@ -1398,6 +1463,13 @@ namespace SailwindRigBalance.UI
 
             // The next boat reports its own rest attitudes rather than inheriting this one's.
             _restAttitudesLogged = false;
+
+            // The interface camera goes back to the depth it shipped with, and the next session
+            // re-finds it rather than trusting a reference into a scene that may have been reloaded.
+            if (_gameUiCameraBumped && _gameUiCamera != null) _gameUiCamera.depth = _gameUiCameraDepth;
+            _gameUiCameraBumped = false;
+            _gameUiCamera = null;
+            _gameUiCameraSearched = false;
 
             Shipyard.FurlSailButton.Destroy();
             Shipyard.UnrollWatch.Clear();

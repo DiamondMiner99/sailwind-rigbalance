@@ -417,6 +417,14 @@ wind). Pass 1.0 and document it.
   determined by asset data.
 - All 31 `ShipyardUI.mastButtons` are on **layer 23 WorldUI**, so they render on the main
   camera. They are scene instances, not a prefab.
+- **Corrected 2026-08-04, measured in a live shipyard by the mod's renderer survey: the
+  mast buttons are the ONLY shipyard interface on WorldUI.** Every parchment panel and
+  every readable menu is on **layer 5 UI**, drawn by the `UI camera` child (mask `0x20`,
+  ClearFlags Depth, depth 0): 338 layer-5 renderers under `ShipyardUI` plus the main
+  camera, against 256 WorldUI renderers that are all mast-button `GUI/Text Shader` quads.
+  Consequence: an overlay camera at any depth above 0 draws over the whole menu, and no
+  redraw of WorldUI brings the menu back. The menu is put above such an overlay by camera
+  order alone, by nudging `UI camera` above it.
 - **`ShipyardUI.mastButtonAlwaysOnTopMaterial` is confirmed a ZTest-Always material**:
   it is `ui background alwaysOnTop`, whose shader is Unity's built-in `GUI/Text Shader`
   with `zTest = 8` (Always), `zWrite = 0`, `culling = 0`, `SrcAlpha/OneMinusSrcAlpha`,
