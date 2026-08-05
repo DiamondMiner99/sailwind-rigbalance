@@ -1676,11 +1676,17 @@ namespace SailwindRigBalance.UI
                 : (hoverReady ? _hoverTracked : null);
             if (string.IsNullOrEmpty(note)) return;
 
-            const float NoteWidth = 230f;
+            // Sized to the words, not to a constant. A fixed 230 fit the longest message and made
+            // every short one a mostly empty sheet of paper with its label tucked in a corner.
+            // CalcSize with a word-wrapping style returns the UNWRAPPED single-line width, which is
+            // exactly the natural width wanted here; the cap only exists for the unreliable-sail
+            // sentence, which then wraps as before.
+            const float MaxNoteWidth = 230f;
             var content = new GUIContent(note);
-            float noteHeight = _tipStyle.CalcHeight(content, NoteWidth);
+            float noteWidth = Mathf.Min(_tipStyle.CalcSize(content).x, MaxNoteWidth);
+            float noteHeight = _tipStyle.CalcHeight(content, noteWidth);
             // Right edge aligned with the panel's, so the two read as one control wherever it sits.
-            var rect = new Rect(_panel.xMax - NoteWidth, _panel.yMax + 6f, NoteWidth, noteHeight);
+            var rect = new Rect(_panel.xMax - noteWidth, _panel.yMax + 6f, noteWidth, noteHeight);
             DrawPaper(rect);
             GUI.Label(rect, content, _tipStyle);
         }
@@ -1930,7 +1936,9 @@ namespace SailwindRigBalance.UI
             {
                 fontSize = 12,
                 wordWrap = true,
-                alignment = TextAnchor.MiddleRight,
+                // Centered. Right-alignment existed to park short text against the near edge of a
+                // fixed-width box; now that the box fits the text there is no empty side to avoid.
+                alignment = TextAnchor.MiddleCenter,
                 padding = new RectOffset(10, 10, 7, 7),
                 border = new RectOffset(12, 12, 12, 12),
             };
