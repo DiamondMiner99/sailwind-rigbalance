@@ -996,3 +996,38 @@ attempt.
 A sweep that straddles a rig change reports most pairs asymmetric, because the sail set itself
 changes mid-sweep. That is transient and is immediately superseded by the rebuild the change
 triggers.
+
+## 15. Two field lessons about the edges of "no verdict"
+
+Both arrived in the first day the mod was public, from the same player, and both live at the
+boundary of the reading's domain rather than inside it.
+
+### 15.1 A rig producing nothing is a reading, not a failure
+
+Head to wind on a fore-and-aft rig, every sail's best trim is the exactly-zero pose:
+`Sail.UpdateWindForceOnSail` ramps the whole force to nothing below 13 degrees of
+relative wind angle (`Sail.cs:416`), and every pose the trim search can reach on that rig
+at that bearing sits under the ramp. The model treated "no sail contributed" as an
+evaluation failure, the gizmo's response to failure is to hide everything, and the hidden
+everything included the wind arrow, the one control that would have moved the evaluation
+off the dead bearing. A one-way latch, healed only by leaving the shipyard, because
+re-entry re-seeds the arrow at the configured 45. Since v0.15.8 a rig that is not drawing
+is a valid all-zeros reading and failure is reserved for a boat with nothing to ask.
+
+### 15.2 Off the scale is a verdict, and coherence is what makes it safe to say
+
+The lever bound (no verdict past a quarter of the hull's length) exists because the lever
+is a ratio with a vanishing denominator near a run. But one oversized lateen on a small
+dhow puts the center of effort past that bound legitimately, at every powered bearing, so
+the whole ring painted the same gray a furled rig gets, and the player read "no power"
+off a sail that plainly drew. They were right.
+
+The discriminator between "genuinely enormous lever" and "meaningless ratio" is whether
+the side force acts anywhere in particular: `|sum of side| >= 0.7 * sum of |side|`. A
+single dominant sail is coherent by construction and gets the saturated verdict. The
+mixed case is real and measured, not hypothetical: the same player's log shows a
+fourteen-sail junk with no-verdict pockets at 25 and 335 degrees at a **74 percent side
+share**, which are force couples, fore and aft sails pulling opposite ways so the net
+side force is the small residue of large terms and the "point where it acts" runs off
+the hull without any sail being there. Those stay gray. The run pole at 175/185 stays
+gray too, on the share gate it already failed (14 percent in the same log).
