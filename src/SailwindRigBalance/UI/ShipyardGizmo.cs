@@ -616,11 +616,43 @@ namespace SailwindRigBalance.UI
 
             LogRestAttitudes(balance);
             LogUiSurvey();
+            LogHullOffset(balance);
             LogBalance(balance);
         }
 
         /// <summary>True once a boat's rest attitudes have been reported. Cleared on teardown.</summary>
         private bool _restAttitudesLogged;
+
+        /// <summary>The hull-versus-root offset last reported, so a stable boat logs it once.</summary>
+        private float _loggedHullOffset;
+
+        /// <summary>
+        /// Reports when the visible hull and the boat root are not in the same place, and by how
+        /// much, so the walk the first field report described is measurable from a log instead of
+        /// from a screen recording. The reporter's own diagnosis was better than the mod's: they
+        /// noticed it grew a little per oversized sail resize, and at about 400 edits in one session
+        /// the accumulated offset put the ring visibly off the ship. Logged on change, a quarter
+        /// meter of hysteresis, so a walking hull leaves a breadcrumb trail and a stable one costs
+        /// one line.
+        /// </summary>
+        private void LogHullOffset(RigBalance balance)
+        {
+            float offset = new Vector2(balance.HullCenterLocal.x, balance.HullCenterLocal.z).magnitude;
+
+            if (Mathf.Abs(offset - _loggedHullOffset) <= 0.25f) return;
+            _loggedHullOffset = offset;
+
+            if (offset < 0.5f)
+            {
+                Plugin.Log.LogInfo("[Gizmo] hull and boat root agree again.");
+                return;
+            }
+
+            Plugin.Log.LogInfo($"[Gizmo] the hull's colliders sit ({balance.HullCenterLocal.x:F1}, "
+                + $"{balance.HullCenterLocal.z:F1}) m from the boat root (x starboard, z forward). "
+                + "Drawn elements center on the hull; the shipyard camera follows the root and is "
+                + "the game's own.");
+        }
 
         /// <summary>Once per game run: the survey describes scene structure, which does not change.</summary>
         private static bool _uiSurveyLogged;
@@ -1463,6 +1495,7 @@ namespace SailwindRigBalance.UI
 
             // The next boat reports its own rest attitudes rather than inheriting this one's.
             _restAttitudesLogged = false;
+            _loggedHullOffset = 0f;
 
             // The interface camera goes back to the depth it shipped with, and the next session
             // re-finds it rather than trusting a reference into a scene that may have been reloaded.

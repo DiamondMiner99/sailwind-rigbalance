@@ -127,6 +127,17 @@ namespace SailwindRigBalance.Core
         public float WindAngle;          // degrees off the bow this was evaluated at
 
         /// <summary>
+        /// Where the hull's collider box actually sits, in boat axes, relative to the boat root.
+        /// Zero on a healthy boat. The first field report proved the two can come apart: repeated
+        /// oversized sail resizes at a cramped cradle walked the visible hull away from its own
+        /// root a little at a time, and everything anchored to the root, the shipyard camera and
+        /// the drawn ring alike, stayed behind. Anything DRAWN should center on this; everything
+        /// computed stays about the origin, because the game applies the hull's lateral drag at the
+        /// rigidbody position and that is the real pivot wherever the mesh has walked.
+        /// </summary>
+        public Vector3 HullCenterLocal;
+
+        /// <summary>
         /// Everything the rig is producing, |forward| + |side|, always positive. Two uses: it is
         /// the honest measure of whether the sails are drawing at all at this angle, and it is
         /// comparable between angles, which is what lets the ring decide where the rig has gone
@@ -419,7 +430,11 @@ namespace SailwindRigBalance.Core
             result.YawFromThrust = yawFromThrust;
             result.HullOrigin = body.position;
             result.AnySailHasFrozenCe = anyFrozen;
-            result.HullLength = knownHullLength > 0f ? knownHullLength : MeasureHullLength(boatRoot, boat);
+            Vector3 hullCenterLocal = Vector3.zero;
+            result.HullLength = knownHullLength > 0f
+                ? knownHullLength
+                : MeasureHullLength(boatRoot, boat, out hullCenterLocal);
+            result.HullCenterLocal = hullCenterLocal;
             result.WindAngle = windAngleDegrees;
             result.TotalOutput = Mathf.Abs(totalFwd) + Mathf.Abs(totalSide);
 
@@ -1059,18 +1074,21 @@ namespace SailwindRigBalance.Core
         /// axis. Every shipyard cradle sits at its own heading, so the same boat measured differently
         /// at different yards and the balanced band moved with it.
         /// </summary>
-        private static float MeasureHullLength(GameObject boatRoot, Transform boat)
+        private static float MeasureHullLength(GameObject boatRoot, Transform boat,
+            out Vector3 hullCenterLocal)
         {
+            hullCenterLocal = Vector3.zero;
+
             try
             {
                 Collider[] colliders = boatRoot.GetComponentsInChildren<Collider>();
 
-                float length = SpanOf(colliders, boat, true);
+                float length = SpanOf(colliders, boat, true, out hullCenterLocal);
                 if (Sane(length)) return length;
 
                 // Nothing left after filtering. Better a hull length that includes the rig than the
                 // fixed default, but say so, because it widens the balanced band.
-                length = SpanOf(colliders, boat, false);
+                length = SpanOf(colliders, boat, false, out hullCenterLocal);
                 if (Sane(length))
                 {
                     WarnOnce("hull:filtered", "[RigModel] no hull colliders were found apart from rig "
@@ -1083,6 +1101,7 @@ namespace SailwindRigBalance.Core
                 Plugin.Log.LogWarning("[RigModel] hull length could not be measured: " + e.Message);
             }
 
+            hullCenterLocal = Vector3.zero;
             WarnOnce("hull:default", "[RigModel] the hull's colliders gave nothing measurable, so the "
                 + $"balanced band is scaled to a nominal {DefaultHullLength:F0} m hull.");
             return DefaultHullLength;
@@ -1090,9 +1109,11 @@ namespace SailwindRigBalance.Core
 
         private static bool Sane(float length) => length > 1f && length < 500f;
 
-        private static float SpanOf(Collider[] colliders, Transform boat, bool hullOnly)
+        private static float SpanOf(Collider[] colliders, Transform boat, bool hullOnly,
+            out Vector3 centerLocal)
         {
             float minZ = float.MaxValue, maxZ = float.MinValue;
+            float minX = float.MaxValue, maxX = float.MinValue;
 
             foreach (Collider collider in colliders)
             {
@@ -1115,11 +1136,21 @@ namespace SailwindRigBalance.Core
                     Vector3 point = center + offset;
                     if (frame != null) point = frame.TransformPoint(point);
 
-                    float z = boat.InverseTransformPoint(point).z;
-                    if (z < minZ) minZ = z;
-                    if (z > maxZ) maxZ = z;
+                    Vector3 local = boat.InverseTransformPoint(point);
+                    if (local.z < minZ) minZ = local.z;
+                    if (local.z > maxZ) maxZ = local.z;
+                    if (local.x < minX) minX = local.x;
+                    if (local.x > maxX) maxX = local.x;
                 }
             }
+
+            // The midpoint of the hull's own box, in boat axes. Kept alongside the span because the
+            // two answer different questions: the span sizes the ring and the balanced band, and the
+            // midpoint says where the hull actually IS relative to the transform it hangs off, which
+            // the first field report proved is not the same place on every boat.
+            centerLocal = maxZ > minZ
+                ? new Vector3((minX + maxX) * 0.5f, 0f, (minZ + maxZ) * 0.5f)
+                : Vector3.zero;
 
             return maxZ > minZ ? maxZ - minZ : 0f;
         }

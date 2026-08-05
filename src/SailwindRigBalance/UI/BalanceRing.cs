@@ -294,7 +294,15 @@ namespace SailwindRigBalance.UI
                 if (_go == null) Create(material, layer, parent);
                 if (_go == null) return;
 
-                _centerLocal = boat.InverseTransformPoint(current.HullOrigin);
+                // Centered on the measured hull, not on the boat root. They are usually the same
+                // point, but the first field report proved they can walk apart: repeated oversized
+                // sail resizes at a cramped cradle stepped the visible hull away from its root a
+                // little per edit, about 400 edits deep the ring sat visibly off the ship, and the
+                // shipyard camera, anchored to the same root, agreed with the ring rather than the
+                // ship. The height still comes from the root, which is where the cradle holds the
+                // boat; only the fore-aft and athwartships center follow the hull.
+                Vector3 origin = boat.InverseTransformPoint(current.HullOrigin);
+                _centerLocal = new Vector3(current.HullCenterLocal.x, origin.y, current.HullCenterLocal.z);
 
                 _radius = Mathf.Max(current.HullLength * 0.55f, 3f);
                 float band = Mathf.Max(current.HullLength * 0.030f, 0.25f);
