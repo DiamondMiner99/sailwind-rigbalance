@@ -170,6 +170,31 @@ namespace SailwindRigBalance.Core
         /// wherever the drive dominates, and report a one-handed boat as balanced.
         /// </summary>
         public float HelmMeters;
+
+        /// <summary>
+        /// True when the rig is drawing, the side force is real and pulling one way, and the lever
+        /// still lands beyond the quarter-hull bound HelmMeaningful enforces. That combination is
+        /// not noise, it is the answer: a center of effort a quarter of a hull from the pivot is a
+        /// boat that slews hard, full stop. The first boat to hit it was a small dhow carrying one
+        /// oversized lateen, whose ring came out gray all the way round; the player read gray as
+        /// "no power" while the sail plainly drew, and their complaint was correct. HelmMeters stays
+        /// zero here on purpose, so nothing downstream positions a marker off a clamped ratio; the
+        /// DIRECTION lives in RawLever's sign and the ring paints it at full saturation.
+        ///
+        /// The couple case stays out via the coherence test in TryEvaluate: when the sails' side
+        /// forces pull in MIXED directions, the net side force is the small difference of large
+        /// terms, the "point where the side force acts" runs off the hull without any one sail
+        /// being there, and painting a confident direction on that would be the lever pole all over
+        /// again. Measured on a fourteen-sail junk: dead pockets at 25 and 335 degrees with a 74
+        /// percent side share, real bearings, where the fore and aft sails pull opposite ways.
+        /// </summary>
+        public bool HelmOffScale;
+
+        /// <summary>
+        /// The lever before the HelmMeaningful gates, meters, positive weather. Logged always;
+        /// trusted only while HelmMeaningful or HelmOffScale says the denominator was real.
+        /// </summary>
+        public float RawLever;
     }
 
     /// <summary>
@@ -367,6 +392,7 @@ namespace SailwindRigBalance.Core
             float totalSide = 0f, totalFwd = 0f;
             float yawFromSide = 0f, yawFromThrust = 0f;
             float weightSum = 0f;
+            float sideMagSum = 0f;
             Vector3 ceAccum = Vector3.zero;
             bool anyFrozen = false;
 
@@ -405,6 +431,7 @@ namespace SailwindRigBalance.Core
                     sails.Add(c);
                     totalSide += c.SideForce;
                     totalFwd += c.ForwardForce;
+                    sideMagSum += Mathf.Abs(c.SideForce);
                     yawFromSide += c.YawFromSide;
                     yawFromThrust += c.YawFromThrust;
                     if (!c.CeTracksResizes) anyFrozen = true;
@@ -470,9 +497,28 @@ namespace SailwindRigBalance.Core
             // the very boat this was found on. The two halves are tracked and logged so the split
             // can be seen, not used as a gate.
             result.HelmMeaningful =
-                Mathf.Abs(totalSide) > 0.15f * result.TotalOutput
+                sails.Count > 0
+                && Mathf.Abs(totalSide) > 0.15f * result.TotalOutput
                 && Mathf.Abs(totalSide) > 0.01f
                 && Mathf.Abs(lever) < 0.25f * Mathf.Max(result.HullLength, DefaultHullLength);
+
+            // The reading beyond that lever bound, kept apart from the noise the bound also
+            // rejects. When the share and absolute tests PASS and only the bound failed, the side
+            // force is real; the remaining question is whether it acts anywhere in particular. The
+            // coherence ratio answers that: near one, every sail pulls the same way and the huge
+            // lever is a fact about the rig (one oversized lateen on a small hull puts the center
+            // of effort a quarter hull from the pivot by construction); low, the sails pull against
+            // each other, the net side force is a residue, and the "point" it acts at is an
+            // artifact of dividing by that residue. 0.7 splits a single-sail dhow (1.0 by
+            // construction) from the junk's measured mixed-sign pockets comfortably.
+            result.RawLever = lever;
+            result.HelmOffScale =
+                !result.HelmMeaningful
+                && sails.Count > 0
+                && Mathf.Abs(totalSide) > 0.15f * result.TotalOutput
+                && Mathf.Abs(totalSide) > 0.01f
+                && sideMagSum > 0.0001f
+                && Mathf.Abs(totalSide) >= 0.7f * sideMagSum;
 
             // Gated on the SAME predicate the marker and every color read, never on a threshold of
             // its own: a reading that is meaningful but has no number, or has a number nothing else
@@ -484,7 +530,16 @@ namespace SailwindRigBalance.Core
                 boat, body, weightSum > 0.0001f ? ceAccum / weightSum : body.position,
                 result.HelmMeters, result.HelmMeaningful, result.HullLength);
 
-            return sails.Count > 0;
+            // A rig where no sail is drawing is a valid reading, not a failure: the result above is
+            // fully populated with zeros, HelmMeaningful is false, and everything downstream paints
+            // it as the gray no-verdict state it is. Returning false here was a live bug. The
+            // caller's response to false is to hide the gizmo entirely, and the hidden gizmo is
+            // also where the wind arrow lives, so a player who parked the arrow head to wind on a
+            // fore-and-aft rig, where every sail's best trim is the exactly-zero pose, watched
+            // every mod feature vanish and stay vanished until they left the shipyard: the arrow
+            // that would have moved the evaluation off the dead bearing was itself hidden. False is
+            // reserved for a boat the model cannot ask anything of at all.
+            return true;
         }
 
         /// <summary>

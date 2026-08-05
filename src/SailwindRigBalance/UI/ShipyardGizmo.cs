@@ -206,6 +206,13 @@ namespace SailwindRigBalance.UI
         /// ring uses (BalanceRing.IsDead), so the two cannot contradict each other.
         /// </summary>
         private bool _helmDead;
+        /// <summary>
+        /// True when the sails are drawing hard but the lever is past the quarter-hull bound: a
+        /// verdict of "maximally lopsided", drawn at the saturated end of the ramp rather than as
+        /// the gray that means "nothing here". Sign of the direction in _rawLever.
+        /// </summary>
+        private bool _helmOffScale;
+        private float _rawLever;        // the unbounded lever, only trusted while _helmOffScale
         private bool _ringNeedsRebuild = true;
         private float _helmMeters;      // positive = weather helm, in meters of CE offset
         private string _lastSummary;    // so an unchanged verdict is not logged every rebuild
@@ -607,6 +614,8 @@ namespace SailwindRigBalance.UI
             }
 
             _helmDead = BalanceRing.IsDead(balance, _ring.MaxOutput);
+            _helmOffScale = !_helmDead && balance.HelmOffScale;
+            _rawLever = balance.RawLever;
 
             Repaint(Effort, _unreliable ? UnreliableColor : EffortColor);
             UpdateLinkColor();
@@ -800,6 +809,8 @@ namespace SailwindRigBalance.UI
         private void LogBalance(RigBalance balance)
         {
             string verdict = _helmDead ? "no verdict here, the sails are not working"
+                : _helmOffScale ? ("off the scale, about " + _rawLever.ToString("F0") + " m of "
+                    + (_rawLever > 0f ? "weather" : "lee") + " helm")
                 : (Mathf.Abs(_helmMeters) < _balancedMeters ? "balanced"
                 : (_helmMeters > 0f ? "weather helm" : "lee helm"));
 
@@ -934,8 +945,8 @@ namespace SailwindRigBalance.UI
         {
             // The same continuous ramp the ring is painted with, so the link between the two balls
             // and the arc behind them cannot mean different things by the same color.
-            Color color = _helmDead
-                ? BalanceRing.NoVerdictColor
+            Color color = _helmDead ? BalanceRing.NoVerdictColor
+                : _helmOffScale ? (_rawLever > 0f ? WeatherHelmColor : LeeHelmColor)
                 : BalanceRing.HelmColor(_helmMeters, _balancedMeters);
             if (_link == null) return;
 

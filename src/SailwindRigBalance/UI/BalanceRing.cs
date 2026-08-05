@@ -476,7 +476,8 @@ namespace SailwindRigBalance.UI
         ///
         /// Per segment: the bearing, the verdict letter, the lever in meters, and the side force as
         /// a percentage of total output, which is the quantity that decides whether there is a
-        /// verdict at all. B balanced, W weather, L lee, dash no verdict, x failed to evaluate.
+        /// verdict at all. B balanced, W weather, L lee, lowercase w or l off the scale (the lever
+        /// printed is the raw one), dash no verdict, x failed to evaluate.
         /// </summary>
         private static void LogSweep(RigBalance[] sampled, bool[] evaluated, float maxOutput,
             float balancedMeters, float milliseconds)
@@ -497,15 +498,22 @@ namespace SailwindRigBalance.UI
                     }
 
                     RigBalance b = sampled[i];
-                    char verdict = IsDead(b, maxOutput) ? '-'
-                        : (Mathf.Abs(b.HelmMeters) < balancedMeters ? 'B'
-                        : (b.HelmMeters > 0f ? 'W' : 'L'));
+                    char verdict;
+                    float meters = b.HelmMeters;
+                    if (IsDead(b, maxOutput)) verdict = '-';
+                    else if (b.HelmOffScale)
+                    {
+                        verdict = b.RawLever > 0f ? 'w' : 'l';
+                        meters = b.RawLever;
+                    }
+                    else if (Mathf.Abs(b.HelmMeters) < balancedMeters) verdict = 'B';
+                    else verdict = b.HelmMeters > 0f ? 'W' : 'L';
 
                     float share = b.TotalOutput > 0.0001f
                         ? 100f * Mathf.Abs(b.TotalSideForce) / b.TotalOutput
                         : 0f;
 
-                    line.Append($" {angle:F0}:{verdict}{b.HelmMeters:F1}/{share:F0}%");
+                    line.Append($" {angle:F0}:{verdict}{meters:F1}/{share:F0}%");
                 }
 
                 Plugin.Log.LogInfo(line.ToString());
@@ -704,6 +712,18 @@ namespace SailwindRigBalance.UI
         internal static Color VerdictFor(RigBalance balance, float maxOutput, float balancedMeters)
         {
             if (IsDead(balance, maxOutput)) return DeadColor;
+
+            // Off the scale is a verdict, not an absence of one. The lever bound in the model
+            // refuses to put a NUMBER on a center of effort more than a quarter hull from the
+            // pivot, and that stands; but when the side force is real and coherent, the direction
+            // is solid and the magnitude is "at least a dozen bands", which on this ramp is simply
+            // the saturated end. Painting it the same gray as a furled rig is what taught a player
+            // that their monstrously lopsided lateen "had no power".
+            if (balance.HelmOffScale)
+                return balance.RawLever > 0f
+                    ? ShipyardGizmo.WeatherHelmColor
+                    : ShipyardGizmo.LeeHelmColor;
+
             return HelmColor(balance.HelmMeters, balancedMeters);
         }
 
@@ -749,7 +769,7 @@ namespace SailwindRigBalance.UI
         internal static bool IsDead(RigBalance balance, float maxOutput)
         {
             if (maxOutput > 0f && balance.TotalOutput < DeadOutputFraction * maxOutput) return true;
-            return !balance.HelmMeaningful;
+            return !balance.HelmMeaningful && !balance.HelmOffScale;
         }
 
         internal static Color NoVerdictColor => DeadColor;

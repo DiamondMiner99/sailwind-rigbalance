@@ -44,6 +44,14 @@ force, and a center of effort measured against a center of lateral resistance is
 statement about side force. The gizmo declines to answer rather than printing a confident
 number that means nothing.
 
+A rig can also be lopsided beyond what the scale measures: sails drawing hard with the
+center of effort a quarter of the hull's length or more from the pivot, which one
+oversized sail on a small hull manages easily. That is not gray, because it is not "no
+answer". The link and the arc go straight to the deepest blue or red, and the log calls
+it off the scale, with the direction and a rough figure. The magenta marker stays on the
+sail plan itself rather than at the lever point, because a lever that size does not fit
+on the drawing.
+
 ## The balance ring
 
 A rose is drawn on the water around the boat, colored the same way as the link. **The top
