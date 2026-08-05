@@ -69,6 +69,7 @@ so that gap is the horizontal leg, at true scale, from any camera angle.
 | magenta **forward** of the blue marker, link **red** | lee helm - she bears away when you let go |
 | the two close together, link **green** | balanced |
 | link **gray** | no verdict: she is running, or the sails are not drawing |
+| link at its **deepest** blue or red | off the scale - the center of effort is a quarter of the hull's length or more from the pivot, which one oversized sail on a small hull manages easily |
 
 A touch of weather helm is what you want. Lee helm is the one to avoid. The color deepens
 the further out of balance she is, so a faint blue is a touch of weather helm and a strong
@@ -85,6 +86,7 @@ Read the ring as a whole. Green and blue all the way round is a boat that behave
 point of sail. **Red anywhere is the finding**, because it means she develops lee helm on
 some heading you will eventually sail, and a single close-hauled reading would never have
 shown you that. Gray means no answer: she is running, so there is no side force to balance.
+An arc at the deepest blue or red may be past the scale entirely; the log says by how much.
 
 Four round buttons in the top right hide and show things. The three colored discs match
 the three markers; the fourth, a small ring wearing the rose's own colors, is the balance
