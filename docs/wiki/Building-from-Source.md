@@ -42,12 +42,12 @@ conclusion turned out to be wrong.
 It is worth reading before touching anything in `Core`. Several things in there are not
 what you would guess:
 
-- there is no centre of lateral resistance as a hull property; the hull origin is the
+- there is no center of lateral resistance as a hull property; the hull origin is the
   effective one, and that is derived from where the game applies lateral drag
 - hull lateral drag is applied as an acceleration, so its equivalent force scales with the
   boat's mass and is a first-class term, not a rounding error
-- sails and masts add mass without moving the centre of mass
-- the centre of mass must be read from `BoatKeel`, not from the rigidbody, because the game
+- sails and masts add mass without moving the center of mass
+- the center of mass must be read from `BoatKeel`, not from the rigidbody, because the game
   only maintains the rigidbody value for the boat you sailed in on
 
 ## Design rules this codebase follows

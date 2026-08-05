@@ -1,32 +1,32 @@
 # Mod Compatibility
 
 The mod only reads. It applies seven Harmony postfixes to shipyard methods, each of which
-does nothing but set a flag, so it cannot break another mod's behaviour.
+does nothing but set a flag, so it cannot break another mod's behavior.
 
 ## Shipyard Expansion
 
 Supported, and it was a target from the start rather than an afterthought.
 
-**Resized sails are handled correctly.** Sailwind's own centre of effort sits inside the
+**Resized sails are handled correctly.** Sailwind's own center of effort sits inside the
 part Shipyard Expansion scales, so it follows a width change, a height change, or both,
 and the sail area that the force model reads is refreshed by SE on every resize. There is
-no lookup table of sail sizes anywhere in this mod; every centre of effort is measured from
+no lookup table of sail sizes anywhere in this mod; every center of effort is measured from
 the sail as it stands.
 
 **Rotated spars are handled correctly.** Raising or lowering a spar changes where the
-centre of effort sits without changing the sail's area, and the marker follows, because it
+center of effort sits without changing the sail's area, and the marker follows, because it
 reads the sail's live geometry.
 
 **Sails added to stays are included.** The mod walks the boat's masts and their sails,
 which is the same traversal Shipyard Expansion itself uses to reach every sail on a boat.
 
 **Keel options are included.** Shipyard Expansion adds a deep keel to the kakam, the dhow
-and the cog, and a cladding option to the sanbuq. Each of these moves the centre of mass,
+and the cog, and a cladding option to the sanbuq. Each of these moves the center of mass,
 and the yellow marker follows.
 
 ### The one caveat
 
-Shipyard Expansion adds three lug sails of its own. On those three, the centre of effort is
+Shipyard Expansion adds three lug sails of its own. On those three, the center of effort is
 attached outside the part that gets scaled, so it stays put when the sail is resized. The
 gizmo cannot give an honest combined figure when one of them is on the boat.
 

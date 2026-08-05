@@ -30,7 +30,7 @@ namespace SailwindRigBalance.Compat
         public const string CoopGuid = "com.sailwindcoop.mod";
 
         /// <summary>
-        /// Why each one matters to a centre-of-effort / yaw-moment readout. Printed alongside the
+        /// Why each one matters to a center-of-effort / yaw-moment readout. Printed alongside the
         /// detection result so a pasted log explains itself without needing this source file.
         /// </summary>
         private static readonly KeyValuePair<string, string>[] Watched =

@@ -16,7 +16,7 @@ namespace SailwindRigBalance.Compat
     ///  - the jib flip branch is `scaler.FlipJib(); return;` (SailScaleButton.cs:96-99), and
     ///    SailScaler.FlipJib rewrites scaleablePart's localEulerAngles and localPosition
     ///    (SailScaler.cs:110-121), which is the transform windcenter lives inside on every stock
-    ///    prefab. The sail's centre of effort physically moves and nothing fires.
+    ///    prefab. The sail's center of effort physically moves and nothing fires.
     ///  - SetAngle only forwards to MoveHeldSail when the sail is the currently selected one
     ///    (SailScaler.cs:95-100), and MoveHeldSail itself early-returns on an uninstalled or
     ///    spritsail mast before ApplySailPosition.

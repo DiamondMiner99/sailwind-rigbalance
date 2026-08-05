@@ -3,7 +3,7 @@
 A shipyard tool for Sailwind. It shows where a sail plan pushes and where the hull pushes
 back, so you can judge whether a rig will balance before you pay for it.
 
-If you have played Kerbal Space Program, it is the centre of gravity and centre of lift
+If you have played Kerbal Space Program, it is the center of gravity and center of lift
 markers, for a boat.
 
 ## Pages
@@ -18,24 +18,24 @@ markers, for a boat.
 
 ## In one paragraph
 
-Enter any shipyard and three markers appear on your boat: magenta for the centre of
-effort, blue for the centre of lateral resistance, yellow for the centre of mass. A
-coloured elbow links the first two. The horizontal part of that elbow is your helm
+Enter any shipyard and three markers appear on your boat: magenta for the center of
+effort, blue for the center of lateral resistance, yellow for the center of mass. A
+colored elbow links the first two. The horizontal part of that elbow is your helm
 balance, at true scale. Magenta aft of blue is weather helm and the link turns blue;
 magenta forward is lee helm and it turns red; close together is balanced and it turns
 green. Change a sail and watch it move before you confirm the order.
 
 ## Where the numbers come from
 
-None of this is a real-world naval architecture formula. The centre of effort is computed
+None of this is a real-world naval architecture formula. The center of effort is computed
 by driving Sailwind's own sail force function with a synthetic close-hauled wind, per
-sail, at the trim that gives that sail the most drive. Each sail's centre comes from live
+sail, at the trim that gives that sail the most drive. Each sail's center comes from live
 geometry, so it follows a resize or a raised spar rather than being read from a table.
 
-The centre of lateral resistance is the hull origin, because that is where the game
+The center of lateral resistance is the hull origin, because that is where the game
 applies the hull's lateral drag, on every hull.
 
-The centre of mass is read from the hull's keel data. It is honest about a surprising fact
+The center of mass is read from the hull's keel data. It is honest about a surprising fact
 about this game: masts and sails add weight without moving the balance point, so a
 towering rig does not make a boat tender here. It only makes her heavy and slow.
 

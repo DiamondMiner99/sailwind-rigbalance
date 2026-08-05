@@ -11,7 +11,7 @@ namespace SailwindRigBalance.Core
     {
         public Sail Sail;
         public string Name;
-        public Vector3 CentreOfEffort;   // world
+        public Vector3 CenterOfEffort;   // world
         public float HeightAboveWaterline;
         public float ForwardForce;       // N
         public float SideForce;          // N
@@ -20,8 +20,8 @@ namespace SailwindRigBalance.Core
 
         /// <summary>
         /// The two halves YawMoment splits into, in boat axes: side force acting at a fore-and-aft
-        /// lever, and forward thrust acting off the centreline. They are tracked apart because only
-        /// the first one is what a centre of effort against a centre of lateral resistance describes.
+        /// lever, and forward thrust acting off the centerline. They are tracked apart because only
+        /// the first one is what a center of effort against a center of lateral resistance describes.
         /// Dividing their SUM by the side force, which is what this used to do, produces nonsense
         /// wherever the side force vanishes but the thrust asymmetry does not.
         /// </summary>
@@ -52,7 +52,7 @@ namespace SailwindRigBalance.Core
         /// search settled on. A share close to 1 means the force found is essentially abeam, and the
         /// flag says which side of the drive discontinuity at Sail.cs:427 that pose sits on. Together
         /// they distinguish a sail that is genuinely driving from one whose apparent drive is an
-        /// artefact of the search landing hard against that step. Diagnostic only: nothing computes a
+        /// artifact of the search landing hard against that step. Diagnostic only: nothing computes a
         /// verdict from either.
         /// </summary>
         public float SideShare;
@@ -67,7 +67,7 @@ namespace SailwindRigBalance.Core
         ///
         /// This is the measurement that decides how far the remaining mirror defect reaches. The model
         /// poses each sail as Euler(rest.x, rest.y, trim), and Unity composes Ry * Rx * Rz, so
-        /// reflecting through the centreline maps Euler(x, y, z) to Euler(x, -y, -z). The x term is
+        /// reflecting through the centerline maps Euler(x, y, z) to Euler(x, -y, -z). The x term is
         /// harmless; a nonzero y is not, because then the mirror of a pose the search tries is a pose
         /// it never tries, and that is true at EVERY bearing rather than only where it shows.
         ///
@@ -79,10 +79,10 @@ namespace SailwindRigBalance.Core
         public Vector3 RestEuler;
 
         /// <summary>
-        /// The centre of effort as an arm from the hull origin in BOAT axes, x to starboard and z
+        /// The center of effort as an arm from the hull origin in BOAT axes, x to starboard and z
         /// forward, captured at the instant the sail was evaluated.
         ///
-        /// CentreOfEffort is a world position, and a sweep spans about thirty six frames during which
+        /// CenterOfEffort is a world position, and a sweep spans about thirty six frames during which
         /// the shipyard cradle is still lerping the hull into place (Shipyard.MoveShip runs over
         /// roughly two seconds). Comparing two world positions taken that far apart therefore measures
         /// the cradle's travel as well as the rig, which made the mirror audit report a fictitious 3.6
@@ -104,7 +104,7 @@ namespace SailwindRigBalance.Core
         /// </summary>
         public float TotalSideForce;
 
-        // The two raw quantities HelmMetres is built from. Nothing computes a verdict from them any
+        // The two raw quantities HelmMeters is built from. Nothing computes a verdict from them any
         // more, deliberately, but they are in the debug summary: when a reading looks wrong, which
         // of the two moved is the first thing worth knowing from a pasted log.
         public float TotalForwardForce;
@@ -112,7 +112,7 @@ namespace SailwindRigBalance.Core
 
         /// <summary>
         /// YawMoment split into the half that is side force at a lever, which is what a balance
-        /// reading is about, and the half that is thrust acting off the centreline, which is not.
+        /// reading is about, and the half that is thrust acting off the centerline, which is not.
         /// The verdict is only offered while the first is the larger of the two. Both are printed in
         /// the debug summary, because "which half moved" is the first question when a reading looks
         /// wrong.
@@ -120,7 +120,7 @@ namespace SailwindRigBalance.Core
         public float YawFromSide;
         public float YawFromThrust;
 
-        public Vector3 CombinedCentreOfEffort;
+        public Vector3 CombinedCenterOfEffort;
         public Vector3 HullOrigin;
         public bool AnySailHasFrozenCe;
         public float HullLength;         // m, along the boat's own fore-aft axis
@@ -141,24 +141,24 @@ namespace SailwindRigBalance.Core
         public bool HelmMeaningful;
 
         /// <summary>
-        /// The yaw moment expressed as a lever arm, in metres, positive for weather helm. This is
-        /// the single number the marker POSITION, the marker colour, the ring and the reef track
+        /// The yaw moment expressed as a lever arm, in meters, positive for weather helm. This is
+        /// the single number the marker POSITION, the marker color, the ring and the reef track
         /// all read; it used to be recomputed from YawMoment and TotalSideForce at three separate
         /// call sites, which is three chances for the sign convention to drift apart.
         ///
         /// Divided by the SIGNED total side force, deliberately. Dividing by |side| or by the rig's
         /// total output was considered and is wrong: in lateral equilibrium the hull's drag opposes
         /// whatever side force the sails make, so if the net side force reverses, the hull's
-        /// reaction reverses with it and the whole geometry genuinely inverts. A centre of effort
+        /// reaction reverses with it and the whole geometry genuinely inverts. A center of effort
         /// aft of the origin gives weather helm with the sails pushing to leeward and lee helm with
-        /// them pushing to windward. The sign change is physics, not an artefact.
+        /// them pushing to windward. The sign change is physics, not an artifact.
         ///
         /// The failure that division does have, blowing up as the side force vanishes on a run, is
         /// handled by HelmMeaningful rather than by choosing a divisor that never vanishes: a
-        /// divisor of total output would quietly shrink a real two-metre lever to a tenth of a metre
+        /// divisor of total output would quietly shrink a real two-meter lever to a tenth of a meter
         /// wherever the drive dominates, and report a one-handed boat as balanced.
         /// </summary>
-        public float HelmMetres;
+        public float HelmMeters;
     }
 
     /// <summary>
@@ -183,7 +183,7 @@ namespace SailwindRigBalance.Core
     ///  - the wind-height multiplier, which is taken off raw world Y and so is inflated by however
     ///    high the cradle at this particular shipyard holds the boat.
     ///
-    /// The moment is taken about the HULL ORIGIN, not the centre of mass. In lateral-force
+    /// The moment is taken about the HULL ORIGIN, not the center of mass. In lateral-force
     /// equilibrium the hull's lateral drag exactly opposes the sails' side force and acts at the
     /// origin (Crest BoatProbes.cs:220-223 applies both the lateral and the forward drag at
     /// rb.position + _forceHeightOffset * up, and a purely vertical offset cannot change a yaw
@@ -195,7 +195,7 @@ namespace SailwindRigBalance.Core
     /// one-way weather-helm term of roughly 0.09 m of lever at this wind speed. It is left out for
     /// two reasons. It is a property of the hull, identical whichever rig is fitted, so it cancels
     /// out of the only comparison this tool exists to support: does this sail plan balance better
-    /// than that one. And folding it in would move the magenta marker off the sail plan's own centre
+    /// than that one. And folding it in would move the magenta marker off the sail plan's own center
     /// of effort, which is what the marker is labelled and what the player is told to read. The cost
     /// is a known bias of about a fifth of the balanced band, always in the same direction.
     /// </summary>
@@ -217,9 +217,9 @@ namespace SailwindRigBalance.Core
             FUnampFwd != null && FUnampSide != null && MUpdateForce != null;
 
         /// <summary>
-        /// True when the two vanilla readings needed to recognise a pose lying on vanilla's own drive
+        /// True when the two vanilla readings needed to recognize a pose lying on vanilla's own drive
         /// knife edge both resolved. Deliberately NOT part of Available: without them the model still
-        /// produces every force and every centre it ever did, so disabling the gizmo outright would
+        /// produces every force and every center it ever did, so disabling the gizmo outright would
         /// cost far more than the one defect it would avoid. See AthwartshipsShare.
         /// </summary>
         private static bool CanResolveKnifeEdge =>
@@ -251,16 +251,16 @@ namespace SailwindRigBalance.Core
         ///
         /// Twelve degrees sounds loose and is not, for the force: drive is flat near its own peak,
         /// so being a few degrees off the optimum costs a couple of percent. It matters for the
-        /// GEOMETRY. windcenter hangs off the sail root, so trim sweeps the centre of effort
+        /// GEOMETRY. windcenter hangs off the sail root, so trim sweeps the center of effort
         /// athwartships, and an athwartships error multiplies the largest force in the rig to
-        /// fabricate yaw. That is the same mechanism that made reading the centre at the wrong trim
+        /// fabricate yaw. That is the same mechanism that made reading the center at the wrong trim
         /// the worst defect in the whole model.
         /// </summary>
         private const int CoarseTrimSamples = 5;
         private const int RefineTrimSamples = 5;
 
         /// <summary>
-        /// How close two trims' drive has to be before they count as a tie and the centred one wins,
+        /// How close two trims' drive has to be before they count as a tie and the centerd one wins,
         /// as a fraction of what the sail could make at full power. A thousandth: far above float
         /// noise, far below any difference a player could care about, and crucially it is measured
         /// against the sail's OWN capacity rather than against whatever force this particular
@@ -315,7 +315,7 @@ namespace SailwindRigBalance.Core
         /// Optional. Evaluate as if this one sail were set to <paramref name="overrideUnroll"/>
         /// instead of its real furl state, leaving every other sail alone. This is what draws the
         /// reef track: run it once as things stand and once with the selected sail at the opposite
-        /// extreme, and the two combined centres are the ends of the path the centre of effort takes
+        /// extreme, and the two combined centers are the ends of the path the center of effort takes
         /// through every reef setting between them. Sail.cs:415 scales the force linearly and
         /// nothing in the reef path moves that sail's own windcenter, so only its weight in the
         /// average changes; the drawn straight line between the two ends is a close approximation of
@@ -345,7 +345,7 @@ namespace SailwindRigBalance.Core
 
             // Wind on the PORT bow: blowing toward starboard (+x) and aft (-z). With the wind on
             // port, leeward is starboard, so a positive yaw (bow to starboard) is the bow falling
-            // AWAY from the wind, i.e. lee helm. HelmMetres flips that so positive reads as weather.
+            // AWAY from the wind, i.e. lee helm. HelmMeters flips that so positive reads as weather.
             float rad = windAngleDegrees * Mathf.Deg2Rad;
             Vector3 windLocal = new Vector3(Mathf.Sin(rad), 0f, -Mathf.Cos(rad)) * SyntheticWindSpeed;
             Vector3 windWorld = boat.TransformVector(windLocal);
@@ -399,13 +399,13 @@ namespace SailwindRigBalance.Core
                     if (!c.CeTracksResizes) anyFrozen = true;
 
                     float w = Mathf.Abs(c.SideForce) + Mathf.Abs(c.ForwardForce);
-                    ceAccum += c.CentreOfEffort * w;
+                    ceAccum += c.CenterOfEffort * w;
                     weightSum += w;
                 }
             }
 
             // The hull's own windage, added last because it is not a sail and does not belong in the
-            // sail list or in the drawn centre's weighting.
+            // sail list or in the drawn center's weighting.
             AddHullWindage(boatRoot, boat, body, windWorld, ref totalSide, ref totalFwd,
                 ref yawFromSide, ref yawFromThrust);
 
@@ -427,10 +427,10 @@ namespace SailwindRigBalance.Core
             // sits underneath means anything. A twentieth is generous: at a beam reach the two are
             // comparable, and by the time the side force is below this the boat is running and
             // there is nothing to balance.
-            // Positive = centre of effort aft of the hull origin = weather helm. See HelmMetres.
+            // Positive = center of effort aft of the hull origin = weather helm. See HelmMeters.
             float lever = Mathf.Abs(totalSide) > 0.0001f ? -totalYaw / totalSide : 0f;
 
-            // A centre of effort against a centre of lateral resistance is a statement about SIDE
+            // A center of effort against a center of lateral resistance is a statement about SIDE
             // force acting at a lever, and it says nothing once the side force it is divided by is
             // on its way through zero. As the wind goes aft the net side force crosses zero, but the
             // rest of the yaw does NOT vanish with it, so the ratio runs off to infinity, changes
@@ -443,15 +443,15 @@ namespace SailwindRigBalance.Core
             // question applies at all, but a fifth of the way to the crossing the side force is
             // small without yet being a small SHARE, which is how the old 5 percent let a 13 m lever
             // through. The lever bound then catches whatever the share test misses, and it needs no
-            // guess about which term ought to dominate: a centre of effort a quarter of a hull from
-            // the hull's own centre is already a dozen times outside the balanced band, so nothing
+            // guess about which term ought to dominate: a center of effort a quarter of a hull from
+            // the hull's own center is already a dozen times outside the balanced band, so nothing
             // real is lost by declining to put a number on it, whereas a pole drawn as a verdict is
             // actively misleading.
             //
             // Deliberately NOT a test of whether the side-force half of the yaw beats the thrust
             // half. That reads well on paper and would have been wrong here: a junk sets its sails
-            // to one side of the mast, so thrust acting off the centreline is a large and entirely
-            // genuine term on every heading, and the ring would have gone grey all the way round on
+            // to one side of the mast, so thrust acting off the centerline is a large and entirely
+            // genuine term on every heading, and the ring would have gone gray all the way round on
             // the very boat this was found on. The two halves are tracked and logged so the split
             // can be seen, not used as a gate.
             result.HelmMeaningful =
@@ -459,15 +459,15 @@ namespace SailwindRigBalance.Core
                 && Mathf.Abs(totalSide) > 0.01f
                 && Mathf.Abs(lever) < 0.25f * Mathf.Max(result.HullLength, DefaultHullLength);
 
-            // Gated on the SAME predicate the marker and every colour read, never on a threshold of
+            // Gated on the SAME predicate the marker and every color read, never on a threshold of
             // its own: a reading that is meaningful but has no number, or has a number nothing else
             // trusts, is how the marker ends up pinned on the hull origin reporting a confident
             // "balanced" for a yaw moment it never reproduced.
-            result.HelmMetres = result.HelmMeaningful ? lever : 0f;
+            result.HelmMeters = result.HelmMeaningful ? lever : 0f;
 
-            result.CombinedCentreOfEffort = CombineCentreOfEffort(
+            result.CombinedCenterOfEffort = CombineCenterOfEffort(
                 boat, body, weightSum > 0.0001f ? ceAccum / weightSum : body.position,
-                result.HelmMetres, result.HelmMeaningful, result.HullLength);
+                result.HelmMeters, result.HelmMeaningful, result.HullLength);
 
             return sails.Count > 0;
         }
@@ -484,13 +484,13 @@ namespace SailwindRigBalance.Core
         ///
         /// It was left out at first, on the grounds that it is a property of the hull rather than
         /// the rig and so cancels out of "does this sail plan balance better than that one", and
-        /// that folding it in would drag the magenta marker off the sail plan's own centre of
+        /// that folding it in would drag the magenta marker off the sail plan's own center of
         /// effort. The second half of that argument died when the marker stopped being the sail
         /// plan's centroid and became the lever arm the yaw moment works out to. A lever arm is
         /// about the whole force balance, so leaving out a real term of it was simply an error of
         /// about 0.09 m in the same direction every time, against a band of 0.59 m on a junk.
         ///
-        /// The sails' own list and the drawn centre's weighting are untouched: this is a force on
+        /// The sails' own list and the drawn center's weighting are untouched: this is a force on
         /// the hull, not a sail, and the per-sail readout stays about sails.
         /// </summary>
         private static void AddHullWindage(GameObject boatRoot, Transform boat, Rigidbody body,
@@ -513,13 +513,13 @@ namespace SailwindRigBalance.Core
                 Vector3 forceLocal = boat.InverseTransformVector(windWorld * magnitude);
                 Vector3 armLocal = windage.forceOffset;   // already in the boat's own frame
 
-                // The windage point is on the centreline on every playable hull, which is what makes
+                // The windage point is on the centerline on every playable hull, which is what makes
                 // this term mirror cleanly. If a modded hull ever moves it off, say so rather than
                 // letting it tilt the ring asymmetrically without explanation.
                 if (Mathf.Abs(armLocal.x) > 0.001f)
                 {
                     WarnOnce("windage:offset", "[RigModel] this hull's windage acts "
-                        + $"{armLocal.x:F2} m off the centreline, so the balance ring will not be "
+                        + $"{armLocal.x:F2} m off the centerline, so the balance ring will not be "
                         + "symmetric port and starboard even for a symmetric rig.");
                 }
 
@@ -536,26 +536,26 @@ namespace SailwindRigBalance.Core
         }
 
         /// <summary>
-        /// Where to draw the centre of effort, so that the offset the player reads IS the verdict.
+        /// Where to draw the center of effort, so that the offset the player reads IS the verdict.
         ///
         /// The force-weighted centroid of the sails is where the rig physically is, and it is not
         /// the point that reproduces the rig's yaw moment. The yaw weights each sail's fore-and-aft
         /// lever by its SIDE force and its athwartships offset by its FORWARD force, while the
         /// centroid weights both by the sum. On a square rigger close hauled the courses carry most
         /// of the drive and the headsails most of the side force, from opposite ends of the boat, so
-        /// the two points differ by metres.
+        /// the two points differ by meters.
         ///
         /// That mattered because the two halves of the readout came from different places: the
-        /// marker's position from the centroid, the link's colour from the yaw moment. A player
+        /// marker's position from the centroid, the link's color from the yaw moment. A player
         /// could see magenta plainly forward of blue, which the mod tells them is lee helm, while
         /// the link between them was painted blue for weather helm, with nothing to say which one
         /// was lying.
         ///
-        /// So the marker is put where the classical picture puts it: on the centreline, at the lever
+        /// So the marker is put where the classical picture puts it: on the centerline, at the lever
         /// arm the yaw moment works out to. Then yaw = arm.z * sideForce exactly, arm.z is exactly
-        /// -HelmMetres, and "magenta aft of blue is weather helm" stops being a rule of thumb and
+        /// -HelmMeters, and "magenta aft of blue is weather helm" stops being a rule of thumb and
         /// becomes an identity. Height is left at the centroid's, because that is the heeling lever
-        /// against the centre of mass and it is a separate reading.
+        /// against the center of mass and it is a separate reading.
         ///
         /// Note this is NOT the same as sliding the centroid onto the resultant's line of action,
         /// which was the first attempt. That slide is the minimum-norm correction, so it puts as
@@ -563,7 +563,7 @@ namespace SailwindRigBalance.Core
         /// which is the one axis the elbow link cannot show. With drive at two and a half times side
         /// force it removed about a seventh of the disagreement and left the rest.
         ///
-        /// When the reading carries no verdict, the centroid is drawn unchanged: HelmMetres is a
+        /// When the reading carries no verdict, the centroid is drawn unchanged: HelmMeters is a
         /// ratio with a vanishing denominator there, and pinning the marker to a clamped lever would
         /// fling it to one end of the boat and then to the other as the side force wandered across
         /// zero. Where there is nothing to assert, the marker shows where the sails are.
@@ -571,22 +571,22 @@ namespace SailwindRigBalance.Core
         /// That does mean the marker jumps when the reading crosses into having a verdict, because
         /// the two definitions do not meet. The jump is bounded by clamping the lever to half a hull
         /// length, which is already far outside any balanced band, and it happens on the same frame
-        /// the link changes from grey to a colour, which is the cue that the reading has changed
+        /// the link changes from gray to a color, which is the cue that the reading has changed
         /// character. A smooth blend between a real answer and a placeholder would only disguise
         /// which of the two is on screen.
         /// </summary>
-        private static Vector3 CombineCentreOfEffort(Transform boat, Rigidbody body, Vector3 centroid,
-            float helmMetres, bool helmMeaningful, float hullLength)
+        private static Vector3 CombineCenterOfEffort(Transform boat, Rigidbody body, Vector3 centroid,
+            float helmMeters, bool helmMeaningful, float hullLength)
         {
             if (!helmMeaningful) return centroid;
 
-            // Boat axes: x starboard, z forward. A point on the centreline at -helmMetres has, by
+            // Boat axes: x starboard, z forward. A point on the centerline at -helmMeters has, by
             // construction, the rig's own moment about the hull origin: yaw = arm.z * side.
             // Only the height is taken from the centroid; x and z are replaced outright.
             float height = boat.InverseTransformVector(centroid - body.position).y;
             float limit = Mathf.Max(hullLength, DefaultHullLength) * 0.5f;
 
-            var arm = new Vector3(0f, height, Mathf.Clamp(-helmMetres, -limit, limit));
+            var arm = new Vector3(0f, height, Mathf.Clamp(-helmMeters, -limit, limit));
             return body.position + boat.TransformVector(arm);
         }
 
@@ -596,7 +596,7 @@ namespace SailwindRigBalance.Core
         /// RopeControllerMirror.Update assigns sail.currentUnroll = parentSail.currentUnroll every
         /// frame, unconditionally and with no shipyard guard (RopeControllerMirror.cs:22). So a
         /// mirrored sail cannot be furled on its own: write to it and the next frame puts it back,
-        /// and a reef track drawn for it alone would predict a centre of effort the player can never
+        /// and a reef track drawn for it alone would predict a center of effort the player can never
         /// reach. Overriding the whole chained set instead models what the game will actually do.
         /// </summary>
         public static HashSet<Sail> UnrollGroupOf(GameObject boatRoot, Sail sail)
@@ -697,7 +697,7 @@ namespace SailwindRigBalance.Core
                     + "balance reading includes whatever sail shading today's weather produces.");
 
                 // Both of these are vanilla OUTPUTS, so the model runs without them and Available does
-                // not require them. What it loses is the ability to recognise a pose whose force is
+                // not require them. What it loses is the ability to recognize a pose whose force is
                 // dead abeam, where vanilla's drive test is deciding the sign of a zero and decides it
                 // oppositely on each tack. Said out loud rather than left to be rediscovered: the ring
                 // going lopsided at the bow again is precisely the bug this guards, and it cost three
@@ -715,7 +715,7 @@ namespace SailwindRigBalance.Core
                 // multiplies the wind force by it linearly, so a furled sail contributes nothing and
                 // a reefed one contributes in proportion, and because reefing never moves a sail's
                 // own windcenter, the effect lands entirely on how much that sail counts toward the
-                // combined centre. That is exactly right: reef every sail equally and the balance
+                // combined center. That is exactly right: reef every sail equally and the balance
                 // does not move, reef one and it does.
 
                 // Trim for best drive: sample poses across the sail's own swing limits, then
@@ -725,14 +725,14 @@ namespace SailwindRigBalance.Core
                 float minTrim, maxTrim;
                 ResolveTrimLimits(sail, state, out minTrim, out maxTrim);
 
-                // The centre of effort is captured WITH each pose, so the force and the point it
+                // The center of effort is captured WITH each pose, so the force and the point it
                 // acts at always come from the same trim. It used to be read after the loop, which
                 // left the sail at whatever the last iteration set, always the upper limit.
                 //
                 // That is not a small error. windcenter hangs off the sail root (Sail.cs:186 gives
                 // the scaled subtree a nonzero local X offset), so swinging the root sweeps it
                 // athwartships. In boat axes the yaw reduces to -arm.x * forwardForce, and forward
-                // force is the largest force in the rig, so a metre of bogus athwartships offset
+                // force is the largest force in the rig, so a meter of bogus athwartships offset
                 // fabricates thousands of Nm. Worse, every sail was left at the SAME end of its
                 // swing, so the errors shared a sign and accumulated rather than cancelling.
                 // The pose the trim is imposed on top of comes from the SNAPSHOT where there is one,
@@ -761,7 +761,7 @@ namespace SailwindRigBalance.Core
 
                 // Two passes: a coarse scan of the whole swing, then a refinement inside the winning
                 // bracket. Ten evaluations land the trim within about twelve degrees, where the
-                // original three (hard over, centred, hard over) were a fifty degree grid on a
+                // original three (hard over, centerd, hard over) were a fifty degree grid on a
                 // hundred degree swing.
                 //
                 // That grid was not a rounding error, it was a systematic one. Drive against trim is
@@ -789,7 +789,7 @@ namespace SailwindRigBalance.Core
                     // always in float, and a last-bit difference in trim is a last-bit difference in
                     // force, which is all a tie needs to fall one way on one tack and the other way
                     // on the other.
-                    float centre = (from + to) * 0.5f;
+                    float center = (from + to) * 0.5f;
                     float half = (to - from) * 0.5f;
                     if (half < 0.005f)
                     {
@@ -802,9 +802,9 @@ namespace SailwindRigBalance.Core
 
                     for (int k = 0; k < samples; k++)
                     {
-                        // -1 to +1 about the centre, so u(k) is the exact negation of u(n-1-k).
+                        // -1 to +1 about the center, so u(k) is the exact negation of u(n-1-k).
                         float u = samples <= 1 ? 0f : 2f * k / (samples - 1) - 1f;
-                        float trim = centre + half * u;
+                        float trim = center + half * u;
 
                         sail.transform.localRotation = Quaternion.Euler(euler.x, euler.y, trim);
                         MUpdateForce.Invoke(sail, null);
@@ -871,7 +871,7 @@ namespace SailwindRigBalance.Core
 
                 c.Sail = sail;
                 c.Name = sail.sailName;
-                c.CentreOfEffort = ce;
+                c.CenterOfEffort = ce;
                 c.HeightAboveWaterline = ce.y - waterline;
                 c.ForwardForce = bestFwd;
                 c.SideForce = bestSide;
@@ -925,7 +925,7 @@ namespace SailwindRigBalance.Core
         /// hand-calls SetSailArea, the other thing Start does. Every other writer of those fields
         /// runs at install time or later.
         ///
-        /// Left alone, all three trim iterations then evaluated the identical dead-centre pose, so a
+        /// Left alone, all three trim iterations then evaluated the identical dead-center pose, so a
         /// not-yet-bought sail got no trim search at all and was sheeted flat amidships. For a
         /// fore-and-aft sail that is close to its worst pose, because Sail.GetSailForceDirection puts
         /// the force along the sail's own normal, so a new headsail barely registered in the side
@@ -968,14 +968,14 @@ namespace SailwindRigBalance.Core
         ///
         /// Sail.cs:411 multiplies every sail's force by GetWindHeightMult(windcenter.position.y),
         /// which is Lerp(0.8, 1.4, InverseLerp(0, 22, worldY)) (Sail.cs:401-405): it assumes sea
-        /// level is Y = 0. Shipyard.MoveShip parks the hull on a cradle several metres above that,
-        /// and how many metres is a property of which island the player is standing on.
+        /// level is Y = 0. Shipyard.MoveShip parks the hull on a cradle several meters above that,
+        /// and how many meters is a property of which island the player is standing on.
         ///
         /// The error is not a common scale factor that would divide out, because the curve
         /// saturates. At a cradle 6.8 m up, a low staysail at a true 4 m is evaluated at 10.8 m and
         /// gains about 20 percent, while a topgallant at a true 20 m is evaluated past the top of
         /// the curve and gains 4. Low sails gain weight against tall ones, and low and tall sails do
-        /// not sit at the same station fore and aft, so the combined centre moves. The same boat
+        /// not sit at the same station fore and aft, so the combined center moves. The same boat
         /// with the same rig read differently at two different shipyards with nothing on screen to
         /// explain it.
         ///
@@ -984,11 +984,11 @@ namespace SailwindRigBalance.Core
         /// totalWindForce, which is totalWindForce times a factor of the angle alone, and every
         /// later step scales it or picks a sign from an angle.
         /// </summary>
-        private static float CradleHeightCorrection(float centreWorldY, float waterlineWorldY)
+        private static float CradleHeightCorrection(float centerWorldY, float waterlineWorldY)
         {
-            float asEvaluated = WindHeightMult(centreWorldY);
+            float asEvaluated = WindHeightMult(centerWorldY);
             if (asEvaluated < 0.0001f) return 1f;
-            return WindHeightMult(centreWorldY - waterlineWorldY) / asEvaluated;
+            return WindHeightMult(centerWorldY - waterlineWorldY) / asEvaluated;
         }
 
         /// <summary>Sail.GetWindHeightMult, which is private (Sail.cs:401-405).</summary>
@@ -1006,7 +1006,7 @@ namespace SailwindRigBalance.Core
         }
 
         /// <summary>
-        /// Whether this sail's centre of effort actually moves when the sail is resized.
+        /// Whether this sail's center of effort actually moves when the sail is resized.
         ///
         /// The transform a resize scales is <c>cloth.transform.parent</c>. That is vanilla's own:
         /// Sail.ChangeScale takes it at Sail.cs:140 and writes its localScale at Sail.cs:185, and
@@ -1016,7 +1016,7 @@ namespace SailwindRigBalance.Core
         /// at SailScaler.cs:189, which only works because it is the same transform.
         ///
         /// So the question is simply whether windcenter is inside it. It is, on every stock sail.
-        /// It is not on Shipyard Expansion's three added lug sails, where the centre of effort is
+        /// It is not on Shipyard Expansion's three added lug sails, where the center of effort is
         /// reparented to the sail root and stays frozen through a resize.
         /// </summary>
         private static bool CeTracksResizes(Sail sail)
@@ -1027,7 +1027,7 @@ namespace SailwindRigBalance.Core
                 {
                     // Nothing to compare against. Say so rather than quietly claiming it tracks.
                     WarnOnce("cloth:" + sail.sailName, $"[RigModel] '{sail.sailName}' has no cloth parent; "
-                        + "cannot tell whether its centre of effort follows a resize.");
+                        + "cannot tell whether its center of effort follows a resize.");
                     return true;
                 }
 
@@ -1042,7 +1042,7 @@ namespace SailwindRigBalance.Core
 
         /// <summary>
         /// The hull's fore-and-aft extent, so a tolerance can be expressed as a fraction of the
-        /// boat rather than a flat number of metres. Half a metre of offset is nothing on a brig
+        /// boat rather than a flat number of meters. Half a meter of offset is nothing on a brig
         /// and most of the boat on a dinghy, so a fixed threshold necessarily lies to one of them.
         ///
         /// Rig geometry is excluded, and it has to be excluded explicitly. SailShadowCol.Awake
@@ -1103,7 +1103,7 @@ namespace SailwindRigBalance.Core
                 Transform frame;
                 LocalBoxOf(collider, out box, out frame);
 
-                Vector3 centre = box.center, extents = box.extents;
+                Vector3 center = box.center, extents = box.extents;
                 for (int corner = 0; corner < 8; corner++)
                 {
                     var offset = new Vector3(
@@ -1112,7 +1112,7 @@ namespace SailwindRigBalance.Core
                         (corner & 4) == 0 ? -extents.z : extents.z);
 
                     // A null frame means the box is already in world space.
-                    Vector3 point = centre + offset;
+                    Vector3 point = center + offset;
                     if (frame != null) point = frame.TransformPoint(point);
 
                     float z = boat.InverseTransformPoint(point).z;
@@ -1250,7 +1250,7 @@ namespace SailwindRigBalance.Core
 
         /// <summary>
         /// The winning pose out of the whole set of trims tried: most drive, ties resolved toward
-        /// the centred pose, and a tie between a pose and its own reflection resolved toward the one
+        /// the centerd pose, and a tie between a pose and its own reflection resolved toward the one
         /// whose side force pushes to LEEWARD.
         ///
         /// A rule over the whole set, not a comparison against a running best, and that is the

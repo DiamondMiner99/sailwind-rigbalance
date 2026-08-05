@@ -33,28 +33,28 @@ namespace SailwindRigBalance.Config
 
         public static void Bind(ConfigFile config)
         {
-            ShowEffort = config.Bind("Markers", "ShowCentreOfEffort", true,
+            ShowEffort = config.Bind("Markers", "ShowCenterOfEffort", true,
                 "Show the magenta marker: where the whole sail plan pushes.");
 
-            ShowResistance = config.Bind("Markers", "ShowCentreOfLateralResistance", true,
+            ShowResistance = config.Bind("Markers", "ShowCenterOfLateralResistance", true,
                 "Show the blue marker: where the hull's lateral drag pushes back. The fore and aft "
                 + "offset between this and the magenta marker is the balance reading.");
 
-            ShowMass = config.Bind("Markers", "ShowCentreOfMass", true,
+            ShowMass = config.Bind("Markers", "ShowCenterOfMass", true,
                 "Show the yellow marker: the boat's own balance point. It does not respond to sails, "
                 + "only to a keel or ballast option where the hull has one.");
 
             ShowReefTrack = config.Bind("Markers", "ShowReefTrack", true,
-                "With a sail selected, draw a line from the current centre of effort to where it "
-                + "would sit with that sail furled. Its colour is the verdict at the far end, or "
-                + "grey where the sails are barely drawing. The two ends are exact and the line "
+                "With a sail selected, draw a line from the current center of effort to where it "
+                + "would sit with that sail furled. Its color is the verdict at the far end, or "
+                + "gray where the sails are barely drawing. The two ends are exact and the line "
                 + "between them is close but not exact. It is not drawn at all on a heading where "
                 + "there is no helm reading to compare, or where furling the sail reverses which "
                 + "side the rig pushes, because a straight line would be inventing an answer.");
 
             ShowRing = config.Bind("Markers", "ShowBalanceRing", true,
-                "Draw a ring around the boat coloured by what the helm would do at every point of "
-                + "sail: green balanced, blue weather helm, red lee helm, grey where the sails are "
+                "Draw a ring around the boat colored by what the helm would do at every point of "
+                + "sail: green balanced, blue weather helm, red lee helm, gray where the sails are "
                 + "not drawing enough for the question to mean anything. Red anywhere on the ring is "
                 + "a boat that develops lee helm on some heading, which a single reading cannot show.");
 
@@ -81,9 +81,9 @@ namespace SailwindRigBalance.Config
 
             BalancedThreshold = config.Bind("Model", "BalancedThresholdFraction", 0.02f,
                 new ConfigDescription(
-                    "How far the centre of effort may sit from the centre of lateral resistance "
+                    "How far the center of effort may sit from the center of lateral resistance "
                     + "before the link stops reading as balanced, as a fraction of the hull's "
-                    + "length. A fraction rather than a fixed distance because half a metre is "
+                    + "length. A fraction rather than a fixed distance because half a meter is "
                     + "nothing on a brig and most of the boat on a dinghy.",
                     new AcceptableValueRange<float>(0.002f, 0.15f)));
 

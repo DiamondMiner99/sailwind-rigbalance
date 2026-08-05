@@ -12,17 +12,17 @@ sailing and trading game on Steam.
 
 Three markers float on your boat in the shipyard showing where the sail plan pushes and
 where the hull pushes back, so you can tell whether a rig will balance **before you pay for
-it**. If you've played Kerbal Space Program, it's the centre of gravity and centre of lift
+it**. If you've played Kerbal Space Program, it's the center of gravity and center of lift
 markers, for a boat.
 
 ## Features
 
-- **Three markers** - centre of effort, centre of lateral resistance, centre of mass
-- **A helm verdict at a glance** - a coloured link between two of them: blue for weather helm, red for lee helm, green for balanced, and the colour deepens the further out of balance she is
+- **Three markers** - center of effort, center of lateral resistance, center of mass
+- **A helm verdict at a glance** - a colored link between two of them: blue for weather helm, red for lee helm, green for balanced, and the color deepens the further out of balance she is
 - **A balance ring** - a rose around the boat showing what the helm would do at every point of sail at once, not just the one you are looking at
 - **Live** - swap, resize or move a sail and the markers follow, before you confirm the order
-- **Measured, not tabulated** - every centre of effort comes from the sail's actual geometry driven through the game's own force function, never a per-sail-type constant
-- **Visible through the hull and at night** - two of the three markers sit inside the boat, and unlit markers hold their colour after dark
+- **Measured, not tabulated** - every center of effort comes from the sail's actual geometry driven through the game's own force function, never a per-sail-type constant
+- **Visible through the hull and at night** - two of the three markers sit inside the boat, and unlit markers hold their color after dark
 - **Shipyard Expansion support** - resized sails, rotated spars, sails on stays, and SE's own keel options
 - **Nothing to press** - enter a shipyard and it's there
 
@@ -55,9 +55,9 @@ Enter a shipyard. The markers appear on the boat.
 
 | marker | what it is |
 |--------|------------|
-| **magenta** | centre of effort - where the whole sail plan pushes |
-| **blue** | centre of lateral resistance - where the hull pushes back |
-| **yellow** | centre of mass - the boat's own balance point |
+| **magenta** | center of effort - where the whole sail plan pushes |
+| **blue** | center of lateral resistance - where the hull pushes back |
+| **yellow** | center of mass - the boat's own balance point |
 
 The reading is the **fore and aft gap between magenta and blue**, and nothing else. The
 link between them drops from the sail plan down to the hull's height and then runs across,
@@ -68,15 +68,15 @@ so that gap is the horizontal leg, at true scale, from any camera angle.
 | magenta **aft** of the blue marker, link **blue** | weather helm - she rounds up into the wind |
 | magenta **forward** of the blue marker, link **red** | lee helm - she bears away when you let go |
 | the two close together, link **green** | balanced |
-| link **grey** | no verdict: she is running, or the sails are not drawing |
+| link **gray** | no verdict: she is running, or the sails are not drawing |
 
-A touch of weather helm is what you want. Lee helm is the one to avoid. The colour deepens
+A touch of weather helm is what you want. Lee helm is the one to avoid. The color deepens
 the further out of balance she is, so a faint blue is a touch of weather helm and a strong
 one is a fistful.
 
 ### The balance ring
 
-A rose is drawn on the water around the boat, coloured the same way. **The top of the ring
+A rose is drawn on the water around the boat, colored the same way. **The top of the ring
 is your bow**, and each arc answers: if the wind came from that bearing, what would the helm
 do? The white arrow marks the bearing the markers are currently reporting, and you can drag
 it round to look at any other.
@@ -84,10 +84,10 @@ it round to look at any other.
 Read the ring as a whole. Green and blue all the way round is a boat that behaves on every
 point of sail. **Red anywhere is the finding**, because it means she develops lee helm on
 some heading you will eventually sail, and a single close-hauled reading would never have
-shown you that. Grey means no answer: she is running, so there is no side force to balance.
+shown you that. Gray means no answer: she is running, so there is no side force to balance.
 
-Four round buttons in the top right hide and show things. The three coloured discs match
-the three markers; the fourth, a small ring wearing the rose's own colours, is the balance
+Four round buttons in the top right hide and show things. The three colored discs match
+the three markers; the fourth, a small ring wearing the rose's own colors, is the balance
 ring itself, and turning it off also stops the sweep behind it, which is most of what the
 mod spends on each rig change. Hover any button for a name. The strip is fixed there:
 nothing else in the shipyard can be dragged, and a panel that could be would read as
@@ -103,16 +103,16 @@ balances. It does respond to a keel or ballast option where a hull has one.
 
 | setting | default | what it does |
 |---------|---------|--------------|
-| `ShowCentreOfEffort` | true | magenta marker |
-| `ShowCentreOfLateralResistance` | true | blue marker |
-| `ShowCentreOfMass` | true | yellow marker |
-| `ShowReefTrack` | true | where the centre of effort would go if you furled the selected sail |
+| `ShowCenterOfEffort` | true | magenta marker |
+| `ShowCenterOfLateralResistance` | true | blue marker |
+| `ShowCenterOfMass` | true | yellow marker |
+| `ShowReefTrack` | true | where the center of effort would go if you furled the selected sail |
 | `ShowBalanceRing` | true | the rose showing every point of sail at once |
 | `ShowPanel` | true | the button strip |
 | `DrawThroughHull` | true | draw markers on top of the boat |
 | `MarkerScale` | 1.0 | marker size multiplier |
 | `WindAngleDegrees` | 45 | wind angle the rose starts at; after that the arrow owns it |
-| `BalancedThresholdFraction` | 0.02 | how far off centre still reads as balanced, as a fraction of hull length |
+| `BalancedThresholdFraction` | 0.02 | how far off center still reads as balanced, as a fraction of hull length |
 
 `DrawThroughHull` is the one worth knowing about: it's what makes the two markers inside the
 hull visible at all. Turn it off if it ever conflicts with another mod's rendering.
@@ -120,10 +120,10 @@ hull visible at all. Turn it off if it ever conflicts with another mod's renderi
 ## Mod compatibility
 
 Shipyard Expansion is supported. Resizing a sail, rotating a spar and adding sails to stays
-all work, because the centre of effort is read from the sail's live geometry and SE updates
+all work, because the center of effort is read from the sail's live geometry and SE updates
 the sail area on every resize. SE's deep keel options move the yellow marker.
 
-**One caveat:** SE's three added lug sails keep their centre of effort outside the part that
+**One caveat:** SE's three added lug sails keep their center of effort outside the part that
 gets scaled, so it doesn't move when the sail is resized. When one is aboard, the magenta
 marker turns red and says so. The mod flags this and nothing else - it does not modify
 Shipyard Expansion.

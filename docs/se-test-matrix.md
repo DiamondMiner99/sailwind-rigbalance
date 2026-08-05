@@ -39,19 +39,19 @@ you confirm an order, which is the whole point of it.
 | 4 | Resize a sail with SE's scaler | `SetSailArea` | SE's `SetScaleAbs` reaching the vanilla funnel |
 | 5 | **Flip a jib** (SE control) | `SE FlipJib` | **No vanilla funnel. The marker must move.** |
 | 6 | **Rotate a spar** (SE control) | `SE SetAngle` | **No vanilla funnel.** |
-| 7 | Slide a sail up or down its mast | `ChangeInstallHeight` | Centre of effort moves, nothing else does |
+| 7 | Slide a sail up or down its mast | `ChangeInstallHeight` | Center of effort moves, nothing else does |
 | 8 | Change a keel or ballast option | `UpdateOrder(bool)` or `UpdateOrder()` | The yellow marker should move |
 | 9 | Furl a sail with the gizmo's own button | `furl button` | The mod's one write to the game |
 | 10 | Cancel the order | `LoadData` | Every sail is destroyed and re-instantiated |
 | 11 | Leave the shipyard | `DischargeShip` | Teardown before the sails die |
 
-Steps 5 and 6 are the ones that matter most. Both rewrite geometry the centre of effort is computed
+Steps 5 and 6 are the ones that matter most. Both rewrite geometry the center of effort is computed
 from, and neither reaches `Shipyard.UpdateOrder`, so before `SailScalerHooks` existed the markers
 kept showing the pre-flip answer indefinitely and looked perfectly live while doing it.
 
 ## Also worth capturing
 
-- **An SE lug sail, if one is available.** SE's three added lug sails keep their centre of effort
+- **An SE lug sail, if one is available.** SE's three added lug sails keep their center of effort
   outside the part that gets scaled, so it does not move when the sail is resized. Expected: the
   magenta marker turns red and the log carries a warning naming the sail. This is a known SE
   limitation the mod only reports; it does not modify SE.

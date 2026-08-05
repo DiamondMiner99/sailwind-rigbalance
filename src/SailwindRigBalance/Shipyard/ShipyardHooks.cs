@@ -73,7 +73,7 @@ namespace SailwindRigBalance.Shipyard
         ///
         /// Separate from MarkDirty because the gizmo schedules its own rebuilds for things no vanilla
         /// hook knows about: the selected sail changing, the wind arrow being dragged, and a finished
-        /// sweep needing the markers re-coloured against it. Those already own their deadline, and
+        /// sweep needing the markers re-colored against it. Those already own their deadline, and
         /// routing them through MarkDirty would ALSO raise the dirty flag, which is what makes the ring
         /// re-sweep. On "sweep finished" that is a sweep that schedules a sweep, forever.
         /// </summary>
@@ -163,7 +163,7 @@ namespace SailwindRigBalance.Shipyard
         // ShipyardSailInstaller.cs:122-126 when the mast is onlySquareSails, before the
         // ApplySailPosition that would have called UpdateOrder. So on a spritsail mast the player
         // drags the sail bigger, the game accepts it, the price updates, and every hook here stayed
-        // quiet while the sail's area AND its centre of effort both moved.
+        // quiet while the sail's area AND its center of effort both moved.
         //
         // Sail.SetSailArea is the one point every resize goes through, vanilla (Sail.cs:188) and
         // Shipyard Expansion (SailScaler.cs:190) alike, and it is the method that rewrites the
@@ -176,7 +176,7 @@ namespace SailwindRigBalance.Shipyard
             private static void Postfix() => MarkDirty("SetSailArea");
         }
 
-        // Sliding a sail up or down its mast moves the centre of effort without changing anything
+        // Sliding a sail up or down its mast moves the center of effort without changing anything
         // else about it.
         [HarmonyPatch(typeof(Sail), nameof(Sail.ChangeInstallHeight))]
         private static class ChangeInstallHeightPatch

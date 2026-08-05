@@ -34,7 +34,7 @@ namespace SailwindRigBalance.Shipyard
         /// <summary>
         /// Vertical gap below the anchor button, as a multiple of the anchor's own height. The
         /// game's UI is world-space and each hull's shipyard panel is a different size, so this is
-        /// expressed relative to the button rather than in metres.
+        /// expressed relative to the button rather than in meters.
         /// </summary>
         private const float GapMultiplier = 1.15f;
 
@@ -66,7 +66,7 @@ namespace SailwindRigBalance.Shipyard
 
                 clone.name = "RigBalanceFurlSelectedSail";
 
-                // Strip every button behaviour the clone inherited, including SE's, before adding
+                // Strip every button behavior the clone inherited, including SE's, before adding
                 // ours. Otherwise a click would furl the whole rig as well as the selected sail.
                 foreach (GoPointerButton inherited in clone.GetComponents<GoPointerButton>())
                 {

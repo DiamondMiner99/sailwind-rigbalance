@@ -5,7 +5,7 @@ using UnityEngine;
 namespace SailwindRigBalance.UI
 {
     /// <summary>
-    /// A ring around the boat, coloured by what the helm would do at every point of sail.
+    /// A ring around the boat, colored by what the helm would do at every point of sail.
     ///
     /// The single close-hauled reading answers "is she balanced right now". It cannot answer the
     /// question that actually bites: does she keep her manners all the way round, or does the helm
@@ -17,18 +17,18 @@ namespace SailwindRigBalance.UI
     ///
     /// Read it exactly like the markers: a ring that is green or blue all the way round is a boat
     /// that behaves; a ring with red in it is a boat that develops lee helm on some heading, and
-    /// the coloured arc tells you which.
+    /// the colored arc tells you which.
     ///
-    /// Built as one mesh with interpolated vertex colours rather than a line renderer per segment.
+    /// Built as one mesh with interpolated vertex colors rather than a line renderer per segment.
     /// LineRenderer's gradient tops out at eight keys, far short of the resolution this needs, and
     /// two dozen renderers to draw one ring would be silly. The unlit shader the markers already
-    /// use multiplies by vertex colour, so the same shader works unchanged.
+    /// use multiplies by vertex color, so the same shader works unchanged.
     ///
     /// It gets its OWN material, never the helm link's. The link's material carries the current
-    /// verdict colour in _Color, and Sprites/Default multiplies _Color into the vertex colour, so
+    /// verdict color in _Color, and Sprites/Default multiplies _Color into the vertex color, so
     /// sharing it multiplied every one of the ring's verdicts by the verdict at the one angle the
     /// arrow happened to point at. A lee-helm reading painted the entire ring red, which is exactly
-    /// the failure the grey guard below was added to prevent, and the two were indistinguishable.
+    /// the failure the gray guard below was added to prevent, and the two were indistinguishable.
     /// </summary>
     public class BalanceRing
     {
@@ -40,17 +40,17 @@ namespace SailwindRigBalance.UI
         private const int Segments = 36;
 
         /// <summary>
-        /// Quads the ring is drawn from, every five degrees, with colour interpolated between the
+        /// Quads the ring is drawn from, every five degrees, with color interpolated between the
         /// evaluated bearings. Geometry is nearly free, so the drawn resolution is decoupled from
-        /// the sampled one: the ring reads as a continuous wash rather than a colour wheel, without
+        /// the sampled one: the ring reads as a continuous wash rather than a color wheel, without
         /// paying for an evaluation per quad.
         /// </summary>
         private const int MeshSegments = 72;
 
         /// <summary>
-        /// How far past the balanced band the helm has to go before the colour saturates, in
+        /// How far past the balanced band the helm has to go before the color saturates, in
         /// multiples of the band. Inside the band it is flat green, because that is what balanced
-        /// means; beyond it the colour ramps so the ring shows HOW one-handed she is, not merely
+        /// means; beyond it the color ramps so the ring shows HOW one-handed she is, not merely
         /// that she is. Three bands is about the point where a rig stops being a trim problem.
         /// </summary>
         private const float SaturateAtBands = 3f;
@@ -65,7 +65,7 @@ namespace SailwindRigBalance.UI
         /// and the sail's own axis, taken off windcenter and scaled by a verticality factor, so it
         /// depends on how the sail is trimmed, which is the very thing the model sweeps over. A
         /// square rigger with its yards braced round draws hard at 10 degrees off the bow and the
-        /// ring painted it grey; a fore-and-aft rig sheeted flat can be under the ramp at 30 and the
+        /// ring painted it gray; a fore-and-aft rig sheeted flat can be under the ramp at 30 and the
         /// ring painted a confident verdict on forces of order a newton.
         ///
         /// Comparing each angle's output against the best output anywhere on the sweep asks the
@@ -73,13 +73,13 @@ namespace SailwindRigBalance.UI
         /// </summary>
         internal const float DeadOutputFraction = 0.10f;
 
-        private static readonly Color DeadColour = new Color(0.45f, 0.45f, 0.45f, 0.55f);
+        private static readonly Color DeadColor = new Color(0.45f, 0.45f, 0.45f, 0.55f);
 
         private GameObject _go;
         private MeshFilter _filter;
         private MeshRenderer _renderer;
         private Mesh _mesh;
-        private Vector3 _centreLocal;
+        private Vector3 _centerLocal;
         private float _radius = 10f;
 
         private GameObject _arrowGo;
@@ -149,7 +149,7 @@ namespace SailwindRigBalance.UI
         public void Follow(Transform boat)
         {
             if (_go == null || boat == null) return;
-            _go.transform.SetPositionAndRotation(boat.TransformPoint(_centreLocal), boat.rotation);
+            _go.transform.SetPositionAndRotation(boat.TransformPoint(_centerLocal), boat.rotation);
             if (_arrowGo != null)
                 _arrowGo.transform.SetPositionAndRotation(_go.transform.position, _go.transform.rotation);
         }
@@ -174,8 +174,8 @@ namespace SailwindRigBalance.UI
             // shipyard camera still with nothing on screen to explain any of it.
             if (!_go.activeSelf) return;
 
-            Vector3 centre = _go.transform.position;
-            Vector3 handle = centre + DirectionFor(WindAngle, boat) * _radius;
+            Vector3 center = _go.transform.position;
+            Vector3 handle = center + DirectionFor(WindAngle, boat) * _radius;
 
             if (!_dragging)
             {
@@ -216,12 +216,12 @@ namespace SailwindRigBalance.UI
             SuppressCameraLook();
 
             // Where the cursor lands on the ring's own plane.
-            var plane = new Plane(boat.up, centre);
+            var plane = new Plane(boat.up, center);
             Ray ray = camera.ScreenPointToRay(Input.mousePosition);
             float enter;
             if (!plane.Raycast(ray, out enter)) return;
 
-            Vector3 local = boat.InverseTransformDirection(ray.GetPoint(enter) - centre);
+            Vector3 local = boat.InverseTransformDirection(ray.GetPoint(enter) - center);
             if (local.sqrMagnitude < 0.0001f) return;
 
             // Inverse of DirectionFor: that maps an angle to (-sin, 0, cos).
@@ -274,7 +274,7 @@ namespace SailwindRigBalance.UI
             if (_arrowGo == null) return;
             var r = _arrowGo.GetComponent<MeshRenderer>();
             if (r != null) r.enabled = true;
-            // Rebuilt colours are cheap; the mesh is seven vertices.
+            // Rebuilt colors are cheap; the mesh is seven vertices.
             BuildArrowMesh(on);
         }
 
@@ -284,17 +284,17 @@ namespace SailwindRigBalance.UI
         ///
         /// Two passes over the half circle, not one: the dead-angle test compares each angle's
         /// output against the best found anywhere on the sweep, so every angle has to be evaluated
-        /// before any of them can be coloured.
+        /// before any of them can be colored.
         /// </summary>
         public void Rebuild(GameObject boatRoot, Transform boat, RigBalance current,
-            float balancedMetres, Material material, int layer, Transform parent)
+            float balancedMeters, Material material, int layer, Transform parent)
         {
             try
             {
                 if (_go == null) Create(material, layer, parent);
                 if (_go == null) return;
 
-                _centreLocal = boat.InverseTransformPoint(current.HullOrigin);
+                _centerLocal = boat.InverseTransformPoint(current.HullOrigin);
 
                 _radius = Mathf.Max(current.HullLength * 0.55f, 3f);
                 float band = Mathf.Max(current.HullLength * 0.030f, 0.25f);
@@ -320,7 +320,7 @@ namespace SailwindRigBalance.UI
                 // identical port halves and different starboard ones, one mirroring correctly and
                 // one not, because the second sweep straddled the flip.
                 _pendingSnapshot = RigModel.CaptureRig(boatRoot);
-                _pendingBalancedMetres = balancedMetres;
+                _pendingBalancedMeters = balancedMeters;
                 _pendingBand = band;
                 _pendingSampled = new RigBalance[Segments];
                 _pendingEvaluated = new bool[Segments];
@@ -343,7 +343,7 @@ namespace SailwindRigBalance.UI
         private bool[] _pendingEvaluated;
         private float _pendingHullLength;
         private RigModel.RigSnapshot _pendingSnapshot;
-        private float _pendingBalancedMetres;
+        private float _pendingBalancedMeters;
         private float _pendingBand;
         private float _pendingBest;
         private float _pendingMilliseconds;
@@ -413,19 +413,19 @@ namespace SailwindRigBalance.UI
             {
                 MaxOutput = _pendingBest;
 
-                var colours = new Color[Segments];
+                var colors = new Color[Segments];
                 for (int i = 0; i < Segments; i++)
                 {
-                    colours[i] = _pendingEvaluated[i]
-                        ? VerdictFor(_pendingSampled[i], _pendingBest, _pendingBalancedMetres)
-                        : DeadColour;
+                    colors[i] = _pendingEvaluated[i]
+                        ? VerdictFor(_pendingSampled[i], _pendingBest, _pendingBalancedMeters)
+                        : DeadColor;
                 }
 
-                BuildMesh(_radius, _pendingBand, colours);
+                BuildMesh(_radius, _pendingBand, colors);
                 UpdateArrow(boat);
 
                 LogSweep(_pendingSampled, _pendingEvaluated, _pendingBest,
-                    _pendingBalancedMetres, _pendingMilliseconds);
+                    _pendingBalancedMeters, _pendingMilliseconds);
 
                 LogMirrorAudit(_pendingSampled, _pendingEvaluated);
             }
@@ -443,7 +443,7 @@ namespace SailwindRigBalance.UI
         private bool _sweepCompleted;
 
         /// <summary>
-        /// True once after a sweep finishes, so the caller can re-colour the markers.
+        /// True once after a sweep finishes, so the caller can re-color the markers.
         ///
         /// MaxOutput is the yardstick the "no verdict" test measures against, and it is only known
         /// once every bearing has been evaluated. With the sweep spread over frames, the markers and
@@ -466,18 +466,18 @@ namespace SailwindRigBalance.UI
         /// cannot answer it. One line per rebuild is cheap, it never fires during a drag, and it
         /// turns "the ring has gone red" into a reading anyone can check.
         ///
-        /// Per segment: the bearing, the verdict letter, the lever in metres, and the side force as
+        /// Per segment: the bearing, the verdict letter, the lever in meters, and the side force as
         /// a percentage of total output, which is the quantity that decides whether there is a
         /// verdict at all. B balanced, W weather, L lee, dash no verdict, x failed to evaluate.
         /// </summary>
         private static void LogSweep(RigBalance[] sampled, bool[] evaluated, float maxOutput,
-            float balancedMetres, float milliseconds)
+            float balancedMeters, float milliseconds)
         {
             try
             {
                 var line = new System.Text.StringBuilder(
                     $"[Ring] sweep of {Segments} bearings in {milliseconds:F1} ms, "
-                    + $"band {balancedMetres:F2} m, best output {maxOutput:F0} N:");
+                    + $"band {balancedMeters:F2} m, best output {maxOutput:F0} N:");
 
                 for (int i = 0; i < Segments; i++)
                 {
@@ -490,14 +490,14 @@ namespace SailwindRigBalance.UI
 
                     RigBalance b = sampled[i];
                     char verdict = IsDead(b, maxOutput) ? '-'
-                        : (Mathf.Abs(b.HelmMetres) < balancedMetres ? 'B'
-                        : (b.HelmMetres > 0f ? 'W' : 'L'));
+                        : (Mathf.Abs(b.HelmMeters) < balancedMeters ? 'B'
+                        : (b.HelmMeters > 0f ? 'W' : 'L'));
 
                     float share = b.TotalOutput > 0.0001f
                         ? 100f * Mathf.Abs(b.TotalSideForce) / b.TotalOutput
                         : 0f;
 
-                    line.Append($" {angle:F0}:{verdict}{b.HelmMetres:F1}/{share:F0}%");
+                    line.Append($" {angle:F0}:{verdict}{b.HelmMeters:F1}/{share:F0}%");
                 }
 
                 Plugin.Log.LogInfo(line.ToString());
@@ -515,7 +515,7 @@ namespace SailwindRigBalance.UI
         /// </summary>
         private const float MirrorTolerance = 0.01f;
 
-        /// <summary>The bearing a sample stands for: the centre of its arc, not its lower edge.</summary>
+        /// <summary>The bearing a sample stands for: the center of its arc, not its lower edge.</summary>
         private static float Bearing(int index)
         {
             return 360f * (index + 0.5f) / Segments;
@@ -540,8 +540,8 @@ namespace SailwindRigBalance.UI
         /// A hull is symmetric and so is its rig, so a wind from bearing b and a wind from 360-b are
         /// one situation and its reflection port for starboard. Every quantity the model produces has
         /// to either match exactly or negate exactly: forward force matches, side force negates, the
-        /// chosen trim negates, a centre of effort keeps its height and its station along the boat and
-        /// negates its offset from the centreline. The helm lever, a ratio of two quantities that both
+        /// chosen trim negates, a center of effort keeps its height and its station along the boat and
+        /// negates its offset from the centerline. The helm lever, a ratio of two quantities that both
         /// negate, matches.
         ///
         /// Sample i covers bearing 10i+5, so its reflection at 355-10i is sample Segments-1-i. No
@@ -616,7 +616,7 @@ namespace SailwindRigBalance.UI
                 + $"side {a.TotalSideForce:F0} vs {b.TotalSideForce:F0} N (want negated), "
                 + $"yawSide {a.YawFromSide:F0} vs {b.YawFromSide:F0}, "
                 + $"yawThrust {a.YawFromThrust:F0} vs {b.YawFromThrust:F0}, "
-                + $"lever {a.HelmMetres:F2} vs {b.HelmMetres:F2} m");
+                + $"lever {a.HelmMeters:F2} vs {b.HelmMeters:F2} m");
 
             if (a.Sails == null || b.Sails == null) return;
 
@@ -642,7 +642,7 @@ namespace SailwindRigBalance.UI
                 SailContribution cb = b.Sails[m];
 
                 // The arm each sail was evaluated at, in boat axes, taken at its OWN instant. Not the
-                // world centre of effort transformed here: the two readings are up to thirty six
+                // world center of effort transformed here: the two readings are up to thirty six
                 // frames apart and the shipyard cradle is still lerping the hull into place across
                 // them, so transforming both by one late transform measures the cradle's travel and
                 // reported a fictitious 3.6 m disagreement in every sail. See SailContribution.Arm.
@@ -690,48 +690,48 @@ namespace SailwindRigBalance.UI
         }
 
         /// <summary>
-        /// The verdict colour for one evaluated angle. Shared with the helm link through
+        /// The verdict color for one evaluated angle. Shared with the helm link through
         /// <see cref="IsDead"/> so the ring behind the markers cannot disagree with them.
         /// </summary>
-        internal static Color VerdictFor(RigBalance balance, float maxOutput, float balancedMetres)
+        internal static Color VerdictFor(RigBalance balance, float maxOutput, float balancedMeters)
         {
-            if (IsDead(balance, maxOutput)) return DeadColour;
-            return HelmColour(balance.HelmMetres, balancedMetres);
+            if (IsDead(balance, maxOutput)) return DeadColor;
+            return HelmColor(balance.HelmMeters, balancedMeters);
         }
 
         /// <summary>
-        /// The helm as a continuous colour rather than one of three.
+        /// The helm as a continuous color rather than one of three.
         ///
         /// Green at balanced, ramping out to blue for weather helm and red for lee helm as the
         /// lever leaves the band. A diverging scale with the safe state in the middle, because the
         /// quantity is signed and zero is the good value: the two directions are genuinely different
         /// failures, not two ends of one axis.
         ///
-        /// Three flat colours threw away the magnitude, which is most of what a player wants. A rig
-        /// half a metre outside the band and a rig five metres outside it both painted the same red,
+        /// Three flat colors threw away the magnitude, which is most of what a player wants. A rig
+        /// half a meter outside the band and a rig five meters outside it both painted the same red,
         /// so there was no way to see whether an edit had helped unless it crossed a threshold. The
         /// ramp makes an improvement visible while it is still an improvement.
         ///
         /// Used by the ring, the helm link and the reef track alike, so the three cannot drift into
-        /// disagreeing about what a colour means.
+        /// disagreeing about what a color means.
         /// </summary>
-        internal static Color HelmColour(float helmMetres, float balancedMetres)
+        internal static Color HelmColor(float helmMeters, float balancedMeters)
         {
-            if (balancedMetres <= 0.0001f) return ShipyardGizmo.BalancedColour;
+            if (balancedMeters <= 0.0001f) return ShipyardGizmo.BalancedColor;
 
-            float bands = Mathf.Abs(helmMetres) / balancedMetres;
+            float bands = Mathf.Abs(helmMeters) / balancedMeters;
 
             // Square-rooted, so the hue commits early and then deepens. A linear ramp spends most of
-            // its range near the neutral colour, which hides the first and most useful part of the
+            // its range near the neutral color, which hides the first and most useful part of the
             // signal: the point where a rig starts to go one-handed, not the point where it is
             // hopeless. This is most of the way to blue or red by a quarter of the range.
             float t = Mathf.Sqrt(Mathf.InverseLerp(1f, SaturateAtBands, bands));
 
-            Color extreme = helmMetres > 0f
-                ? ShipyardGizmo.WeatherHelmColour
-                : ShipyardGizmo.LeeHelmColour;
+            Color extreme = helmMeters > 0f
+                ? ShipyardGizmo.WeatherHelmColor
+                : ShipyardGizmo.LeeHelmColor;
 
-            return Color.Lerp(ShipyardGizmo.BalancedColour, extreme, t);
+            return Color.Lerp(ShipyardGizmo.BalancedColor, extreme, t);
         }
 
         /// <summary>
@@ -744,7 +744,7 @@ namespace SailwindRigBalance.UI
             return !balance.HelmMeaningful;
         }
 
-        internal static Color NoVerdictColour => DeadColour;
+        internal static Color NoVerdictColor => DeadColor;
 
         /// <summary>
         /// Rebuilds the arrow so it sits at the current wind bearing, pointing inward at the boat,
@@ -792,16 +792,16 @@ namespace SailwindRigBalance.UI
                 3, 6, 4,
             };
 
-            Color colour = highlighted
+            Color color = highlighted
                 ? new Color(1f, 1f, 1f, 1f)
                 : new Color(0.98f, 0.98f, 0.92f, 0.90f);
 
-            var colours = new Color[vertices.Length];
-            for (int i = 0; i < colours.Length; i++) colours[i] = colour;
+            var colors = new Color[vertices.Length];
+            for (int i = 0; i < colors.Length; i++) colors[i] = color;
 
             _arrowMesh.Clear();
             _arrowMesh.vertices = vertices;
-            _arrowMesh.colors = colours;
+            _arrowMesh.colors = colors;
             _arrowMesh.triangles = triangles;
             _arrowMesh.RecalculateBounds();
         }
@@ -833,9 +833,9 @@ namespace SailwindRigBalance.UI
             arrowRenderer.sharedMaterial = material;
 
             // The arrow and the band are two coplanar transparent meshes sharing one material, so
-            // Unity orders them by distance from the camera to each mesh's bounds centre. The band's
-            // centre is the boat; the arrow's is out at its bearing. Orbit the camera and whichever
-            // centre happens to be nearer wins, which had the arrow ducking underneath the band on
+            // Unity orders them by distance from the camera to each mesh's bounds center. The band's
+            // center is the boat; the arrow's is out at its bearing. Orbit the camera and whichever
+            // center happens to be nearer wins, which had the arrow ducking underneath the band on
             // one side of the boat and riding on top on the other. Sorting order outranks distance
             // for transparent renderers, so this pins the arrow above the band from every angle.
             arrowRenderer.sortingOrder = 1;
@@ -851,12 +851,12 @@ namespace SailwindRigBalance.UI
         }
 
         /// <summary>
-        /// One quad per drawn segment, each edge carrying the colour interpolated for its own
-        /// bearing, so the hardware washes the colour along the ring instead of stepping it.
+        /// One quad per drawn segment, each edge carrying the color interpolated for its own
+        /// bearing, so the hardware washes the color along the ring instead of stepping it.
         ///
-        /// The quads used to be flat, deliberately, so that neighbouring verdicts could not blend.
-        /// That was the right call while a verdict was one of three colours and blending two of them
-        /// would have invented a fourth. It stopped being right when the colour became a continuous
+        /// The quads used to be flat, deliberately, so that neighboring verdicts could not blend.
+        /// That was the right call while a verdict was one of three colors and blending two of them
+        /// would have invented a fourth. It stopped being right when the color became a continuous
         /// function of the helm: with a ramp, the value between two sampled bearings really is
         /// between the two, and drawing it as a hard step is the lie. Twenty four flat bands also
         /// hid the magnitude entirely, so a rig just outside the band and a rig hopelessly outside
@@ -865,13 +865,13 @@ namespace SailwindRigBalance.UI
         /// At 72 quads that is 288 vertices, which is still nothing, and the sampling cost is
         /// unchanged because geometry and evaluation are now separate numbers.
         /// </summary>
-        private void BuildMesh(float radius, float band, Color[] colours)
+        private void BuildMesh(float radius, float band, Color[] colors)
         {
             float inner = radius - band * 0.5f;
             float outer = radius + band * 0.5f;
 
             var vertices = new Vector3[MeshSegments * 4];
-            var vertexColours = new Color[MeshSegments * 4];
+            var vertexColors = new Color[MeshSegments * 4];
             var triangles = new int[MeshSegments * 6];
 
             for (int i = 0; i < MeshSegments; i++)
@@ -887,8 +887,8 @@ namespace SailwindRigBalance.UI
                 Vector3 d0 = new Vector3(-Mathf.Sin(a0), 0f, Mathf.Cos(a0));
                 Vector3 d1 = new Vector3(-Mathf.Sin(a1), 0f, Mathf.Cos(a1));
 
-                Color c0 = ColourAt(colours, degrees0);
-                Color c1 = ColourAt(colours, degrees1);
+                Color c0 = ColorAt(colors, degrees0);
+                Color c1 = ColorAt(colors, degrees1);
 
                 int v = i * 4;
                 vertices[v + 0] = d0 * inner;
@@ -896,10 +896,10 @@ namespace SailwindRigBalance.UI
                 vertices[v + 2] = d1 * outer;
                 vertices[v + 3] = d1 * inner;
 
-                vertexColours[v + 0] = c0;
-                vertexColours[v + 1] = c0;
-                vertexColours[v + 2] = c1;
-                vertexColours[v + 3] = c1;
+                vertexColors[v + 0] = c0;
+                vertexColors[v + 1] = c0;
+                vertexColors[v + 2] = c1;
+                vertexColors[v + 3] = c1;
 
                 int t = i * 6;
                 triangles[t + 0] = v + 0;
@@ -912,24 +912,24 @@ namespace SailwindRigBalance.UI
 
             _mesh.Clear();
             _mesh.vertices = vertices;
-            _mesh.colors = vertexColours;
+            _mesh.colors = vertexColors;
             _mesh.triangles = triangles;
             _mesh.RecalculateBounds();
         }
 
         /// <summary>
-        /// The colour for an arbitrary bearing, interpolated between the two nearest evaluated ones.
+        /// The color for an arbitrary bearing, interpolated between the two nearest evaluated ones.
         ///
         /// Sample i stands for the CENTRE of its arc, at 360*(i+0.5)/Segments, which is why the
         /// index is offset by half a step before interpolating. Wrapping is explicit and handles
         /// negative indices, so the seam at dead ahead is as smooth as everywhere else rather than
         /// being the one hard edge left in the ring.
         /// </summary>
-        private static Color ColourAt(Color[] colours, float degrees)
+        private static Color ColorAt(Color[] colors, float degrees)
         {
-            int count = colours.Length;
-            if (count == 0) return DeadColour;
-            if (count == 1) return colours[0];
+            int count = colors.Length;
+            if (count == 0) return DeadColor;
+            if (count == 1) return colors[0];
 
             float position = degrees / 360f * count - 0.5f;
             int lower = Mathf.FloorToInt(position);
@@ -938,7 +938,7 @@ namespace SailwindRigBalance.UI
             int a = ((lower % count) + count) % count;
             int b = ((lower + 1) % count + count) % count;
 
-            return Color.Lerp(colours[a], colours[b], fraction);
+            return Color.Lerp(colors[a], colors[b], fraction);
         }
     }
 }

@@ -9,9 +9,9 @@ namespace SailwindRigBalance.UI
     /// <summary>
     /// The shipyard gizmo: three world-space markers, read the way KSP's CoM/CoL/CoT are read.
     ///
-    ///   magenta  centre of effort      where the sail plan's turning force acts
-    ///   blue     centre of resistance  where the hull's lateral drag pushes back
-    ///   yellow   centre of mass        the boat's own balance point
+    ///   magenta  center of effort      where the sail plan's turning force acts
+    ///   blue     center of resistance  where the hull's lateral drag pushes back
+    ///   yellow   center of mass        the boat's own balance point
     ///
     /// Yellow is read straight off the rigidbody, so it is whatever the game itself is using. Its
     /// base value is BoatKeel.centerOfMass, a per-hull authored point (BoatKeel.cs:7), and
@@ -19,19 +19,19 @@ namespace SailwindRigBalance.UI
     /// It is often below the keel, which is a deliberate self-righting trick, not an error.
     ///
     /// It matters for two things the other two markers cannot show. Unity takes torque about the
-    /// centre of mass, and the sail force is applied at the windcenter (Sail.cs:468), so the height
+    /// center of mass, and the sail force is applied at the windcenter (Sail.cs:468), so the height
     /// of magenta above yellow is the heeling lever. And it moves when the hull's own loadout does,
     /// which is a real shipyard choice wherever a part carries a BoatCustomKeel (BoatCustomKeel.cs:11).
     ///
     /// The balance answer is the fore-and-aft offset between magenta and blue, and nothing else. Magenta
-    /// aft of blue is weather helm, magenta forward is lee helm. A coloured link between the two
+    /// aft of blue is weather helm, magenta forward is lee helm. A colored link between the two
     /// carries that verdict so it reads from any camera angle without a number on screen.
     ///
-    /// The marker and the link colour are the same statement, which took work to make true. Magenta
-    /// is not simply where the sails average out to. It is drawn on the centreline at the lever arm
+    /// The marker and the link color are the same statement, which took work to make true. Magenta
+    /// is not simply where the sails average out to. It is drawn on the centerline at the lever arm
     /// the rig's yaw moment about the hull origin works out to, so the fore-and-aft run of the elbow
     /// IS the balance figure rather than merely correlating with it
-    /// (RigModel.CombineCentreOfEffort). Its height is still the sails' own centroid, because that
+    /// (RigModel.CombineCenterOfEffort). Its height is still the sails' own centroid, because that
     /// is the heeling lever against yellow and a separate reading.
     ///
     /// Without that the two halves came from different quantities and could point opposite ways on
@@ -47,10 +47,10 @@ namespace SailwindRigBalance.UI
     ///
     ///  - Markers are camera-facing quads carrying a pre-shaded ball image, not mesh spheres. An
     ///    unlit mesh sphere is a flat disc by construction: with no lighting term there is nothing
-    ///    to vary the colour across it. Baking the shading into the image keeps the unlit
+    ///    to vary the color across it. Baking the shading into the image keeps the unlit
     ///    requirement and still reads as a ball.
     ///
-    ///  - The shading is baked, so the markers hold their colour and their form at midnight exactly
+    ///  - The shading is baked, so the markers hold their color and their form at midnight exactly
     ///    as at noon. Scene lighting never touches them.
     ///
     ///  - Markers are drawn by a second camera that clears depth only, so they show THROUGH the
@@ -96,14 +96,14 @@ namespace SailwindRigBalance.UI
         /// Offset below which a rig reads as balanced rather than one-handed, scaled to the hull.
         /// Held as a field because it depends on the boat, and set on every rebuild.
         /// </summary>
-        private float _balancedMetres = 0.3f;
+        private float _balancedMeters = 0.3f;
 
         private const int Effort = 0, Resistance = 1, Mass = 2, MarkerCount = 3;
 
-        private static readonly Color EffortColour = new Color(1.00f, 0.25f, 0.90f);
-        private static readonly Color ResistanceColour = new Color(0.25f, 0.60f, 1.00f);
-        private static readonly Color MassColour = new Color(1.00f, 0.92f, 0.20f);
-        private static readonly Color UnreliableColour = new Color(1.00f, 0.15f, 0.15f);
+        private static readonly Color EffortColor = new Color(1.00f, 0.25f, 0.90f);
+        private static readonly Color ResistanceColor = new Color(0.25f, 0.60f, 1.00f);
+        private static readonly Color MassColor = new Color(1.00f, 0.92f, 0.20f);
+        private static readonly Color UnreliableColor = new Color(1.00f, 0.15f, 0.15f);
 
         // A DIVERGING scale, cool against warm, not a severity ramp.
         //
@@ -117,15 +117,15 @@ namespace SailwindRigBalance.UI
         // to amber to red is the traffic light, and a traffic light is a scale of ONE quantity
         // getting worse, so amber inevitably read as partway to lee helm rather than as the opposite
         // direction. Helm is signed, and zero is the good value: the correct picture is two arms
-        // leaving a neutral centre, which needs two hues that differ in KIND. Blue against red does
+        // leaving a neutral center, which needs two hues that differ in KIND. Blue against red does
         // that and carries the safe-versus-dangerous reading for free. (The version before amber had
         // weather helm red, which signalled the safe direction as the dangerous one.)
         //
-        // Lighter and more cyan than the centre-of-resistance marker's blue, so the helm link
+        // Lighter and more cyan than the center-of-resistance marker's blue, so the helm link
         // arriving at that marker still reads as a separate thing from it.
-        internal static readonly Color WeatherHelmColour = new Color(0.25f, 0.78f, 1.00f);
-        internal static readonly Color LeeHelmColour = new Color(1.00f, 0.20f, 0.15f);
-        internal static readonly Color BalancedColour = new Color(0.35f, 1.00f, 0.45f);
+        internal static readonly Color WeatherHelmColor = new Color(0.25f, 0.78f, 1.00f);
+        internal static readonly Color LeeHelmColor = new Color(1.00f, 0.20f, 0.15f);
+        internal static readonly Color BalancedColor = new Color(0.35f, 1.00f, 0.45f);
 
         private readonly GameObject[] _markers = new GameObject[MarkerCount];
         private readonly Material[] _materials = new Material[MarkerCount];
@@ -155,14 +155,14 @@ namespace SailwindRigBalance.UI
         ///
         /// The ring used to be handed _linkMaterial. That material's _Color is overwritten with the
         /// current helm verdict on every recompute, and Sprites/Default multiplies _Color into the
-        /// vertex colour, so all 24 of the ring's independently computed verdicts came out
+        /// vertex color, so all 24 of the ring's independently computed verdicts came out
         /// multiplied by the verdict at whatever single angle the wind arrow happened to point at.
         /// A lee-helm reading turned the whole ring red, a balanced one turned it green, and the
-        /// grey no-verdict guard dimmed everything to 55 percent. The ring was reporting the arrow.
+        /// gray no-verdict guard dimmed everything to 55 percent. The ring was reporting the arrow.
         /// </summary>
         private Material _ringMaterial;
 
-        // The reef track: where the combined centre of effort travels as the selected sail goes
+        // The reef track: where the combined center of effort travels as the selected sail goes
         // between fully set and fully furled. Two endpoints describe every setting in between.
         private LineRenderer _track;
         private Material _trackMaterial;
@@ -207,7 +207,7 @@ namespace SailwindRigBalance.UI
         /// </summary>
         private bool _helmDead;
         private bool _ringNeedsRebuild = true;
-        private float _helmMetres;      // positive = weather helm, in metres of CE offset
+        private float _helmMeters;      // positive = weather helm, in meters of CE offset
         private string _lastSummary;    // so an unchanged verdict is not logged every rebuild
 
         private float _rebuildAt = -1f;
@@ -442,7 +442,7 @@ namespace SailwindRigBalance.UI
 
             if (_link != null && _link.enabled)
             {
-                // An elbow, not a straight line. A sail plan's centre of effort sits many metres
+                // An elbow, not a straight line. A sail plan's center of effort sits many meters
                 // above the hull, so a direct line is almost vertical and the fore-and-aft offset,
                 // which is the entire answer, shows up as an imperceptible lean. Dropping straight
                 // down to the hull's height first turns that offset into the horizontal run of the
@@ -487,7 +487,7 @@ namespace SailwindRigBalance.UI
             }
 
             // A finished sweep establishes how much output this rig is capable of, which is what the
-            // markers measure "no verdict" against. Re-colour them against it. This does not restart
+            // markers measure "no verdict" against. Re-color them against it. This does not restart
             // the sweep: the ring is only rebuilt when the RIG changed, and this is not that.
             if (_ring.ConsumeSweepCompleted() && _rebuildAt < 0f)
             {
@@ -560,21 +560,21 @@ namespace SailwindRigBalance.UI
                 return;
             }
 
-            Vector3 centreOfMass = ReadCentreOfMass(boat, balance.HullOrigin);
+            Vector3 centerOfMass = ReadCenterOfMass(boat, balance.HullOrigin);
 
-            // The offset that IS the answer, in metres, along the boat's own fore-aft axis. Computed
-            // once, by the model, and read from there by the marker colour, the ring and the reef
+            // The offset that IS the answer, in meters, along the boat's own fore-aft axis. Computed
+            // once, by the model, and read from there by the marker color, the ring and the reef
             // track alike; it used to be derived separately in all three, which is three chances for
             // the sign convention to drift apart.
-            _helmMetres = balance.HelmMetres;
+            _helmMeters = balance.HelmMeters;
             _unreliable = balance.AnySailHasFrozenCe;
 
-            // Scaled to the boat. A flat threshold in metres is a tight tolerance on a brig and a
+            // Scaled to the boat. A flat threshold in meters is a tight tolerance on a brig and a
             // meaningless one on a dinghy, so it necessarily misreports one of them.
             float fraction = Config.Settings.BalancedThreshold != null
                 ? Config.Settings.BalancedThreshold.Value
                 : 0.02f;
-            _balancedMetres = Mathf.Clamp(balance.HullLength * fraction, 0.05f, 3f);
+            _balancedMeters = Mathf.Clamp(balance.HullLength * fraction, 0.05f, 3f);
 
             EnsureVisuals();
             EnsureFurlButton();
@@ -582,16 +582,16 @@ namespace SailwindRigBalance.UI
             // Held in the boat's frame, because the shipyard lifts the boat after admitting it and
             // keeps moving it while an order is being fitted.
             _boat = boat.transform;
-            _local[Effort] = _boat.InverseTransformPoint(balance.CombinedCentreOfEffort);
+            _local[Effort] = _boat.InverseTransformPoint(balance.CombinedCenterOfEffort);
             _local[Resistance] = _boat.InverseTransformPoint(balance.HullOrigin);
-            _local[Mass] = _boat.InverseTransformPoint(centreOfMass);
+            _local[Mass] = _boat.InverseTransformPoint(centerOfMass);
 
-            // The ring is a sweep of every wind angle, so its colours do not depend on where the
+            // The ring is a sweep of every wind angle, so its colors do not depend on where the
             // arrow points. Rebuilding it while the arrow is being dragged was doing thirteen full
             // rig evaluations per frame on top of the two the markers need, which is what dropped
             // the frame rate by half. It is rebuilt when the RIG changes, not when the wind moves.
             //
-            // It runs BEFORE the marker colours, because the sweep is what establishes how much
+            // It runs BEFORE the marker colors, because the sweep is what establishes how much
             // output this rig is capable of, and that is the yardstick the "no verdict" test uses.
             bool wantRing = Config.Settings.ShowRing == null || Config.Settings.ShowRing.Value;
             if (wantRing && (_ringNeedsRebuild || !_ring.Exists))
@@ -601,15 +601,15 @@ namespace SailwindRigBalance.UI
                 if (!_ring.Exists && Config.Settings.WindAngle != null)
                     _ring.SetWindAngle(Config.Settings.WindAngle.Value);
 
-                _ring.Rebuild(boat, _boat, balance, _balancedMetres,
+                _ring.Rebuild(boat, _boat, balance, _balancedMeters,
                     _ringMaterial, _layer, _root == null ? null : _root.transform);
                 _ringNeedsRebuild = false;
             }
 
             _helmDead = BalanceRing.IsDead(balance, _ring.MaxOutput);
 
-            Repaint(Effort, _unreliable ? UnreliableColour : EffortColour);
-            UpdateLinkColour();
+            Repaint(Effort, _unreliable ? UnreliableColor : EffortColor);
+            UpdateLinkColor();
             UpdateTrack(boat, balance);
 
             SetValid(true);
@@ -708,7 +708,7 @@ namespace SailwindRigBalance.UI
         /// be settled by measurement rather than argued about.
         ///
         /// The model poses each sail as Euler(rest.x, rest.y, trim). Unity composes Ry * Rx * Rz, and
-        /// reflecting through the centreline maps Euler(x, y, z) to Euler(x, -y, -z), so a nonzero y
+        /// reflecting through the centerline maps Euler(x, y, z) to Euler(x, -y, -z), so a nonzero y
         /// means the mirror of a pose the search tries is a pose it never tries. That is true at every
         /// bearing, not only at the two where the audit currently notices, which is why the size of
         /// the symptom does not bound the size of the cause.
@@ -768,11 +768,11 @@ namespace SailwindRigBalance.UI
         private void LogBalance(RigBalance balance)
         {
             string verdict = _helmDead ? "no verdict here, the sails are not working"
-                : (Mathf.Abs(_helmMetres) < _balancedMetres ? "balanced"
-                : (_helmMetres > 0f ? "weather helm" : "lee helm"));
+                : (Mathf.Abs(_helmMeters) < _balancedMeters ? "balanced"
+                : (_helmMeters > 0f ? "weather helm" : "lee helm"));
 
             string summary = $"[Gizmo] {balance.Sails.Count} sail(s); wind {balance.WindAngle:F0} deg off the bow; "
-                + $"CE offset {_helmMetres:F2} m ({verdict}, band {_balancedMetres:F2} m, hull {balance.HullLength:F1} m)"
+                + $"CE offset {_helmMeters:F2} m ({verdict}, band {_balancedMeters:F2} m, hull {balance.HullLength:F1} m)"
                 + $"{(_unreliable ? "; a sail's CE does not track its size" : "")}";
 
             if (summary != _lastSummary && !_ring.Dragging)
@@ -823,9 +823,9 @@ namespace SailwindRigBalance.UI
         }
 
         /// <summary>
-        /// The centre of mass, taken from BoatKeel rather than from the rigidbody.
+        /// The center of mass, taken from BoatKeel rather than from the rigidbody.
         ///
-        /// This distinction is the whole reason the marker works. A keel option moves the centre of
+        /// This distinction is the whole reason the marker works. A keel option moves the center of
         /// mass by writing BoatKeel.centerOfMass in OnEnable, never the rigidbody directly: vanilla
         /// does it in BoatCustomKeel.cs:11, Shipyard Expansion does it in its own SE_Keel.cs:23, and
         /// Drydock in KeelWeight.cs:24. The only thing that copies that field onto the rigidbody is
@@ -840,7 +840,7 @@ namespace SailwindRigBalance.UI
         /// crew-position offset BoatMass folds in, which is right here: this is a marker for
         /// judging a hull's design, not its current loading.
         /// </summary>
-        private static Vector3 ReadCentreOfMass(GameObject boat, Vector3 fallback)
+        private static Vector3 ReadCenterOfMass(GameObject boat, Vector3 fallback)
         {
             var body = boat.GetComponent<Rigidbody>();
             Vector3 fromBody = body != null ? body.worldCenterOfMass : fallback;
@@ -864,7 +864,7 @@ namespace SailwindRigBalance.UI
             // Reported when it CHANGES, not on every rebuild. This is a statement about the boat, and
             // the boat does not change between two rebuilds a frame apart, so logging it per rebuild
             // says nothing new 938 times: that is the count from one shipyard visit, and it buried
-            // every line worth reading. A tenth of a metre is far below anything the drift would
+            // every line worth reading. A tenth of a meter is far below anything the drift would
             // move by for a real reason and far above float noise in a distance.
             float drift = Vector3.Distance(fromKeel, fromBody);
             if (drift > 0.05f)
@@ -872,7 +872,7 @@ namespace SailwindRigBalance.UI
                 if (Mathf.Abs(drift - _loggedComDrift) > 0.1f)
                 {
                     _loggedComDrift = drift;
-                    Plugin.Log.LogInfo($"[Gizmo] centre of mass from BoatKeel {keel.centerOfMass}, "
+                    Plugin.Log.LogInfo($"[Gizmo] center of mass from BoatKeel {keel.centerOfMass}, "
                         + $"rigidbody differs by {drift:F2} m (BoatMass is not maintaining this boat, "
                         + "or cargo is aboard). Using BoatKeel.");
                 }
@@ -898,21 +898,21 @@ namespace SailwindRigBalance.UI
             if (_overlay != null && !valid) _overlay.enabled = false;
         }
 
-        private void UpdateLinkColour()
+        private void UpdateLinkColor()
         {
             // The same continuous ramp the ring is painted with, so the link between the two balls
-            // and the arc behind them cannot mean different things by the same colour.
-            Color colour = _helmDead
-                ? BalanceRing.NoVerdictColour
-                : BalanceRing.HelmColour(_helmMetres, _balancedMetres);
+            // and the arc behind them cannot mean different things by the same color.
+            Color color = _helmDead
+                ? BalanceRing.NoVerdictColor
+                : BalanceRing.HelmColor(_helmMeters, _balancedMeters);
             if (_link == null) return;
 
-            // LineRenderer's own colours carry the verdict. The material's _Color is left at the
+            // LineRenderer's own colors carry the verdict. The material's _Color is left at the
             // white MakeMaterial set it to, because the shader multiplies the two: tinting both
-            // squared the colour, so the drawn line never matched the swatch on the panel button.
-            _link.startColor = colour;
-            _link.endColor = colour;
-            TintFallbackOnly(_linkMaterial, colour);
+            // squared the color, so the drawn line never matched the swatch on the panel button.
+            _link.startColor = color;
+            _link.endColor = color;
+            TintFallbackOnly(_linkMaterial, color);
         }
 
         // ------------------------------------------------------------------ visuals
@@ -949,9 +949,9 @@ namespace SailwindRigBalance.UI
             _root = new GameObject("RigBalanceGizmo");
             _layer = ResolveMarkerLayer();
 
-            MakeMarker(Effort, "CentreOfEffort", EffortColour);
-            MakeMarker(Resistance, "CentreOfLateralResistance", ResistanceColour);
-            MakeMarker(Mass, "CentreOfMass", MassColour);
+            MakeMarker(Effort, "CenterOfEffort", EffortColor);
+            MakeMarker(Resistance, "CenterOfLateralResistance", ResistanceColor);
+            MakeMarker(Mass, "CenterOfMass", MassColor);
 
             MakeLink();
             MakeTrack();
@@ -959,7 +959,7 @@ namespace SailwindRigBalance.UI
             MakeOverlayCamera();
         }
 
-        private void MakeMarker(int index, string name, Color colour)
+        private void MakeMarker(int index, string name, Color color)
         {
             try
             {
@@ -978,8 +978,8 @@ namespace SailwindRigBalance.UI
                 var renderer = go.GetComponent<Renderer>();
                 if (renderer != null)
                 {
-                    _textures[index] = MakeBallTexture(colour);
-                    _painted[index] = colour;
+                    _textures[index] = MakeBallTexture(color);
+                    _painted[index] = color;
                     _materials[index] = MakeMaterial(_textures[index]);
                     renderer.material = _materials[index];
                     renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -998,22 +998,22 @@ namespace SailwindRigBalance.UI
         }
 
         /// <summary>
-        /// Recolours a marker in place. The colour is baked into the image rather than applied as a
-        /// tint, so this regenerates it, and only when the colour actually changed.
+        /// Recolors a marker in place. The color is baked into the image rather than applied as a
+        /// tint, so this regenerates it, and only when the color actually changed.
         /// </summary>
-        private void Repaint(int index, Color colour)
+        private void Repaint(int index, Color color)
         {
             if (_markers[index] == null) return;
-            if (_painted[index] == colour) return;
+            if (_painted[index] == color) return;
 
-            Texture2D replacement = MakeBallTexture(colour);
+            Texture2D replacement = MakeBallTexture(color);
             if (_materials[index] != null) _materials[index].mainTexture = replacement;
             if (_materials[index] != null && _materials[index].HasProperty("_EmissionMap"))
                 _materials[index].SetTexture("_EmissionMap", replacement);
 
             if (_textures[index] != null) Destroy(_textures[index]);
             _textures[index] = replacement;
-            _painted[index] = colour;
+            _painted[index] = color;
         }
 
         private void MakeLink()
@@ -1026,7 +1026,7 @@ namespace SailwindRigBalance.UI
 
                 _link = go.AddComponent<LineRenderer>();
                 _link.useWorldSpace = true;
-                _link.positionCount = 3;     // centre of effort, the bend below it, then the hull
+                _link.positionCount = 3;     // center of effort, the bend below it, then the hull
                 _link.numCapVertices = 4;
                 _link.numCornerVertices = 4;
                 _link.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -1092,12 +1092,12 @@ namespace SailwindRigBalance.UI
         }
 
         /// <summary>
-        /// Works out where the combined centre of effort would end up if the selected sail were
-        /// taken to the opposite extreme of its furl state, and colours the track by the verdict at
+        /// Works out where the combined center of effort would end up if the selected sail were
+        /// taken to the opposite extreme of its furl state, and colors the track by the verdict at
         /// that destination: blue if furling this sail would leave weather helm, red for lee helm,
         /// green for balanced.
         ///
-        /// Two evaluations, and the line between them is an approximation, not the path. The centre
+        /// Two evaluations, and the line between them is an approximation, not the path. The center
         /// is now drawn at the lever arm -YawMoment/TotalSideForce, and sweeping one sail's unroll
         /// moves numerator and denominator independently, so the true path is a ratio of two affine
         /// functions rather than a weighted average of fixed points. Over a normal sweep that curve
@@ -1108,7 +1108,7 @@ namespace SailwindRigBalance.UI
         /// other the sails' own centroid, so a line joining them means nothing. And if the net side
         /// force changes sign across the sweep the real path runs off through infinity somewhere in
         /// the middle, which a straight line would quietly draw straight through: that is a genuine
-        /// case on a square rigger with backed sails, the same rig the HelmMetres note calls out.
+        /// case on a square rigger with backed sails, the same rig the HelmMeters note calls out.
         /// Both refusals write a debug line, because a track that is simply absent looks identical
         /// to the feature being turned off.
         /// </summary>
@@ -1128,14 +1128,14 @@ namespace SailwindRigBalance.UI
                 return;
 
             // Both ends must be the same KIND of point before a line between them says anything.
-            // Without a meaningful helm reading the centre of effort is drawn as the sails' own
-            // centroid, up in the rig and off the centreline, rather than as a lever arm on it, so
+            // Without a meaningful helm reading the center of effort is drawn as the sails' own
+            // centroid, up in the rig and off the centerline, rather than as a lever arm on it, so
             // joining one of each draws a confident segment across two incomparable quantities.
             //
             // Note this is HelmMeaningful and not the wider IsDead. IsDead also covers "the sails
             // are barely drawing at this angle", and both ends of that are still lever arms and
             // still perfectly comparable: the honest answer there is to draw the track in the
-            // no-verdict grey, which VerdictFor does below, not to make it disappear. Gating the
+            // no-verdict gray, which VerdictFor does below, not to make it disappear. Gating the
             // geometry on IsDead made the track vanish whenever furling the selected sail dropped
             // the rig under a tenth of its best output, with nothing on screen to distinguish that
             // from the feature being switched off.
@@ -1156,19 +1156,19 @@ namespace SailwindRigBalance.UI
                 return;
             }
 
-            _trackFrom = _boat.InverseTransformPoint(current.CombinedCentreOfEffort);
-            _trackTo = _boat.InverseTransformPoint(other.CombinedCentreOfEffort);
+            _trackFrom = _boat.InverseTransformPoint(current.CombinedCenterOfEffort);
+            _trackTo = _boat.InverseTransformPoint(other.CombinedCenterOfEffort);
 
-            // Grey when the destination carries no verdict. The track used to be the only one of
+            // Gray when the destination carries no verdict. The track used to be the only one of
             // the three readouts that turned no-verdict into a positive one, painting green because
             // a forced zero lever sits inside the balanced band.
-            Color colour = BalanceRing.VerdictFor(other, _ring.MaxOutput, _balancedMetres);
+            Color color = BalanceRing.VerdictFor(other, _ring.MaxOutput, _balancedMeters);
 
             if (_track != null)
             {
-                _track.startColor = colour;
-                _track.endColor = colour;
-                TintFallbackOnly(_trackMaterial, colour);
+                _track.startColor = color;
+                _track.endColor = color;
+                TintFallbackOnly(_trackMaterial, color);
             }
 
             _trackValid = true;
@@ -1355,7 +1355,7 @@ namespace SailwindRigBalance.UI
                 else
                 {
                     Plugin.Log.LogWarning("[Gizmo] no unlit shader in this build; falling back to "
-                        + "emissive Standard. Standard ignores vertex colour, so the balance ring "
+                        + "emissive Standard. Standard ignores vertex color, so the balance ring "
                         + "will draw plain instead of per-angle. Everything else is unaffected.");
                 }
             }
@@ -1365,16 +1365,16 @@ namespace SailwindRigBalance.UI
             {
                 material = new Material(_unlit);
 
-                // The colour is already in the texture and in the vertex colours, so the material's
+                // The color is already in the texture and in the vertex colors, so the material's
                 // own tint must be neutral or it multiplies twice.
                 //
                 // _Color is forced to white because white IS neutral for it on every candidate.
                 // _TintColor is deliberately LEFT ALONE, which is the opposite of what this used to
                 // do. White is not neutral there: Legacy Shaders/Particles/Alpha Blended computes
-                // o.color = 2.0 * v.color * _TintColor, so its neutral value is the 0.5 grey it
-                // ships with, and overwriting that with white doubled every colour and clipped it.
+                // o.color = 2.0 * v.color * _TintColor, so its neutral value is the 0.5 gray it
+                // ships with, and overwriting that with white doubled every color and clipped it.
                 // Both arms washed toward yellow-white, which is the one distinction the
-                // whole readout exists to make, and the grey no-verdict colour lost the alpha that
+                // whole readout exists to make, and the gray no-verdict color lost the alpha that
                 // makes it read as dimmed. A shader's own default is by definition its no-tint
                 // value, so the right move is not to touch it.
                 if (material.HasProperty("_Color")) material.SetColor("_Color", Color.white);
@@ -1401,29 +1401,29 @@ namespace SailwindRigBalance.UI
         }
 
         /// <summary>
-        /// Colours a line on the emissive-Standard fallback path ONLY, and does nothing on the
+        /// Colors a line on the emissive-Standard fallback path ONLY, and does nothing on the
         /// normal one.
         ///
-        /// Every candidate in FindUnlitShader multiplies vertex colour, so where one of them
-        /// resolved the LineRenderer's own start and end colours already carry the verdict and
-        /// writing the material as well multiplies the colour by itself. Standard ignores vertex
-        /// colour entirely, so on that path the material is the only place a colour can live.
+        /// Every candidate in FindUnlitShader multiplies vertex color, so where one of them
+        /// resolved the LineRenderer's own start and end colors already carry the verdict and
+        /// writing the material as well multiplies the color by itself. Standard ignores vertex
+        /// color entirely, so on that path the material is the only place a color can live.
         ///
         /// This is per renderer, which is why it is safe for the link and the track and NOT for the
         /// ring: the ring is one mesh carrying two dozen different verdicts, and a material can only
         /// hold one. On the fallback path the ring is drawn plain, which is stated in the log.
         /// </summary>
-        private void TintFallbackOnly(Material material, Color colour)
+        private void TintFallbackOnly(Material material, Color color)
         {
             if (material == null || _unlit != null) return;
-            material.SetColor("_EmissionColor", colour);
+            material.SetColor("_EmissionColor", color);
         }
 
         /// <summary>
         /// Searched by name and in order, because a Unity build only contains the shaders something
         /// in it actually references. Every candidate is unlit, textured and alpha blended, which
         /// is what a round marker on a square quad needs, AND every one of them multiplies vertex
-        /// colour, which the link, the track and the ring all depend on. Which one exists is a
+        /// color, which the link, the track and the ring all depend on. Which one exists is a
         /// property of this build, not something to assume, so the resolved name is logged.
         /// </summary>
         private static Shader FindUnlitShader()
@@ -1438,7 +1438,7 @@ namespace SailwindRigBalance.UI
             };
 
             // Unlit/Transparent is deliberately NOT a candidate, though it fits every other
-            // requirement. It has no vertex colour input at all, so the helm link, the reef track
+            // requirement. It has no vertex color input at all, so the helm link, the reef track
             // and the balance ring would all draw plain white through it while the code believed it
             // had a working shader and stayed silent. Falling through to the emissive Standard path
             // below is worse looking but honest, and it says so in the log.
@@ -1539,7 +1539,7 @@ namespace SailwindRigBalance.UI
         ///
         /// This is what makes an unlit marker look like a ball. The shading cannot come from the
         /// scene, because a marker that dims at dusk or takes a tint from a lantern is a
-        /// colour-coded readout that lies.
+        /// color-coded readout that lies.
         /// </summary>
         private static Texture2D MakeBallTexture(Color tint)
         {
@@ -1598,7 +1598,7 @@ namespace SailwindRigBalance.UI
             return tex;
         }
 
-        /// <summary>Opaque white, for the link line, which takes its colour from vertex colours.</summary>
+        /// <summary>Opaque white, for the link line, which takes its color from vertex colors.</summary>
         private static Texture2D MakeSolidTexture()
         {
             var tex = new Texture2D(2, 2, TextureFormat.ARGB32, false);
@@ -1616,7 +1616,7 @@ namespace SailwindRigBalance.UI
         // ------------------------------------------------------------------ UI
 
         /// <summary>
-        /// Three round buttons and nothing else. The buttons carry the marker colours, so the strip
+        /// Three round buttons and nothing else. The buttons carry the marker colors, so the strip
         /// doubles as the legend; hovering one names it. No readout, by design: the gizmo is the
         /// output, and a number on screen just invites reading the number instead of the rig.
         ///
@@ -1668,11 +1668,11 @@ namespace SailwindRigBalance.UI
             bool hoverReady = !string.IsNullOrEmpty(_hoverTracked)
                 && Time.unscaledTime - _hoverSince >= HoverDelay;
 
-            // The one case where silence would be dishonest: a sail whose centre of effort does not
+            // The one case where silence would be dishonest: a sail whose center of effort does not
             // follow its own size makes the magenta marker wrong, not merely imprecise. That one is
             // not a hover hint, so it shows immediately.
             string note = _unreliable
-                ? "A sail's centre of effort does not follow its size. The magenta marker is unreliable."
+                ? "A sail's center of effort does not follow its size. The magenta marker is unreliable."
                 : (hoverReady ? _hoverTracked : null);
             if (string.IsNullOrEmpty(note)) return;
 
@@ -1687,18 +1687,18 @@ namespace SailwindRigBalance.UI
 
         private void DrawPanel(int id)
         {
-            // Centred with flexible space on all four sides rather than by trusting PanelWidth to
+            // Centerd with flexible space on all four sides rather than by trusting PanelWidth to
             // be exactly right. The width constant is derived from an assumed IMGUI box model, and
             // any error in it showed up as the buttons hugging the left edge with dead space on the
             // right. Flexible space splits whatever slack actually exists evenly, so the row is
-            // centred whether the constant is perfect or a few pixels out.
+            // centerd whether the constant is perfect or a few pixels out.
             GUILayout.FlexibleSpace();
 
             GUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
-            Toggle(Effort, _unreliable ? UnreliableColour : EffortColour, "Centre of effort");
-            Toggle(Resistance, ResistanceColour, "Centre of lateral resistance");
-            Toggle(Mass, MassColour, "Centre of mass");
+            Toggle(Effort, _unreliable ? UnreliableColor : EffortColor, "Center of effort");
+            Toggle(Resistance, ResistanceColor, "Center of lateral resistance");
+            Toggle(Mass, MassColor, "Center of mass");
             RingToggle();
             // Only a fallback. The real furl control is a clone of the shipyard's own furl-all
             // button, sitting directly beneath it; this appears only when there was no such button
@@ -1716,7 +1716,7 @@ namespace SailwindRigBalance.UI
 
         /// <summary>
         /// Borrows the shipyard's own parchment texture and lettering, once, so the panel is made
-        /// of the same material as everything around it instead of being a grey box from a
+        /// of the same material as everything around it instead of being a gray box from a
         /// different decade of UI design. Falls back silently to the default IMGUI skin, which is
         /// legible if plain, when nothing suitable is on screen.
         /// </summary>
@@ -1746,8 +1746,8 @@ namespace SailwindRigBalance.UI
                     // patch shows blank paper. The mesh's own UV bounds are the exact region the
                     // game draws for a button, so copying those gives a button-shaped scroll.
                     _paperUv = UvBoundsOf(button.gameObject);
-                    // The material's own tint. Without this the panel came out grey-tan while every
-                    // button around it was warm peach, because the colour lives on the material and
+                    // The material's own tint. Without this the panel came out gray-tan while every
+                    // button around it was warm peach, because the color lives on the material and
                     // not in the texture.
                     _paperTint = renderer.sharedMaterial.HasProperty("_Color")
                         ? renderer.sharedMaterial.GetColor("_Color")
@@ -1784,10 +1784,10 @@ namespace SailwindRigBalance.UI
             }
         }
 
-        private void Toggle(int index, Color colour, string tooltip)
+        private void Toggle(int index, Color color, string tooltip)
         {
             Color previous = GUI.color;
-            GUI.color = _visible[index] ? colour : new Color(0.32f, 0.32f, 0.32f, 0.85f);
+            GUI.color = _visible[index] ? color : new Color(0.32f, 0.32f, 0.32f, 0.85f);
 
             bool clicked = GUILayout.Button(new GUIContent(string.Empty, tooltip), _circleStyle,
                 GUILayout.Width(24f), GUILayout.Height(24f));
@@ -1811,8 +1811,8 @@ namespace SailwindRigBalance.UI
         /// because both places that gate the ring already read that entry: hiding it this way also
         /// stops the 36-bearing sweep from running at all, which is most of what the gizmo costs.
         ///
-        /// The texture carries its own colours, so the tint is white when on, unlike the marker
-        /// buttons whose white discs exist to BE tinted. Off gets the same grey as everything else.
+        /// The texture carries its own colors, so the tint is white when on, unlike the marker
+        /// buttons whose white discs exist to BE tinted. Off gets the same gray as everything else.
         /// </summary>
         private void RingToggle()
         {
@@ -1917,7 +1917,7 @@ namespace SailwindRigBalance.UI
             _circleStyle.active.background = _circleTex;
 
             // Same box, different face: the ring button shares the circle style's geometry so the
-            // row stays even, and only its background is the coloured annulus.
+            // row stays even, and only its background is the colored annulus.
             _ringTex = MakeRingTexture(28);
             _ringStyle = new GUIStyle(_circleStyle);
             _ringStyle.normal.background = _ringTex;
@@ -1955,13 +1955,13 @@ namespace SailwindRigBalance.UI
 
         /// <summary>
         /// Draws the panel background using the shipyard's ACTUAL paper, tinted with the shipyard's
-        /// actual material colour.
+        /// actual material color.
         ///
         /// The first attempt stretched the whole sheet across the panel and looked like a rug,
         /// because parchment_alpha is a long scroll with ragged ends and visible fibre. The fix is
         /// not to draw it differently sized but to draw a small patch from the MIDDLE of it: a few
         /// percent of a sheet of paper is nearly uniform, so scaling that patch cannot distort
-        /// anything recognisable, and it is still literally the game's own texture and colour
+        /// anything recognizable, and it is still literally the game's own texture and color
         /// rather than an imitation of them.
         /// </summary>
         private void DrawPaper(Rect rect)
@@ -1972,7 +1972,7 @@ namespace SailwindRigBalance.UI
                 return;
             }
 
-            // The colour is a constant, and deliberately so after three attempts at deriving it.
+            // The color is a constant, and deliberately so after three attempts at deriving it.
             //
             // Drawing the game's texture painted black, because parchment_alpha does not carry the
             // paper in its RGB. Generating the shape and tinting it with the material's _Color
@@ -1981,7 +1981,7 @@ namespace SailwindRigBalance.UI
             // Wherever the shipyard's peach actually comes from, it is not in either place I looked,
             // and a fourth guess is worth less than a constant matched to the buttons on screen.
             //
-            // The material colour is still read, but only to log it.
+            // The material color is still read, but only to log it.
             Color previous = GUI.color;
             GUI.color = Color.white;
             GUI.DrawTexture(rect, _panelTex, ScaleMode.StretchToFill, true);
@@ -1989,8 +1989,8 @@ namespace SailwindRigBalance.UI
         }
 
         /// <summary>Matched by eye to the shipyard's own buttons.</summary>
-        private static readonly Color PaperColour = new Color(0.96f, 0.81f, 0.67f, 0.97f);
-        private static readonly Color PaperEdgeColour = new Color(0.45f, 0.30f, 0.20f, 1.00f);
+        private static readonly Color PaperColor = new Color(0.96f, 0.81f, 0.67f, 0.97f);
+        private static readonly Color PaperEdgeColor = new Color(0.45f, 0.30f, 0.20f, 1.00f);
 
         /// <summary>
         /// The sub-rectangle of the shared sheet that a given shipyard element draws, taken from
@@ -2033,10 +2033,10 @@ namespace SailwindRigBalance.UI
         /// art is a long scroll, and stretching it into a short wide strip distorts every fibre in
         /// it. Nine-slicing someone else's texture without knowing its border widths is guesswork.
         /// Generating a plain rounded rectangle in the same palette cannot distort at any size, and
-        /// the shipyard's lettering and ink colour are still borrowed for the hover label, so the
+        /// the shipyard's lettering and ink color are still borrowed for the hover label, so the
         /// two sit together.
         ///
-        /// The circles need this behind them for a plainer reason: they are saturated colours meant
+        /// The circles need this behind them for a plainer reason: they are saturated colors meant
         /// to match the markers, and against an open sky they have nothing to contrast with.
         /// </summary>
         private static Texture2D MakePanelTexture(int size, int radius)
@@ -2044,8 +2044,8 @@ namespace SailwindRigBalance.UI
             var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
             var pixels = new Color32[size * size];
 
-            Color paper = PaperColour;
-            Color edge = PaperEdgeColour;
+            Color paper = PaperColor;
+            Color edge = PaperEdgeColor;
 
             for (int y = 0; y < size; y++)
             {
@@ -2097,10 +2097,10 @@ namespace SailwindRigBalance.UI
         }
 
         /// <summary>
-        /// The balance ring's button: an annulus wearing the ring's own verdict colours, so the
+        /// The balance ring's button: an annulus wearing the ring's own verdict colors, so the
         /// button is a miniature of the thing it controls. It runs through the same diverging ramp
         /// the rose draws with: weather blue at the top, balanced green on the beams, lee red at the
-        /// bottom, eased by the same square root HelmColour uses, and mirror symmetric port for
+        /// bottom, eased by the same square root HelmColor uses, and mirror symmetric port for
         /// starboard because the rose it stands for is. Built from the vertical component of each
         /// pixel's direction rather than from its angle, which gives that symmetry with no seam to
         /// hide.
@@ -2126,11 +2126,11 @@ namespace SailwindRigBalance.UI
 
                     // Texture row 0 is the bottom, so +dy is up on screen.
                     float t = d > 0.001f ? dy / d : 0f;
-                    Color extreme = t > 0f ? WeatherHelmColour : LeeHelmColour;
-                    Color colour = Color.Lerp(BalancedColour, extreme, Mathf.Sqrt(Mathf.Abs(t)));
+                    Color extreme = t > 0f ? WeatherHelmColor : LeeHelmColor;
+                    Color color = Color.Lerp(BalancedColor, extreme, Mathf.Sqrt(Mathf.Abs(t)));
 
-                    colour.a = a;
-                    tex.SetPixel(x, y, colour);
+                    color.a = a;
+                    tex.SetPixel(x, y, color);
                 }
             }
 

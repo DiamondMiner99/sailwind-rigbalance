@@ -1,4 +1,4 @@
-# Recon findings: centre of effort and lateral resistance in Sailwind 0.38.1
+# Recon findings: center of effort and lateral resistance in Sailwind 0.38.1
 
 Read-only investigation for a shipyard rig-balance gizmo. No mod code has been written.
 
@@ -24,13 +24,13 @@ fabricated identifiers. Corrections they produced are folded in.
 
 ---
 
-## 1. The centre of effort is real, and it is one Transform per sail
+## 1. The center of effort is real, and it is one Transform per sail
 
 `Sail.windcenter` (`Sail.cs:14`) is a `public Transform`. Across the whole assembly it
 has **zero assignment sites**: eight pure reads (`Sail.cs:387, 411, 412, 468, 469, 497,
 500, 507`) and the declaration. It is authored in the prefab.
 
-It is the centre of effort in the only sense that matters, because it is used for both
+It is the center of effort in the only sense that matters, because it is used for both
 jobs at once:
 
 - **Force application point.** `Sail.ApplyForce` (`Sail.cs:455-471`) makes exactly two
@@ -193,7 +193,7 @@ The other force paths that touch yaw:
 
 ---
 
-## 3. There is no centre of lateral resistance in this game
+## 3. There is no center of lateral resistance in this game
 
 This is the finding that most changes the product, and it survived a deliberate attempt
 to refute it.
@@ -234,7 +234,7 @@ Measured out of `level24`, where all 12 `BoatProbes` in the entire game live:
 
 ### The consequence, which is the actual design insight
 
-Unity generates torque about the rigidbody's centre of mass.
+Unity generates torque about the rigidbody's center of mass.
 `Rigidbody.centerOfMass` is `keel.centerOfMass + zero` (`BoatMass.cs:116`), and the
 authored `BoatKeel.centerOfMass` is **purely vertical** on every hull:
 
@@ -256,7 +256,7 @@ shift it: `GetSailMass` feeds only the scalar total that becomes `body.mass`
 (`BoatMass.cs:105`, `:115`), never the offset accumulator.
 
 **Therefore, in this sim, yaw balance is: the longitudinal offset of each sail's
-`windcenter` from the centre of mass, times that sail's side force, plus the hull
+`windcenter` from the center of mass, times that sail's side force, plus the hull
 windage term at 7 to 12 m aft, opposed only by the rudder.** Working in boat-local axes
 (forward `+z`, right `+x`, up `+y`), the side force at a point offset `(x, y, z)` from
 the COM contributes a yaw moment of `z * F_side`. That is a single, exact, checkable
@@ -311,7 +311,7 @@ is dead on an inactive GameObject with null installers. Measured world Y of
 | Aestrin (Fort) | `level15` | 6.770 | +0.185 | 15.23 m |
 | Lagoon | `level27` | 2.820 | +0.077 | 19.18 m |
 
-The curve's slope is `0.6 / 22 = 0.02727` per metre, and sea level is exactly 0, so a
+The curve's slope is `0.6 / 22 = 0.02727` per meter, and sea level is exactly 0, so a
 CE height read in the shipyard is inflated by the cradle Y and the curve saturates early.
 **The gizmo must subtract the cradle Y** (equivalently, evaluate the curve at height
 relative to sea level 0), and the correction is per-shipyard, not one constant. Cradle Y
@@ -390,7 +390,7 @@ The window mechanic, measured: all 47 fore-and-aft sheet ropes ship at
 `currentLength = 0.0`, and `min = Lerp(-pad, sail.minAngle, L)`,
 `max = Lerp(+pad, sail.maxAngle, L)` with `pad` of 3.0 (36 instances) or 1.0 (11). So
 `Sail.minAngle`/`maxAngle` is the **fully eased mechanical stop**, not a "sheeted"
-position, and at `L = 0` a sail is pinned within a degree or three of dead centre. The
+position, and at `L = 0` a sail is pinned within a degree or three of dead center. The
 honest move is to expose the sheet fraction `L` as a gizmo input and name the assumed
 pose explicitly, rather than calling one limit "trimmed". A torque-free weathervane
 equilibrium also exists inside the window on downwind headings.
@@ -692,7 +692,7 @@ resistance actually acts. **No CLR dot**, because there is nothing to put one on
 The gizmo must be a soft dependency: `BepInDependency` with
 `DependencyFlags.SoftDependency` for load order, detection through the chainloader plugin
 list at runtime, no hard type reference on any path that runs without SE, and a logged
-warning plus degradation to vanilla-only behaviour on an SE version that has not been
+warning plus degradation to vanilla-only behavior on an SE version that has not been
 inspected. That is also the convention the author's own `SECompat`/`CompatRegistry`
 already establishes.
 
@@ -705,7 +705,7 @@ already establishes.
    comparison is confounded by the skinned mesh's non-identity root bone pose, by
    `Cloth` simulating in world space, and by whatever reef state the Animator was saved
    in. It does not block anything: the game uses `windcenter`, so the gizmo should too.
-   **Settle with:** an in-game log of the cloth's world bounds centre against
+   **Settle with:** an in-game log of the cloth's world bounds center against
    `windcenter.position` on one sail.
 2. **Whether the Animator on the scaled transform animates that transform's own
    position or scale at runtime.** The controller exists and is enabled; its clip curve
@@ -751,7 +751,7 @@ sceneIndex 50) in winds from 5 to 31 m/s, on both tacks.
 **Confirmed against the live game**, every value matching the asset reads exactly:
 `_forceHeightOffset` 0.000, `_dragInWaterRight` 3.000, `BoatWind.forceOffset` (0,0,-12),
 `BoatKeel.centerOfMass` (0,-1.25,0), `BoatProbes` enabled with 12 force points. Every one
-of the seven sails reported its centre of effort **inside** the scaled part, including
+of the seven sails reported its center of effort **inside** the scaled part, including
 sails SE had scaled to 265%, which confirms the prefab measurement on live objects.
 Height multipliers ran 1.005 to 1.400 and tracked sail height. Furled sails reported
 `appliedWindForce` near 0.15 rather than 0, which is the `debugYardMult` floor behaving
@@ -780,7 +780,7 @@ There is a more useful way to say the same thing. In lateral-force equilibrium, 
 what a "will this rig balance" question assumes, hull drag exactly opposes the sails' side
 force. The two side-force terms then combine into one lever taken about the point the drag
 acts at, so **the effective pivot for the side-force part of the balance is the hull
-origin**, not the centre of mass. That is the classical centre-of-lateral-resistance
+origin**, not the center of mass. That is the classical center-of-lateral-resistance
 picture, recovered from the sim rather than assumed: the CLR is real, it is the hull
 origin, and it is identical on every hull because `_forceHeightOffset` is zero everywhere.
 It is still not a keel, not hull-shape derived, and not something a fraction of waterline
@@ -797,16 +797,16 @@ The snapshot now prints both forms of the sum so the equivalence is checked rath
 asserted.
 
 
-## 13. The centre of mass, measured, and a correction to what I said about it
+## 13. The center of mass, measured, and a correction to what I said about it
 
 This section exists because I stated something confidently and it was wrong. The claim was:
-a boat's centre of mass is deaf to the shipyard, so a centre-of-mass marker cannot tell a
+a boat's center of mass is deaf to the shipyard, so a center-of-mass marker cannot tell a
 player anything about a choice they are about to pay for. Most of that is right. The blanket
 part of it is not.
 
 ### What actually maintains it
 
-`BoatMass.cs:116` is the only thing that maintains a boat's centre of mass:
+`BoatMass.cs:116` is the only thing that maintains a boat's center of mass:
 
     body.centerOfMass = keel.centerOfMass + zero;
 
@@ -825,7 +825,7 @@ original claim holds and is worth stating plainly, because it is not what a sail
 
 `BoatCustomKeel.cs:11` writes `keel.centerOfMass = overrideCenterOfMass` in `OnEnable`. A part
 option is a GameObject that `BoatPart.SetOptionEnabled` (`BoatPart.cs:21`) activates and
-deactivates, so any option carrying that component moves the centre of mass when selected.
+deactivates, so any option carrying that component moves the center of mass when selected.
 
 I asserted no shipped option carries one. Measured instead: a sweep of all 89 serialized files
 under `Sailwind_Data` (14,125 MonoBehaviours, 14,124 script names resolved, no file failed) finds
@@ -836,13 +836,13 @@ exactly **two**, both on the same hull.
 | `deep_keel` | `(0, -1.55, 0)` | BOAT junk medium (80) |
 | `(no deep keel)` | `(0, -0.80, 0)` | BOAT junk medium (80) |
 
-That is the junk medium's deep-keel option pair, and choosing the deep keel drops the centre of
+That is the junk medium's deep-keel option pair, and choosing the deep keel drops the center of
 mass 0.75 m. It is the only place in vanilla where a shipyard choice moves it.
 
 The parse is not assumed. A MonoBehaviour begins m_GameObject (PPtr, 12) m_Enabled (int32, 4)
 m_Script (PPtr, 12) m_Name (aligned string), so `BoatKeel` must total 44 bytes and
 `BoatCustomKeel` 56. Every instance consumed its buffer exactly, and the hull baselines came out
-as plausible metres on the centreline: junk medium -0.80, junk large -1.75, junk small -2.00,
+as plausible meters on the centerline: junk medium -0.80, junk large -1.75, junk small -2.00,
 medi medium -1.25, medi small and the dhows -0.75.
 
 ### The three parts that prompted the question
@@ -874,7 +874,7 @@ Shipyard Expansion's bundle ships four, all parsing to exactly the expected 44 b
 | `cladding` | `(0, -0.25, 0)` | SE_parts_sanbuq |
 
 Drydock does the same through `KeelWeight.cs:24`. So with the mods this author actually runs,
-four more hulls gain a moving centre of mass, the cog among them.
+four more hulls gain a moving center of mass, the cog among them.
 
 ### What this changed in the mod
 
@@ -964,7 +964,7 @@ single sail accounts for the whole residual.
 
 The reason is not the test but the pose handed to it. The model builds each trim as
 `Quaternion.Euler(euler.x, euler.y, trim)`, preserving the live rest attitude's first two angles.
-Unity composes `Ry * Rx * Rz`, and reflecting through the centreline maps `Euler(x, y, z)` to
+Unity composes `Ry * Rx * Rz`, and reflecting through the centerline maps `Euler(x, y, z)` to
 `Euler(x, -y, -z)`: **`euler.x` is harmless, `euler.y` is not.** With a nonzero `euler.y` the sampled
 pose family is not closed under reflection, so the mirror of a pose the search tries is a pose it
 never tries. That sail's force sat 35 degrees off the boat's axis at trim 0 (`sideShare 0.39`), so its
@@ -980,7 +980,7 @@ hinge jitter or stale drift rather than rigging, and preserving it bakes that in
 reflection, but it moves every sail at every bearing and Shipyard Expansion's `SailScaler.SetAngle`
 rotates spars, so it needs its own pass rather than being folded into the fix above. The residual it
 leaves is 169 N on one sail at two bearings that both report no verdict, where the ring is drawn flat
-grey and the difference cannot be seen.
+gray and the difference cannot be seen.
 
 ### 14.3 What the audit is for
 
@@ -988,7 +988,7 @@ The lesson is not either knife edge, it is that a picture cannot be argued with.
 checked against its own mirror at the end of every sweep, per sail, for free, because the finished
 sweep already holds every contribution at all 36 bearings. Sample `i` reflects to `Segments-1-i`.
 Forward force must match, side force and trim must negate, and an arm must keep its station and
-negate its offset from the centreline. Compare the **arm captured at each sail's own instant**, never
+negate its offset from the centerline. Compare the **arm captured at each sail's own instant**, never
 two world positions transformed later: a sweep spans about 36 frames and `Shipyard.MoveShip` is still
 lerping the hull across them, which invented a 3.6 m disagreement for every sail on the first
 attempt.

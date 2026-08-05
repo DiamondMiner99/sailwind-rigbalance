@@ -55,7 +55,7 @@ see the first section.
 
 ## The magenta marker is red
 
-One of the sails aboard has a centre of effort that does not track its own size, so the
+One of the sails aboard has a center of effort that does not track its own size, so the
 combined figure is not trustworthy. In practice this is one of Shipyard Expansion's three
 added lug sails. See [Mod Compatibility](Mod-Compatibility). The mod flags it rather than
 correcting it.

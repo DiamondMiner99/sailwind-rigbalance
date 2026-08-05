@@ -10,7 +10,7 @@ hull-agnostic by construction, but that is an argument, not a test.
 
 ## Shipyard Expansion's three lug sails
 
-Sails 156, 157 and 158, added by Shipyard Expansion, keep their centre of effort outside
+Sails 156, 157 and 158, added by Shipyard Expansion, keep their center of effort outside
 the part that gets scaled, so it does not move when the sail is resized. The gizmo detects
 this, turns the magenta marker red and says the reading is unreliable.
 
@@ -18,9 +18,9 @@ this, turns the magenta marker red and says the reading is unreliable.
 another mod's data from this one is not something this mod does. If you avoid those three
 sails, nothing changes.
 
-## The centre of mass ignores cargo
+## The center of mass ignores cargo
 
-The yellow marker reads the hull's keel data, which is the design centre of mass. It does
+The yellow marker reads the hull's keel data, which is the design center of mass. It does
 not include the shifting weight of cargo in the hold or a player standing on deck, both of
 which the game does account for while sailing.
 
