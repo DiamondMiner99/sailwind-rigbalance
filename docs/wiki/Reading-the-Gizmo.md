@@ -61,6 +61,15 @@ The ring is the same measurement as the markers, taken at 36 bearings, so it reb
 moment after each rig change rather than instantly. The old ring stays up until the new
 one is ready.
 
+**Every arc assumes the sails are trimmed for best drive at that bearing.** At each of
+the 36 bearings, every sail is swept through its own swing range and judged at the pose
+that drives hardest there, within the same swing limits the game enforces on you. Sails
+are not left centered, and they are not left wherever they happen to sit. Reef state is
+taken as rigged: the ring answers "what would the helm do if I sailed here and trimmed
+properly, with the canvas I have set", not "what is it doing right now". It also does not
+cheat the trim to flatter the helm: each sail is set for drive, and the balance is
+whatever falls out of that, because that is the trim you will actually sail.
+
 ## Judging a rig
 
 Swap a sail, resize one, raise or lower a spar. The markers and the ring rebuild a moment
