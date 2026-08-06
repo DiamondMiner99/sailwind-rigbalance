@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using BepInEx.Bootstrap;
+using SailwindRigBalance.Compat;
 using SailwindRigBalance.Core;
 using UnityEngine;
 
@@ -104,13 +106,78 @@ namespace SailwindRigBalance.Shipyard
         }
 
         /// <summary>
-        /// The furl-all button, identified by its label rather than by its type, so this compiles
-        /// and runs without a reference to Shipyard Expansion. Any mod that adds a furl-all button
-        /// with that wording would serve equally well as an anchor.
+        /// The furl-all button. With Shipyard Expansion present it is found BY TYPE and nothing
+        /// else in the scene is touched; the label scan below is the fallback for any other mod
+        /// that adds a furl-all button, and for an SE that has renamed its class.
+        ///
+        /// The scan used to be the only path, and it is what a field crash report caught: it walks
+        /// the children of every GoPointerButton in the scene, and Unity took a native access
+        /// violation inside that walk, on an object some other shipyard-UI mod had not finished
+        /// constructing, which passed the managed null check with nothing native behind it. That
+        /// cannot be caught from managed code. So when SE is installed and its button is not up
+        /// yet, this returns nothing and lets the caller's retry clock come back, rather than
+        /// falling through to a scene-wide walk that buys an SE install nothing: SE's is the only
+        /// furl-all button that will ever exist there.
         /// </summary>
         private static GoPointerButton FindFurlAllButton()
         {
-            // Once per shipyard entry, never per frame.
+            if (ModDetect.ShipyardExpansionInstalled)
+            {
+                Type seType = ResolveSeButtonType();
+                if (seType != null) return FindObjectOfType(seType) as GoPointerButton;
+                // SE is present but the class is not where this build expects: scan after all.
+            }
+
+            return ScanForFurlAllButton();
+        }
+
+        /// <summary>
+        /// Shipyard Expansion's furl-all button class. ShipyardExpansion.Scripts
+        /// .ShipyardUnfurlButton derives from GoPointerButton (SE source,
+        /// ShipyardUnfurlButton.cs:7) and SE itself writes its label (ShipyardUnfurlButton.cs:26),
+        /// so the type alone identifies the button. Resolved through the chainloader so this
+        /// compiles and runs without a reference to SE.
+        /// </summary>
+        private static Type ResolveSeButtonType()
+        {
+            try
+            {
+                BepInEx.PluginInfo info;
+                if (!Chainloader.PluginInfos.TryGetValue(ModDetect.ShipyardExpansionGuid, out info)
+                    || info == null || info.Instance == null)
+                {
+                    return null;
+                }
+
+                Type type = info.Instance.GetType().Assembly
+                    .GetType("ShipyardExpansion.Scripts.ShipyardUnfurlButton", false);
+
+                if (type == null && !_seTypeMissingLogged)
+                {
+                    _seTypeMissingLogged = true;
+                    Plugin.Log.LogWarning("[Furl] Shipyard Expansion is installed but "
+                        + "ShipyardUnfurlButton is not where this build expects; falling back to "
+                        + "the label scan.");
+                }
+                return type;
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning("[Furl] SE button lookup failed: " + e.Message);
+                return null;
+            }
+        }
+
+        private static bool _seTypeMissingLogged;
+
+        /// <summary>
+        /// The generic path: identified by label rather than by type, so any mod's furl-all button
+        /// serves as an anchor. Walks every button in the scene, which is why the caller only runs
+        /// it after the admit-frame construction window has passed and only when the typed lookup
+        /// does not apply.
+        /// </summary>
+        private static GoPointerButton ScanForFurlAllButton()
+        {
             foreach (GoPointerButton button in FindObjectsOfType<GoPointerButton>())
             {
                 if (button == null) continue;

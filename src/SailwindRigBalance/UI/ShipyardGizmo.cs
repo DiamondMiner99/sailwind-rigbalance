@@ -257,6 +257,7 @@ namespace SailwindRigBalance.UI
 
             WatchForSettle();
             Shipyard.UnrollWatch.Tick();
+            EnsureFurlButton();
 
             if (ShipyardHooks.ConsumeDirty())
             {
@@ -584,7 +585,6 @@ namespace SailwindRigBalance.UI
             _balancedMeters = Mathf.Clamp(balance.HullLength * fraction, 0.05f, 3f);
 
             EnsureVisuals();
-            EnsureFurlButton();
 
             // Held in the boat's frame, because the shipyard lifts the boat after admitting it and
             // keeps moving it while an order is being fitted.
@@ -962,14 +962,24 @@ namespace SailwindRigBalance.UI
 
         /// <summary>
         /// Attempts to clone the shipyard's furl-all button, a handful of times and then never
-        /// again. Retried because the shipyard's own UI is built as the boat is admitted and the
-        /// button may not exist on the first rebuild; capped because without Shipyard Expansion
-        /// there is nothing to find, and a scene-wide search on every rebuild forever would be a
-        /// pointless cost for the many players who do not run it.
+        /// again. Capped because without a furl-all button there is nothing to find, and a search
+        /// on every attempt forever would be a pointless cost for players who do not run one.
+        ///
+        /// It runs from Update on its own clock, never inside the first moments after a boat is
+        /// admitted, because of a field crash report: Unity died with a native access violation
+        /// INSIDE the child walk of the old scene-wide button scan, on the admit-frame rebuild,
+        /// in an install where three other mods build shipyard UI at that same instant. An object
+        /// one of them had not finished constructing passed the managed null check with nothing
+        /// behind it. A native access violation cannot be caught from managed code, so the only
+        /// defense is not to go looking until the construction dust has settled, and to touch as
+        /// few objects as possible when we do (see FindFurlAllButton).
         /// </summary>
         private void EnsureFurlButton()
         {
             if (Shipyard.FurlSailButton.Exists || _furlAttempts >= MaxFurlAttempts) return;
+            if (Time.unscaledTime - ShipyardHooks.EnteredAt < FurlSearchDelaySeconds) return;
+            if (Time.unscaledTime < _nextFurlAttemptAt) return;
+            _nextFurlAttemptAt = Time.unscaledTime + FurlRetrySeconds;
 
             _furlAttempts++;
             if (Shipyard.FurlSailButton.TryCreate()) return;
@@ -982,7 +992,14 @@ namespace SailwindRigBalance.UI
         }
 
         private int _furlAttempts;
+        private float _nextFurlAttemptAt;
         private const int MaxFurlAttempts = 5;
+
+        /// <summary>How long after AdmitShip before the first furl-button search may run.</summary>
+        private const float FurlSearchDelaySeconds = 1.5f;
+
+        /// <summary>Spacing between searches, so five failures span the UI still being built.</summary>
+        private const float FurlRetrySeconds = 1f;
 
         private void EnsureVisuals()
         {
@@ -1522,6 +1539,7 @@ namespace SailwindRigBalance.UI
             _ring.Destroy();
 
             _furlAttempts = 0;
+            _nextFurlAttemptAt = 0f;
             _valid = false;
             _source = null;
             _overlay = null;

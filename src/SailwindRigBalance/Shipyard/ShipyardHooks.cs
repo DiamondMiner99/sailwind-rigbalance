@@ -19,6 +19,14 @@ namespace SailwindRigBalance.Shipyard
         public static GameObject CurrentBoat { get; private set; }
         public static bool InShipyard => CurrentBoat != null;
 
+        /// <summary>
+        /// When the current boat was admitted, Time.unscaledTime. The furl-button search waits
+        /// this out: the admit frame is when every UI mod in the install is building shipyard
+        /// widgets, and a field crash caught Unity dying in a native child walk over an object
+        /// that was not finished existing yet.
+        /// </summary>
+        public static float EnteredAt { get; private set; }
+
         private static bool _dirty;
 
         /// <summary>
@@ -94,6 +102,7 @@ namespace SailwindRigBalance.Shipyard
             try
             {
                 CurrentBoat = shipyard != null ? shipyard.GetCurrentBoat() : null;
+                EnteredAt = UnityEngine.Time.unscaledTime;
                 MarkDirty("AdmitShip");
                 Plugin.Log.LogInfo($"[Shipyard] entered with '{(CurrentBoat == null ? "<null>" : CurrentBoat.name)}'");
             }
