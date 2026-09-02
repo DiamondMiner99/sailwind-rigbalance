@@ -1031,3 +1031,53 @@ share**, which are force couples, fore and aft sails pulling opposite ways so th
 side force is the small residue of large terms and the "point where it acts" runs off
 the hull without any sail being there. Those stay gray. The run pole at 175/185 stays
 gray too, on the share gate it already failed (14 percent in the same log).
+
+## 16. A fix that grew a lever, and the shipyard cradle that pulled on it
+
+Three players reported the same thing within a day of each other, and between them they
+described it in both directions. On a cog at Fort Aestrin the balance ring dropped a
+little with every sail resize or reposition until it was below the ground and out of
+sight. At Gold Rock City the same drop, on a different boat. At an Emerald Archipelago
+yard a third player watched it climb instead, and guessed it was related to the vanilla
+bug where a boat's rudder and anchor float away from the hull.
+
+The height was the tell, because until v0.15.7 the ring had no way to change height at
+all. It is drawn flat in its own frame and placed at `boat.TransformPoint(_centerLocal)`,
+and every term in `_centerLocal` was either zero or the boat root's own height in its own
+frame, which is zero. v0.15.7 put the measured hull center into the two horizontal
+components so the picture would follow a hull that had walked away from its root, and
+left the height where it was. That is the lever. `TransformPoint` is not a horizontal
+operation: a shipyard sets the boat down at its cradle's own rotation, `Shipyard.MoveShip`
+lerping to `editedShipPosition.rotation` (`Shipyard.cs:437-446`), those rotations are
+hand-placed per yard and are not all level, and once the centered point is meters from
+the root a fore-and-aft offset turns into height. A meter of walk on a cradle five degrees
+down by the head is nine centimeters. The direction is the yard's, not the boat's, which
+is why two players at two shipyards watched the same drift go opposite ways.
+
+Two changes, one for the symptom and one for what feeds it.
+
+The ring's height is now applied separately from the centered point, in `Follow`, so the
+horizontal offset cannot become a vertical one however far it walks. Centering on the
+hull is what the first field report asked for and it stays.
+
+The offset is also bounded, at a quarter of the hull's length, and logged when it is
+clamped. Past that the box being measured is being dragged by something that is not the
+hull, and the honest failure is a ring on the ship with a line in the log rather than a
+ring in the next bay.
+
+What still is not known is what walks. The mod measures the hull from every solid
+non-trigger collider on the boat and subtracts rig geometry, which it has now been wrong
+about twice: `SailShadowCol` leaves staysail shadows solid, and a mast's walking surface
+is not parented to the mast at all. `Mast.walkColMast` is a reference into the boat's
+separate walk-collider hierarchy, registered from the far end at `Mast.cs:195`, so the
+parent walk that catches everything hanging off a mast never saw it, and it is solid, as
+tall as the mast, and rescaled by every mast edit. It is excluded by reference now. That
+is a real defect but it is not proof of the cause, because a sail resize does not move a
+mast's walk capsule, and the reports are about sail resizes.
+
+So the diagnostics were widened rather than the theory narrowed. The hull-versus-root
+breadcrumb reports all three axes instead of two, and the cradle attitude is logged on
+change with half a degree of hysteresis, because the amplifier in this whole story is
+invisible on screen: a boat two degrees down by the head looks level in a shipyard that
+is itself built on a slope. The next log of this shape says whether the offset is still
+growing, and if it is, by how much and along which axis.

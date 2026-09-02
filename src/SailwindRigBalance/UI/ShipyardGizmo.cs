@@ -625,6 +625,7 @@ namespace SailwindRigBalance.UI
 
             LogRestAttitudes(balance);
             LogUiSurvey();
+            LogCradleAttitude();
             LogHullOffset(balance);
             LogBalance(balance);
         }
@@ -634,6 +635,12 @@ namespace SailwindRigBalance.UI
 
         /// <summary>The hull-versus-root offset last reported, so a stable boat logs it once.</summary>
         private float _loggedHullOffset;
+
+        /// <summary>The cradle attitude last reported, in degrees, so a settled boat logs it once.</summary>
+        private float _loggedPitch, _loggedHeel;
+
+        /// <summary>True once a cradle attitude has been reported at all. Cleared on teardown.</summary>
+        private bool _cradleLogged;
 
         /// <summary>
         /// Reports when the visible hull and the boat root are not in the same place, and by how
@@ -658,9 +665,40 @@ namespace SailwindRigBalance.UI
             }
 
             Plugin.Log.LogInfo($"[Gizmo] the hull's colliders sit ({balance.HullCenterLocal.x:F1}, "
-                + $"{balance.HullCenterLocal.z:F1}) m from the boat root (x starboard, z forward). "
-                + "Drawn elements center on the hull; the shipyard camera follows the root and is "
+                + $"{balance.HullCenterLocal.y:F1}, {balance.HullCenterLocal.z:F1}) m from the boat "
+                + "root (x starboard, y up, z forward). The ring centers on the hull horizontally "
+                + "and takes its height from the root; the shipyard camera follows the root and is "
                 + "the game's own.");
+        }
+
+        /// <summary>
+        /// Reports the attitude the cradle holds the boat at, because that is what turns a
+        /// horizontal error into a vertical one and it is invisible on screen: a boat two degrees
+        /// down by the head looks level in a shipyard that is itself built on a slope.
+        /// Shipyard.MoveShip lerps the boat to editedShipPosition.rotation (Shipyard.cs:437-446),
+        /// which is hand-placed per yard, so the same boat sits differently at every shipyard and
+        /// the second field report's two players saw the ring drift in opposite directions.
+        ///
+        /// Logged on change, half a degree of hysteresis, so the two-second lerp on admitting a ship
+        /// leaves at most a couple of lines and the last one is the attitude she settled at.
+        /// </summary>
+        private void LogCradleAttitude()
+        {
+            if (_boat == null) return;
+
+            float pitch = Mathf.Asin(Mathf.Clamp(_boat.forward.y, -1f, 1f)) * Mathf.Rad2Deg;
+            float heel = Mathf.Asin(Mathf.Clamp(_boat.right.y, -1f, 1f)) * Mathf.Rad2Deg;
+
+            if (_cradleLogged
+                && Mathf.Abs(pitch - _loggedPitch) <= 0.5f
+                && Mathf.Abs(heel - _loggedHeel) <= 0.5f) return;
+
+            _cradleLogged = true;
+            _loggedPitch = pitch;
+            _loggedHeel = heel;
+
+            Plugin.Log.LogInfo($"[Gizmo] the cradle holds her at {pitch:F1} deg by the head and "
+                + $"{heel:F1} deg of heel (positive is bow up, starboard down).");
         }
 
         /// <summary>Once per game run: the survey describes scene structure, which does not change.</summary>
@@ -1524,6 +1562,7 @@ namespace SailwindRigBalance.UI
             // The next boat reports its own rest attitudes rather than inheriting this one's.
             _restAttitudesLogged = false;
             _loggedHullOffset = 0f;
+            _cradleLogged = false;
 
             // The interface camera goes back to the depth it shipped with, and the next session
             // re-finds it rather than trusting a reference into a scene that may have been reloaded.

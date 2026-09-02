@@ -80,6 +80,15 @@ namespace SailwindRigBalance.UI
         private MeshRenderer _renderer;
         private Mesh _mesh;
         private Vector3 _centerLocal;
+
+        /// <summary>
+        /// The ring's height in the boat's frame, held apart from the centered point so that a
+        /// horizontal offset cannot become a vertical one on a cradle that is not level.
+        /// </summary>
+        private float _heightLocal;
+
+        /// <summary>True while the measured hull center is being clamped, so it is logged once.</summary>
+        private bool _centerCapped;
         private float _radius = 10f;
 
         private GameObject _arrowGo;
@@ -142,14 +151,33 @@ namespace SailwindRigBalance.UI
             _arrowMesh = null;
             _arrowGo = null;
             _dragging = false;
+            _centerCapped = false;
             MaxOutput = 0f;
         }
 
-        /// <summary>Keeps the ring on the boat without parenting to it, as the markers do.</summary>
+        /// <summary>
+        /// Keeps the ring on the boat without parenting to it, as the markers do.
+        ///
+        /// The height is taken from the boat's own reference plane and not from the centered point,
+        /// which is the second field report: the ring sank a little with every sail edit until it
+        /// was under the ground at Fort Aestrin and under a cog, while at an Emerald Archipelago
+        /// yard a different player watched it climb into the sky. Opposite directions, same cause. A
+        /// shipyard sets the boat down at its cradle's own rotation (Shipyard.MoveShip lerps to
+        /// editedShipPosition.rotation), and those cradles are not all level, so once the ring
+        /// centered on the measured hull rather than on the root, every meter the center walked
+        /// fore or aft was also a lever: a meter of walk on a cradle holding her five degrees down
+        /// by the head is nine centimeters of height, in whichever direction that yard happens to
+        /// tilt. Centering horizontally is what the first field report asked for and it stays;
+        /// levering the picture out of the water with it was never part of the intent.
+        /// </summary>
         public void Follow(Transform boat)
         {
             if (_go == null || boat == null) return;
-            _go.transform.SetPositionAndRotation(boat.TransformPoint(_centerLocal), boat.rotation);
+
+            Vector3 center = boat.TransformPoint(_centerLocal);
+            center.y = boat.TransformPoint(new Vector3(0f, _heightLocal, 0f)).y;
+
+            _go.transform.SetPositionAndRotation(center, boat.rotation);
             if (_arrowGo != null)
                 _arrowGo.transform.SetPositionAndRotation(_go.transform.position, _go.transform.rotation);
         }
@@ -300,9 +328,38 @@ namespace SailwindRigBalance.UI
                 // little per edit, about 400 edits deep the ring sat visibly off the ship, and the
                 // shipyard camera, anchored to the same root, agreed with the ring rather than the
                 // ship. The height still comes from the root, which is where the cradle holds the
-                // boat; only the fore-aft and athwartships center follow the hull.
+                // boat; only the fore-aft and athwartships center follow the hull. Follow applies
+                // the height separately, because on a tilted cradle the offset is a lever.
+                //
+                // Bounded, because an offset this large is no longer a measurement of anything. The
+                // walk that produced the first report never exceeded a couple of meters on a 15 m
+                // hull; past a quarter of the hull the measured box is being dragged by something
+                // that is not the hull, and following it puts the ring somewhere no reading belongs.
+                // Clamping keeps the picture on the ship and leaves a line in the log saying so,
+                // which is a better failure than a ring in the next bay.
                 Vector3 origin = boat.InverseTransformPoint(current.HullOrigin);
-                _centerLocal = new Vector3(current.HullCenterLocal.x, origin.y, current.HullCenterLocal.z);
+
+                var offset = new Vector2(current.HullCenterLocal.x, current.HullCenterLocal.z);
+                float bound = Mathf.Max(current.HullLength * 0.25f, 1f);
+                if (offset.magnitude > bound)
+                {
+                    if (!_centerCapped)
+                    {
+                        _centerCapped = true;
+                        Plugin.Log.LogInfo($"[Ring] the measured hull center is {offset.magnitude:F1} m "
+                            + $"from the boat root, past the {bound:F1} m this hull allows; the ring is "
+                            + "drawn at the limit rather than where the measurement points.");
+                    }
+                    offset = offset.normalized * bound;
+                }
+                else if (_centerCapped)
+                {
+                    _centerCapped = false;
+                    Plugin.Log.LogInfo("[Ring] the measured hull center is back within bounds.");
+                }
+
+                _centerLocal = new Vector3(offset.x, origin.y, offset.y);
+                _heightLocal = origin.y;
 
                 _radius = Mathf.Max(current.HullLength * 0.55f, 3f);
                 float band = Mathf.Max(current.HullLength * 0.030f, 0.25f);

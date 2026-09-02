@@ -1120,7 +1120,9 @@ namespace SailwindRigBalance.Core
         /// so every jib's shadow collider is a solid collider hanging off the bowsprit, ahead of the
         /// stem. Counting those grew the measured hull, which widened the balanced band, at the exact
         /// moment the player added the sails most likely to unbalance the rig. They also set the
-        /// ring's radius, so the ring visibly grew for a change that never touched the hull.
+        /// ring's radius, so the ring visibly grew for a change that never touched the hull. The
+        /// masts' walk capsules are the same trap wearing a different coat, and are excluded by
+        /// reference rather than by parentage.
         ///
         /// Extent is taken from each collider's OWN box, through its own transform, rather than by
         /// projecting the world-space AABB. A world AABB of a yawed hull is bigger than the hull:
@@ -1137,13 +1139,14 @@ namespace SailwindRigBalance.Core
             try
             {
                 Collider[] colliders = boatRoot.GetComponentsInChildren<Collider>();
+                HashSet<Transform> mastWalkCols = MastWalkColliders(boatRoot);
 
-                float length = SpanOf(colliders, boat, true, out hullCenterLocal);
+                float length = SpanOf(colliders, boat, true, mastWalkCols, out hullCenterLocal);
                 if (Sane(length)) return length;
 
                 // Nothing left after filtering. Better a hull length that includes the rig than the
                 // fixed default, but say so, because it widens the balanced band.
-                length = SpanOf(colliders, boat, false, out hullCenterLocal);
+                length = SpanOf(colliders, boat, false, mastWalkCols, out hullCenterLocal);
                 if (Sane(length))
                 {
                     WarnOnce("hull:filtered", "[RigModel] no hull colliders were found apart from rig "
@@ -1164,16 +1167,49 @@ namespace SailwindRigBalance.Core
 
         private static bool Sane(float length) => length > 1f && length < 500f;
 
+        /// <summary>
+        /// Every mast's walk collider, which is rig geometry that the parent walk below cannot see.
+        /// A mast's walking surface does not hang off the mast: Mast.walkColMast is a reference to a
+        /// capsule that lives in the boat's separate walk-collider hierarchy, registered from the
+        /// other end (Mast.cs:195), so GetComponentInParent&lt;Mast&gt; on it returns null and it was
+        /// being measured as hull. It is solid, it is as tall as the mast, and every mast edit moves
+        /// and rescales it, which is the one property a hull measurement must not have.
+        /// </summary>
+        private static HashSet<Transform> MastWalkColliders(GameObject boatRoot)
+        {
+            var walkCols = new HashSet<Transform>();
+
+            try
+            {
+                var refs = boatRoot.GetComponent<BoatRefs>();
+                if (refs == null || refs.masts == null) return walkCols;
+
+                foreach (Mast mast in refs.masts)
+                {
+                    if (mast == null || mast.walkColMast == null) continue;
+                    walkCols.Add(mast.walkColMast);
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning("[RigModel] the masts' walk colliders could not be listed: "
+                    + e.Message);
+            }
+
+            return walkCols;
+        }
+
         private static float SpanOf(Collider[] colliders, Transform boat, bool hullOnly,
-            out Vector3 centerLocal)
+            HashSet<Transform> mastWalkCols, out Vector3 centerLocal)
         {
             float minZ = float.MaxValue, maxZ = float.MinValue;
             float minX = float.MaxValue, maxX = float.MinValue;
+            float minY = float.MaxValue, maxY = float.MinValue;
 
             foreach (Collider collider in colliders)
             {
                 if (collider == null || collider.isTrigger) continue;
-                if (hullOnly && IsRigGeometry(collider)) continue;
+                if (hullOnly && IsRigGeometry(collider, mastWalkCols)) continue;
 
                 Bounds box;
                 Transform frame;
@@ -1196,6 +1232,8 @@ namespace SailwindRigBalance.Core
                     if (local.z > maxZ) maxZ = local.z;
                     if (local.x < minX) minX = local.x;
                     if (local.x > maxX) maxX = local.x;
+                    if (local.y < minY) minY = local.y;
+                    if (local.y > maxY) maxY = local.y;
                 }
             }
 
@@ -1204,7 +1242,7 @@ namespace SailwindRigBalance.Core
             // midpoint says where the hull actually IS relative to the transform it hangs off, which
             // the first field report proved is not the same place on every boat.
             centerLocal = maxZ > minZ
-                ? new Vector3((minX + maxX) * 0.5f, 0f, (minZ + maxZ) * 0.5f)
+                ? new Vector3((minX + maxX) * 0.5f, (minY + maxY) * 0.5f, (minZ + maxZ) * 0.5f)
                 : Vector3.zero;
 
             return maxZ > minZ ? maxZ - minZ : 0f;
@@ -1212,13 +1250,21 @@ namespace SailwindRigBalance.Core
 
         /// <summary>
         /// Layer 24 is where SailShadowCol puts itself (SailShadowCol.cs:20); the parent walk catches
-        /// everything else hanging off a mast or a sail.
+        /// everything else hanging off a mast or a sail. The masts' walk colliders are passed in
+        /// because they hang off neither: see MastWalkColliders.
         /// </summary>
-        private static bool IsRigGeometry(Collider collider)
+        private static bool IsRigGeometry(Collider collider, HashSet<Transform> mastWalkCols)
         {
             if (collider.gameObject.layer == 24) return true;
             if (collider.GetComponentInParent<Sail>() != null) return true;
-            return collider.GetComponentInParent<Mast>() != null;
+            if (collider.GetComponentInParent<Mast>() != null) return true;
+
+            if (mastWalkCols == null || mastWalkCols.Count == 0) return false;
+
+            for (Transform t = collider.transform; t != null; t = t.parent)
+                if (mastWalkCols.Contains(t)) return true;
+
+            return false;
         }
 
         /// <summary>
