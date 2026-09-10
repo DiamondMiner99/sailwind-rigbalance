@@ -129,5 +129,6 @@ change. Hover any button for its name. The strip itself is fixed in place.
 
 If the magenta marker turns red and a line of text appears, one of the sails on the boat
 has a center of effort that does not follow its own size, so the combined figure is
-unreliable. In practice this means one of Shipyard Expansion's three added lug sails. See
+unreliable. In practice this meant one of Shipyard Expansion's three added lug sails, which
+Shipyard Expansion fixed in v0.11.0. On SE v0.10.1 and earlier you will still see it. See
 [Mod Compatibility](Mod-Compatibility).

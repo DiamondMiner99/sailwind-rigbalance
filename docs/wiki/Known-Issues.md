@@ -8,15 +8,19 @@ The gizmo has been exercised on a brig and a schooner, in vanilla and with Shipy
 Expansion installed. It has not been driven across every hull in the game. The model is
 hull-agnostic by construction, but that is an argument, not a test.
 
-## Shipyard Expansion's three lug sails
+## Shipyard Expansion's three lug sails (fixed in SE v0.11.0)
 
-Sails 156, 157 and 158, added by Shipyard Expansion, keep their center of effort outside
-the part that gets scaled, so it does not move when the sail is resized. The gizmo detects
+Sails 156, 157 and 158, added by Shipyard Expansion, kept their center of effort outside
+the part that gets scaled, so it did not move when the sail was resized. The gizmo detects
 this, turns the magenta marker red and says the reading is unreliable.
 
-**This will not be fixed here.** It is a property of another author's mod, and correcting
-another mod's data from this one is not something this mod does. If you avoid those three
-sails, nothing changes.
+Shipyard Expansion v0.11.0 fixed it. On SE v0.10.1 and earlier the red marker still appears
+on those three sails, and updating Shipyard Expansion clears it.
+
+**It was not fixed here, and would not have been.** It was a property of another author's
+mod, and correcting another mod's data from this one is not something this mod does. The
+detection stays in place, because it measures each sail's own geometry rather than an SE
+version number, so it reports the same condition wherever it turns up next.
 
 ## The center of mass ignores cargo
 

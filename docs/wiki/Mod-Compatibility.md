@@ -24,17 +24,23 @@ which is the same traversal Shipyard Expansion itself uses to reach every sail o
 and the cog, and a cladding option to the sanbuq. Each of these moves the center of mass,
 and the yellow marker follows.
 
-### The one caveat
+### The one caveat, on Shipyard Expansion v0.10.1 and earlier
 
-Shipyard Expansion adds three lug sails of its own. On those three, the center of effort is
-attached outside the part that gets scaled, so it stays put when the sail is resized. The
-gizmo cannot give an honest combined figure when one of them is on the boat.
+Shipyard Expansion adds three lug sails of its own. On those three, up to SE v0.10.1, the
+center of effort is attached outside the part that gets scaled, so it stays put when the
+sail is resized. The gizmo cannot give an honest combined figure when one of them is on the
+boat.
 
 When that happens the magenta marker turns **red** and a line of text says the marker is
 unreliable.
 
-That is all it does. It does not correct the sail, patch Shipyard Expansion, or work around
-it silently. If you are not using those three sails, nothing changes.
+Shipyard Expansion v0.11.0 fixed it, so on current SE those three sails read like any
+other. The gizmo has no setting for this and does no version check: it measures where each
+sail's center of effort is parented, so it stops reporting the problem when the problem is
+gone.
+
+That is all it ever did. It does not correct the sail, patch Shipyard Expansion, or work
+around it without saying so.
 
 ## Other mods
 

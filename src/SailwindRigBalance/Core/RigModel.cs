@@ -1086,8 +1086,15 @@ namespace SailwindRigBalance.Core
         /// at SailScaler.cs:189, which only works because it is the same transform.
         ///
         /// So the question is simply whether windcenter is inside it. It is, on every stock sail.
-        /// It is not on Shipyard Expansion's three added lug sails, where the center of effort is
-        /// reparented to the sail root and stays frozen through a resize.
+        /// It was not on Shipyard Expansion's three added lug sails up to SE v0.10.1, where
+        /// CopySail reparented the center of effort out to the sail root (SE Util.cs:348) and it
+        /// stayed frozen through a resize. Reported as NANDbrew/ShipyardExpansion#30 and fixed in
+        /// SE v0.11.0 by deleting the reparenting outright, vanilla's sail prefabs having been
+        /// restructured at some point so that windcenter already lives inside the scaled subtree.
+        ///
+        /// The check is unchanged by that, and deliberately: it measures parentage per sail at
+        /// runtime rather than testing an SE version, so it reports the condition wherever it turns
+        /// up and stops reporting it when the sail is fixed.
         /// </summary>
         private static bool CeTracksResizes(Sail sail)
         {

@@ -125,10 +125,12 @@ Shipyard Expansion is supported. Resizing a sail, rotating a spar and adding sai
 all work, because the center of effort is read from the sail's live geometry and SE updates
 the sail area on every resize. SE's deep keel options move the yellow marker.
 
-**One caveat:** SE's three added lug sails keep their center of effort outside the part that
-gets scaled, so it doesn't move when the sail is resized. When one is aboard, the magenta
-marker turns red and says so. The mod flags this and nothing else - it does not modify
-Shipyard Expansion.
+**One caveat, on older Shipyard Expansion:** on SE v0.10.1 and earlier, the three added lug
+sails keep their center of effort outside the part that gets scaled, so it doesn't move when
+the sail is resized. When one is aboard, the magenta marker turns red and says so. SE v0.11.0
+fixed it, so on current SE this doesn't come up. The check reads each sail's own geometry at
+runtime rather than the SE version, so it goes quiet by itself once you update. The mod flags
+this and nothing else - it does not modify Shipyard Expansion.
 
 ## Troubleshooting
 
