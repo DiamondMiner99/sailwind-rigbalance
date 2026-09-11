@@ -153,6 +153,7 @@ namespace SailwindRigBalance.UI
             _dragging = false;
             _centerCapped = false;
             _loggedAudit = null;
+            LastSweep = null;
             MaxOutput = 0f;
         }
 
@@ -390,6 +391,8 @@ namespace SailwindRigBalance.UI
                 _pendingBand = band;
                 _pendingSampled = new RigBalance[Segments];
                 _pendingEvaluated = new bool[Segments];
+                _pendingCenterLocal = new Vector3[Segments];
+                _pendingSerial = ++_serial;
                 _pendingBest = 0f;
                 _pendingIndex = 0;
                 _pendingMilliseconds = 0f;
@@ -414,6 +417,15 @@ namespace SailwindRigBalance.UI
         private float _pendingBest;
         private float _pendingMilliseconds;
         private int _pendingIndex = -1;
+        private Vector3[] _pendingCenterLocal;
+        private int _pendingSerial;
+        private int _serial;
+
+        /// <summary>The serial the most recently started sweep will carry when it finishes.</summary>
+        public int SweepSerial => _serial;
+
+        /// <summary>The most recent completed sweep, readable at any angle. Null until one finishes.</summary>
+        internal RingSweep LastSweep { get; private set; }
 
         /// <summary>
         /// Milliseconds of sweep to do per frame. Small enough to disappear into a frame at 30 fps,
@@ -455,6 +467,11 @@ namespace SailwindRigBalance.UI
                         null, 1f, _pendingHullLength, _pendingSnapshot);
                     _pendingSampled[i] = balance;
 
+                    // Into the boat's frame at the instant of evaluation, not later: the sweep spans
+                    // a dozen frames and a newly admitted boat is still being lerped into its
+                    // cradle across them. See SailContribution.Arm for the same trap in the audit.
+                    _pendingCenterLocal[i] = boat.InverseTransformPoint(balance.CombinedCenterOfEffort);
+
                     if (_pendingEvaluated[i] && balance.TotalOutput > _pendingBest)
                         _pendingBest = balance.TotalOutput;
 
@@ -494,12 +511,16 @@ namespace SailwindRigBalance.UI
                     _pendingBalancedMeters, _pendingMilliseconds);
 
                 LogMirrorAudit(_pendingSampled, _pendingEvaluated);
+
+                LastSweep = new RingSweep(_pendingSerial, _pendingSampled, _pendingEvaluated,
+                    _pendingCenterLocal);
             }
             finally
             {
                 _pendingIndex = -1;
                 _pendingSampled = null;
                 _pendingEvaluated = null;
+                _pendingCenterLocal = null;
                 _pendingRoot = null;
                 _pendingSnapshot = null;
                 _sweepCompleted = true;

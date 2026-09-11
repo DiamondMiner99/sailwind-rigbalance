@@ -32,12 +32,6 @@ This is deliberate: the marker is there to judge a hull and its keel options, no
 loading. It also has to be this way, because the game only maintains the loaded value for
 the boat you sailed in on, not for a boat you are looking at before buying.
 
-## No comparison against the previous rig
-
-The markers show where the rig stands now. They do not show where it stood before the
-pending order, so comparing means remembering where the ball was. A ghost marker for the
-previous state is the most likely next addition.
-
 ## The overlay camera
 
 Drawing the markers on top of the hull uses a second camera on an otherwise unused Unity

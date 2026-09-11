@@ -11,9 +11,14 @@ shipyard: marker visibility is re-read on every shipyard visit.
 | `ShowCenterOfEffort` | `true` | the magenta marker |
 | `ShowCenterOfLateralResistance` | `true` | the blue marker |
 | `ShowCenterOfMass` | `true` | the yellow marker |
+| `ShowReefTrack` | `true` | with a sail selected, where the center of effort would go if you furled it |
+| `ShowBalanceRing` | `true` | the ring showing the helm at every point of sail |
+| `ShowGhostMarkers` | `true` | faded markers for the rig as owned, while an order is pending |
 
-These are also the three buttons in game. Clicking a button writes the setting, so a marker
-you hide stays hidden next session.
+The first three and the ring are also buttons in game. Clicking a button writes the
+setting, so a marker you hide stays hidden next session. Hiding a marker hides its ghost
+too, and the center-of-effort ghost needs the ring on, because it is read from the ring's
+sweep.
 
 ## Interface
 

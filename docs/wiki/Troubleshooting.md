@@ -8,7 +8,7 @@ decision it makes, tagged `[Init]`, `[Env]`, `[Gizmo]`, `[RigModel]` or `[Compat
 Check the startup lines first:
 
 ```
-[Init] 7 shipyard hook(s) applied; rig model available=True
+[Init] 10 shipyard hook(s) applied; rig model available=True
 ```
 
 **If a hook failed**, the log names it. A failed hook costs one refresh trigger, not the

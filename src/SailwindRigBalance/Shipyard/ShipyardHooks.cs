@@ -70,8 +70,66 @@ namespace SailwindRigBalance.Shipyard
             return joined;
         }
 
+        /// <summary>
+        /// How many times the shipyard has taken a fresh "original" of the boat. Shipyard.ResetOrder
+        /// does that, snapshotting the boat into its private originalData (Shipyard.cs:82), and it
+        /// runs on admitting a ship, on cancelling an order and on confirming one. That snapshot is
+        /// the game's own definition of the rig as owned, which is what the ghost markers show.
+        /// </summary>
+        public static int OrderResets { get; private set; }
+
+        /// <summary>Rig edits counted by MarkDirty, over the whole session.</summary>
+        public static int RigEdits { get; private set; }
+
+        /// <summary>RigEdits at the last order reset, including edits made in that same frame.</summary>
+        private static int _editsAtReset;
+        private static int _resetFrame = -1;
+
+        /// <summary>
+        /// Rig edits since the shipyard last took its "original": zero means the boat on the cradle
+        /// is still the boat as owned, as far as anything this mod hooks can tell.
+        /// </summary>
+        public static int EditsSinceReset => RigEdits - _editsAtReset;
+
+        /// <summary>
+        /// Reasons that rebuild the readout without changing the rig. Everything else counts as an
+        /// edit. A list of the harmless ones rather than of the edits, because the two ways of being
+        /// wrong are not equal: an edit missing from an edit list would let the as-owned baseline
+        /// follow a rig the player has already changed, and a harmless reason missing from this
+        /// list only freezes the baseline early.
+        ///
+        /// Furling is here on purpose. It is not part of an order, and a boat usually arrives with
+        /// its sails furled, where no sail draws and there is no center of effort to show; the
+        /// baseline has to be allowed to follow the player unfurling to look at the rig.
+        /// </summary>
+        private static readonly System.Collections.Generic.HashSet<string> NotEdits
+            = new System.Collections.Generic.HashSet<string>
+        {
+            "AdmitShip", "DischargeShip", "ResetOrder", "boat settled", "ring shown", "furl button",
+        };
+
+        private static void CountEdit(string reason)
+        {
+            if (reason == null || NotEdits.Contains(reason)) return;
+
+            // ConfirmOrder resets and then calls UpdateOrder in the same frame (Shipyard.cs:406-407),
+            // and CancelOrder's LoadData runs just before its reset. Neither is the player editing.
+            if (UnityEngine.Time.frameCount == _resetFrame) return;
+
+            RigEdits++;
+        }
+
+        private static void OrderReset()
+        {
+            OrderResets++;
+            _editsAtReset = RigEdits;
+            _resetFrame = UnityEngine.Time.frameCount;
+            MarkDirty("ResetOrder");
+        }
+
         public static void MarkDirty(string reason)
         {
+            CountEdit(reason);
             _dirty = true;
             NoteReason(reason);
         }
@@ -117,6 +175,13 @@ namespace SailwindRigBalance.Shipyard
             CurrentBoat = null;
             MarkDirty("DischargeShip");
             Plugin.Log.LogInfo("[Shipyard] left");
+        }
+
+        // Private, so by name. See OrderResets.
+        [HarmonyPatch(typeof(global::Shipyard), "ResetOrder")]
+        private static class ResetOrderPatch
+        {
+            private static void Postfix() => OrderReset();
         }
 
         [HarmonyPatch(typeof(global::Shipyard), "AdmitShip")]

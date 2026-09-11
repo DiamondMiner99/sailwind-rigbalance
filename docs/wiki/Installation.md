@@ -41,7 +41,7 @@ Launch the game, then open `BepInEx/LogOutput.log` and look for:
 
 ```
 [Info: Sailwind Rig Balance] Sailwind Rig Balance v0.6.0 loaded.
-[Info: Sailwind Rig Balance] [Init] 7 shipyard hook(s) applied; rig model available=True
+[Info: Sailwind Rig Balance] [Init] 10 shipyard hook(s) applied; rig model available=True
 ```
 
 Seven hooks with none failed, and `rig model available=True`, means everything resolved
