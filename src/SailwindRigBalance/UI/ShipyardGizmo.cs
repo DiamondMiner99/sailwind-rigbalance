@@ -221,6 +221,28 @@ namespace SailwindRigBalance.UI
         /// <summary>The as-owned helm reading at the arrow's angle, for the line under the strip.</summary>
         private string _ghostLine;
 
+        // ------------------------------------------------------------------ sail force arrows
+        //
+        // One arrow per drawing sail, at its center of effort, showing the horizontal force it makes
+        // at the arrow's angle. Held in the boat's frame like the markers and placed each frame.
+        private readonly System.Collections.Generic.List<LineRenderer> _forceArrows
+            = new System.Collections.Generic.List<LineRenderer>();
+        private readonly System.Collections.Generic.List<Vector3> _forceFrom
+            = new System.Collections.Generic.List<Vector3>();
+        private readonly System.Collections.Generic.List<Vector3> _forceTo
+            = new System.Collections.Generic.List<Vector3>();
+        private Material _forceMaterial;
+        private static readonly Color ForceColor = new Color(1.00f, 0.62f, 0.95f, 0.95f);
+
+        /// <summary>
+        /// Shaft then head, sampled at the four points each arrow is drawn through. See PlaceForces.
+        /// </summary>
+        private static readonly AnimationCurve ArrowWidth = new AnimationCurve(
+            new Keyframe(0f, 0.30f, 0f, 0f),
+            new Keyframe(0.72f, 0.30f, 0f, 0f),
+            new Keyframe(0.7201f, 1f, 0f, -3.573f),
+            new Keyframe(1f, 0f, -3.573f, 0f));
+
         /// <summary>
         /// How far the live marker has to have moved before a ghost is drawn. Below this the two
         /// overlap anyway, and a ghost that appears for a few centimeters of interpolation noise
@@ -255,9 +277,10 @@ namespace SailwindRigBalance.UI
 
         private float _rebuildAt = -1f;
 
-        private GUIStyle _circleStyle, _ringStyle, _tipStyle, _panelStyle, _panelInnerStyle;
+        private GUIStyle _circleStyle, _ringStyle, _forceStyle, _tipStyle, _panelStyle, _panelInnerStyle;
         private Texture2D _circleTex;
         private Texture2D _ringTex;
+        private Texture2D _forceTex;
         private Texture2D _panelTex;
         private Texture2D _paperTex;
         private Color _paperTint = Color.white;
@@ -266,9 +289,9 @@ namespace SailwindRigBalance.UI
 
 
         // Sized to the buttons and nothing more: 8 padding, then 24 wide buttons separated by 3 of
-        // margin. Any slack here shows up as dead background beside the last button. Four buttons:
-        // the three markers and the balance ring.
-        private const float PanelWidth = 8f + 3f + 24f + 3f + 24f + 3f + 24f + 3f + 24f + 3f + 8f;
+        // margin. Any slack here shows up as dead background beside the last button. Five buttons:
+        // the three markers, the balance ring and the sail forces.
+        private const float PanelWidth = 8f + 3f + 24f + 3f + 24f + 3f + 24f + 3f + 24f + 3f + 24f + 3f + 8f;
         private const float PanelHeight = 8f + 3f + 24f + 3f + 8f;
         private const float PanelMargin = 20f;
 
@@ -542,6 +565,7 @@ namespace SailwindRigBalance.UI
             }
 
             PlaceGhosts(eye, facing);
+            PlaceForces(eye);
 
             if (_track != null && _track.enabled)
             {
@@ -585,6 +609,7 @@ namespace SailwindRigBalance.UI
             Teardown();
             if (_circleTex != null) Destroy(_circleTex);
             if (_ringTex != null) Destroy(_ringTex);
+            if (_forceTex != null) Destroy(_forceTex);
             if (_panelTex != null) Destroy(_panelTex);
         }
 
@@ -666,6 +691,7 @@ namespace SailwindRigBalance.UI
             UpdateLinkColor();
             UpdateTrack(boat, balance);
             UpdateGhosts();
+            UpdateForces(balance);
 
             SetValid(true);
 
@@ -1024,6 +1050,9 @@ namespace SailwindRigBalance.UI
             for (int i = 0; i < GhostCount; i++)
                 if (_ghosts[i] != null) _ghosts[i].SetActive(valid && _ghostShown[i]);
             if (_drift != null) _drift.enabled = valid && _ghostShown[GhostEffort] && _visible[Effort];
+            if (!valid)
+                foreach (LineRenderer arrow in _forceArrows)
+                    if (arrow != null) arrow.enabled = false;
             _ring.SetVisible(valid && (Config.Settings.ShowRing == null || Config.Settings.ShowRing.Value));
             if (_overlay != null && !valid) _overlay.enabled = false;
         }
@@ -1090,12 +1119,19 @@ namespace SailwindRigBalance.UI
         {
             for (int i = 0; i < GhostCount; i++) _ghostShown[i] = false;
             _ghostLine = null;
+            _ring.ShowGhost(null);
 
             bool wanted = Config.Settings.ShowGhost == null || Config.Settings.ShowGhost.Value;
             if (!wanted) return;
 
             bool ringOn = Config.Settings.ShowRing == null || Config.Settings.ShowRing.Value;
             RingSweep live = _ring.LastSweep;
+
+            // The whole as-owned ring, just inside the live one, whenever the order changes
+            // anything the ring can show. Independent of the angle, unlike the ball.
+            if (ringOn && _baseline != null && live != null && _baseline.Serial != live.Serial
+                && !_baseline.SameAs(live))
+                _ring.ShowGhost(_baseline);
 
             if (ringOn && _visible[Effort] && _baseline != null && live != null
                 && _baseline.Serial != live.Serial)
@@ -1239,6 +1275,183 @@ namespace SailwindRigBalance.UI
                 Plugin.Log.LogWarning("[Gizmo] ghost drift line failed: " + e.Message);
                 _drift = null;
             }
+        }
+
+        /// <summary>
+        /// Recomputes the sail force arrows from the current reading. Scaled so the sail pulling
+        /// hardest gets an arrow a fifth of the hull long and every other arrow is in proportion,
+        /// because what the arrows are for is comparing sails with each other: which one is doing
+        /// the work, and which way it pulls. Absolute newtons at a synthetic wind speed would mean
+        /// nothing to anyone.
+        ///
+        /// Horizontal only, side force along the boat's starboard axis and drive along its bow,
+        /// because that is the plane the helm lives in. A sail too weak to see at this scale, under
+        /// two percent of the strongest, is left out rather than drawn as a dot.
+        /// </summary>
+        private void UpdateForces(RigBalance balance)
+        {
+            _forceFrom.Clear();
+            _forceTo.Clear();
+
+            bool wanted = Config.Settings.ShowSailForces != null && Config.Settings.ShowSailForces.Value;
+            if (!wanted || balance.Sails == null || balance.Sails.Count == 0) return;
+
+            float strongest = 0f;
+            foreach (SailContribution c in balance.Sails)
+                strongest = Mathf.Max(strongest, new Vector2(c.SideForce, c.ForwardForce).magnitude);
+            if (strongest <= 0f) return;
+
+            float scale = balance.HullLength * 0.2f / strongest;
+
+            foreach (SailContribution c in balance.Sails)
+            {
+                var force = new Vector3(c.SideForce, 0f, c.ForwardForce);
+                if (force.magnitude < strongest * 0.02f) continue;
+
+                _forceFrom.Add(c.Arm);
+                _forceTo.Add(c.Arm + force * scale);
+            }
+        }
+
+        /// <summary>
+        /// Places the force arrows. Each is a camera-facing line drawn through four points, so the
+        /// width curve can step from shaft to head between the second and third: a two-point line
+        /// only samples its width at its two ends and could only ever taper.
+        /// </summary>
+        private void PlaceForces(Vector3 eye)
+        {
+            for (int i = 0; i < _forceFrom.Count; i++)
+            {
+                LineRenderer arrow = ForceArrow(i);
+                if (arrow == null) return;
+
+                Vector3 from = _boat.TransformPoint(_forceFrom[i]);
+                Vector3 to = _boat.TransformPoint(_forceTo[i]);
+                Vector3 span = to - from;
+
+                arrow.SetPosition(0, from);
+                arrow.SetPosition(1, from + span * 0.72f);
+                arrow.SetPosition(2, from + span * 0.7201f);
+                arrow.SetPosition(3, to);
+                arrow.widthMultiplier = MarkerSize(eye, (from + to) * 0.5f) * 0.35f;
+                arrow.enabled = true;
+            }
+
+            for (int i = _forceFrom.Count; i < _forceArrows.Count; i++)
+                if (_forceArrows[i] != null) _forceArrows[i].enabled = false;
+        }
+
+        private LineRenderer ForceArrow(int index)
+        {
+            while (_forceArrows.Count <= index)
+            {
+                if (_root == null) return null;
+
+                try
+                {
+                    if (_forceMaterial == null) _forceMaterial = MakeMaterial(_linkTexture);
+
+                    var go = new GameObject("SailForce");
+                    go.layer = _layer;
+                    go.transform.SetParent(_root.transform, false);
+
+                    var line = go.AddComponent<LineRenderer>();
+                    line.useWorldSpace = true;
+                    line.positionCount = 4;
+                    line.numCapVertices = 0;
+                    line.widthCurve = ArrowWidth;
+                    line.material = _forceMaterial;
+                    line.startColor = ForceColor;
+                    line.endColor = ForceColor;
+                    line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    line.receiveShadows = false;
+                    line.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+                    line.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+                    line.enabled = false;
+                    _forceArrows.Add(line);
+                }
+                catch (Exception e)
+                {
+                    Plugin.Log.LogWarning("[Gizmo] sail force arrow failed: " + e.Message);
+                    return null;
+                }
+            }
+
+            return _forceArrows[index];
+        }
+
+        private void ForceToggle()
+        {
+            ConfigEntry<bool> entry = Config.Settings.ShowSailForces;
+            bool on = entry != null && entry.Value;
+
+            Color previous = GUI.color;
+            GUI.color = on ? Color.white : new Color(0.32f, 0.32f, 0.32f, 0.85f);
+
+            bool clicked = GUILayout.Button(new GUIContent(string.Empty, "Sail forces"), _forceStyle,
+                GUILayout.Width(24f), GUILayout.Height(24f));
+
+            GUI.color = previous;
+
+            if (!clicked || entry == null) return;
+
+            entry.Value = !on;
+
+            // The arrows come from the reading, so the next one draws them. Hidden now, not then.
+            if (!entry.Value)
+            {
+                _forceFrom.Clear();
+                _forceTo.Clear();
+                foreach (LineRenderer arrow in _forceArrows)
+                    if (arrow != null) arrow.enabled = false;
+            }
+            else if (_rebuildAt < 0f)
+            {
+                // Only when nothing is already waiting: see the wind arrow's identical guard in
+                // LateUpdate, which exists because overwriting a pending settle broke it once.
+                _rebuildAt = Time.unscaledTime;
+                ShipyardHooks.NoteReason("sail forces shown");
+            }
+        }
+
+        /// <summary>An arrow, pointing up and to the right, in the force arrows' own color.</summary>
+        private static Texture2D MakeForceTexture(int size)
+        {
+            var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
+
+            var tail = new Vector2(size * 0.22f, size * 0.22f);
+            var tip = new Vector2(size * 0.80f, size * 0.80f);
+            Vector2 axis = (tip - tail).normalized;
+            var normal = new Vector2(-axis.y, axis.x);
+            Vector2 headBase = tip - axis * (size * 0.30f);
+            float shaftHalf = size * 0.065f;
+            float headHalf = size * 0.20f;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    var p = new Vector2(x + 0.5f, y + 0.5f);
+                    float along = Vector2.Dot(p - tail, axis);
+                    float off = Mathf.Abs(Vector2.Dot(p - tail, normal));
+                    float headAlong = Vector2.Dot(p - headBase, axis);
+                    float headLength = size * 0.30f;
+
+                    // Distance inside the shape, in pixels, for one pixel of feathering.
+                    float inside = -1f;
+                    if (along >= 0f && headAlong <= 0f) inside = shaftHalf - off;
+                    if (headAlong >= 0f && headAlong <= headLength)
+                        inside = Mathf.Max(inside, headHalf * (1f - headAlong / headLength) - off);
+
+                    Color color = ForceColor;
+                    color.a = Mathf.Clamp01(inside + 0.5f);
+                    tex.SetPixel(x, y, color);
+                }
+            }
+
+            tex.Apply();
+            tex.hideFlags = HideFlags.HideAndDontSave;
+            return tex;
         }
 
         private void UpdateLinkColor()
@@ -1868,6 +2081,10 @@ namespace SailwindRigBalance.UI
             DestroyMaterial(ref _trackMaterial);
             DestroyMaterial(ref _driftMaterial);
             _drift = null;
+            DestroyMaterial(ref _forceMaterial);
+            _forceArrows.Clear();
+            _forceFrom.Clear();
+            _forceTo.Clear();
 
             for (int i = 0; i < GhostCount; i++)
             {
@@ -2115,6 +2332,7 @@ namespace SailwindRigBalance.UI
             Toggle(Resistance, ResistanceColor, "Center of lateral resistance");
             Toggle(Mass, MassColor, "Center of mass");
             RingToggle();
+            ForceToggle();
             // Only a fallback. The real furl control is a clone of the shipyard's own furl-all
             // button, sitting directly beneath it; this appears only when there was no such button
             // to clone, which is the normal case without Shipyard Expansion installed.
@@ -2346,6 +2564,12 @@ namespace SailwindRigBalance.UI
             _ringStyle.normal.background = _ringTex;
             _ringStyle.hover.background = _ringTex;
             _ringStyle.active.background = _ringTex;
+
+            _forceTex = MakeForceTexture(28);
+            _forceStyle = new GUIStyle(_circleStyle);
+            _forceStyle.normal.background = _forceTex;
+            _forceStyle.hover.background = _forceTex;
+            _forceStyle.active.background = _forceTex;
 
             // Boxed rather than a bare label so the text stays legible over the shipyard's pale
             // paper panels as well as over the night sky.

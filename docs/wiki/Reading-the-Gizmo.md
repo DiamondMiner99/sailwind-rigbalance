@@ -105,6 +105,11 @@ new one, and a line under the button strip gives the old helm reading at the arr
 Confirm or cancel the order and the ghosts go, because the boat you own and the boat on the
 cradle are the same boat again.
 
+The ring gets a ghost too: a thinner, fainter ring just inside the live one, painted with
+the verdicts of the boat you own. Read the two against each other to see which points of
+sail the order improves and which it makes worse. It only appears when the order changes
+something the ring can show.
+
 "The boat you own" is the game's own record, the one Cancel puts back. It is taken when the
 boat comes into the yard and again on every confirm and cancel. Until your first change
 after that, the ghost keeps following the boat, so furling or unfurling sails to look at
@@ -119,6 +124,28 @@ in an order changes it.
 Furling a sail after you have started an order moves the live marker and not the ghost,
 because furling is not part of the order but the ring reads sails as rigged. If the ghost
 seems to show a change you did not order, that is usually why.
+
+## Sail forces
+
+The pink arrow button draws an arrow at each sail's center of effort, showing the force that
+sail makes at the wind arrow's angle, trimmed for best drive. Only the horizontal part is
+drawn, the side force and the drive, because that is the part that decides the helm. The
+sail pulling hardest gets the longest arrow and the rest are in proportion, so the arrows
+compare sails with each other rather than giving a number of newtons.
+
+This is the answer to "why is the magenta marker there". The center of effort is where the
+sails' forces balance out, not the middle of the sail area, so one big sail pulling hard
+drags it toward itself. A large jib on a reach, for example, can pull the center of effort
+well forward of where the canvas alone would put it. Swing the wind arrow and watch the
+arrows change length to see why the marker moves.
+
+## Wind streaks
+
+For a few seconds after you arrive and whenever you move the wind arrow, faint streaks drift
+across the ring in the arrow's wind, from the side the wind comes from to the side it blows
+toward. The arrow sits on the ring where the wind comes from and points the way the air
+moves; the streaks show the same thing in motion. They are the arrow's wind, not the weather
+outside, and they fade out on their own. `ShowWindStreaks` turns them off.
 
 ## The yellow marker
 
@@ -142,11 +169,12 @@ heeling lever.
 
 ## The buttons
 
-Four round buttons sit in the top right. The three colored discs match the three markers;
+Five round buttons sit in the top right. The three colored discs match the three markers;
 click one to hide or show that marker, and the choice is remembered across sessions. The
 fourth, a small ring wearing the rose's own colors, hides the balance ring, and turning it
 off also skips the sweep behind it, which is most of what the mod spends on each rig
-change. Hover any button for its name. The strip itself is fixed in place.
+change. The fifth, a pink arrow, shows the sail forces. Hover any button for its name. The
+strip itself is fixed in place.
 
 ## The red marker
 

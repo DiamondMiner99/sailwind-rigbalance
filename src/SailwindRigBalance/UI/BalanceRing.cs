@@ -90,6 +90,26 @@ namespace SailwindRigBalance.UI
         /// <summary>True while the measured hull center is being clamped, so it is logged once.</summary>
         private bool _centerCapped;
         private float _radius = 10f;
+        private float _band = 0.5f;
+
+        // The as-owned ring: thinner, fainter, just inside the live one. See ShowGhost.
+        private GameObject _ghostGo;
+        private Mesh _ghostMesh;
+        private int _ghostSerial = -1;
+        private float _ghostRadius = -1f;
+
+        // Wind streaks. See AnimateStreaks.
+        private const int StreakCount = 18;
+        private const float StreakSeconds = 6f;
+        private GameObject _streakGo;
+        private readonly LineRenderer[] _streaks = new LineRenderer[StreakCount];
+        private readonly float[] _streakLateral = new float[StreakCount];
+        private readonly float[] _streakPhase = new float[StreakCount];
+        private readonly float[] _streakHeight = new float[StreakCount];
+        private readonly System.Random _streakRandom = new System.Random(20260911);
+        private float _streakUntil;
+        private float _streakFade;
+        private float _streakAngle = float.NaN;
 
         private GameObject _arrowGo;
         private Mesh _arrowMesh;
@@ -143,6 +163,15 @@ namespace SailwindRigBalance.UI
             if (_mesh != null) UnityEngine.Object.Destroy(_mesh);
             if (_go != null) UnityEngine.Object.Destroy(_go);
             if (_arrowMesh != null) UnityEngine.Object.Destroy(_arrowMesh);
+            if (_ghostMesh != null) UnityEngine.Object.Destroy(_ghostMesh);
+            _ghostMesh = null;
+            _ghostGo = null;
+            _ghostSerial = -1;
+            _ghostRadius = -1f;
+            _streakGo = null;
+            for (int i = 0; i < StreakCount; i++) _streaks[i] = null;
+            _streakFade = 0f;
+            _streakAngle = float.NaN;
             if (_arrowGo != null) UnityEngine.Object.Destroy(_arrowGo);
             _mesh = null;
             _go = null;
@@ -182,6 +211,8 @@ namespace SailwindRigBalance.UI
             _go.transform.SetPositionAndRotation(center, boat.rotation);
             if (_arrowGo != null)
                 _arrowGo.transform.SetPositionAndRotation(_go.transform.position, _go.transform.rotation);
+
+            if (_go.activeSelf) AnimateStreaks();
         }
 
         /// <summary>
@@ -513,7 +544,7 @@ namespace SailwindRigBalance.UI
                 LogMirrorAudit(_pendingSampled, _pendingEvaluated);
 
                 LastSweep = new RingSweep(_pendingSerial, _pendingSampled, _pendingEvaluated,
-                    _pendingCenterLocal);
+                    _pendingCenterLocal, _pendingBest, _pendingBalancedMeters);
             }
             finally
             {
@@ -974,6 +1005,172 @@ namespace SailwindRigBalance.UI
             _arrowMesh = new Mesh { name = "WindArrowMesh" };
             _arrowMesh.MarkDynamic();
             arrowFilter.sharedMesh = _arrowMesh;
+
+            // Children of the ring, so they follow the boat and hide with it for nothing. Neither
+            // overlaps the band: the ghost sits inside it, and the streaks are lines, not surfaces.
+            _ghostGo = new GameObject("GhostBalanceRing");
+            _ghostGo.layer = layer;
+            _ghostGo.transform.SetParent(_go.transform, false);
+            var ghostFilter = _ghostGo.AddComponent<MeshFilter>();
+            var ghostRenderer = _ghostGo.AddComponent<MeshRenderer>();
+            ghostRenderer.sharedMaterial = material;
+            ghostRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            ghostRenderer.receiveShadows = false;
+            ghostRenderer.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+            ghostRenderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+            _ghostMesh = new Mesh { name = "GhostBalanceRingMesh" };
+            ghostFilter.sharedMesh = _ghostMesh;
+            _ghostGo.SetActive(false);
+
+            _streakGo = new GameObject("WindStreaks");
+            _streakGo.layer = layer;
+            _streakGo.transform.SetParent(_go.transform, false);
+            for (int i = 0; i < StreakCount; i++)
+            {
+                var go = new GameObject("Streak");
+                go.layer = layer;
+                go.transform.SetParent(_streakGo.transform, false);
+
+                var line = go.AddComponent<LineRenderer>();
+                line.useWorldSpace = false;
+                line.positionCount = 2;
+                line.numCapVertices = 2;
+                line.sharedMaterial = material;
+                line.sortingOrder = 2;
+                line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                line.receiveShadows = false;
+                line.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+                line.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+                _streaks[i] = line;
+
+                // Spread along the path from the start, so they do not all enter together.
+                RespawnStreak(i, (float)_streakRandom.NextDouble());
+            }
+            _streakGo.SetActive(false);
+
+            // Shown on arriving in the yard, then left to fade. See AnimateStreaks.
+            _streakUntil = Time.unscaledTime + StreakSeconds;
+        }
+
+        /// <summary>
+        /// Draws the as-owned rig's ring just inside the live one, or hides it for null. Rebuilt
+        /// only when the baseline or the ring's size changes, since the colors of a finished sweep
+        /// cannot change.
+        ///
+        /// Thinner and fainter than the live ring, and inside it rather than outside, so the live
+        /// ring stays the thing the eye lands on and the arrow, which rides the live ring, never
+        /// has the ghost under it.
+        /// </summary>
+        internal void ShowGhost(RingSweep baseline)
+        {
+            if (_ghostGo == null) return;
+
+            if (baseline == null)
+            {
+                if (_ghostGo.activeSelf) _ghostGo.SetActive(false);
+                return;
+            }
+
+            if (baseline.Serial != _ghostSerial || !Mathf.Approximately(_ghostRadius, _radius))
+            {
+                _ghostSerial = baseline.Serial;
+                _ghostRadius = _radius;
+
+                Color[] colors = baseline.Colors();
+                for (int i = 0; i < colors.Length; i++) colors[i].a *= 0.6f;
+
+                float width = _band * 0.55f;
+                FillRing(_ghostMesh, _radius - _band * 0.5f - width * 0.9f, width, colors);
+            }
+
+            if (!_ghostGo.activeSelf) _ghostGo.SetActive(true);
+        }
+
+        private void RespawnStreak(int i, float phase)
+        {
+            _streakLateral[i] = (float)(_streakRandom.NextDouble() * 1.8 - 0.9);
+            _streakHeight[i] = (float)_streakRandom.NextDouble();
+            _streakPhase[i] = phase;
+        }
+
+        /// <summary>
+        /// Faint lines drifting across the ring in the arrow's wind, the synthetic one the ring is
+        /// evaluated in, never the weather outside.
+        ///
+        /// They settle which way the arrow means. A static arrow is ambiguous by nature: a player
+        /// asked for it to point into the wind like a weather vane, which is a real convention, and
+        /// the arrow's current one, pointing the way the air moves as a weather map does, is a real
+        /// convention too. Flipping it would only move the confusion to the other half of the
+        /// players. Moving lines have no second reading.
+        ///
+        /// Shown on arrival and whenever the arrow moves, then faded out after a few seconds, so
+        /// they explain the arrow and then get out of the way of the markers. Streaks stay inside
+        /// the ring's circle, travel from the upwind side to the downwind side at a steady pace,
+        /// and fade in and out along the way so nothing pops.
+        /// </summary>
+        private void AnimateStreaks()
+        {
+            if (_streakGo == null) return;
+
+            bool wanted = Config.Settings.ShowWindStreaks == null || Config.Settings.ShowWindStreaks.Value;
+
+            if (!Mathf.Approximately(_streakAngle, WindAngle) || _dragging)
+            {
+                _streakAngle = WindAngle;
+                _streakUntil = Time.unscaledTime + StreakSeconds;
+            }
+
+            float dt = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
+            float target = wanted && Time.unscaledTime < _streakUntil ? 1f : 0f;
+            _streakFade = Mathf.MoveTowards(_streakFade, target, dt / 0.8f);
+
+            if (_streakFade <= 0f)
+            {
+                if (_streakGo.activeSelf) _streakGo.SetActive(false);
+                return;
+            }
+            if (!_streakGo.activeSelf) _streakGo.SetActive(true);
+
+            float rad = WindAngle * Mathf.Deg2Rad;
+            Vector3 upwind = new Vector3(-Mathf.Sin(rad), 0f, Mathf.Cos(rad));
+            Vector3 across = Vector3.Cross(Vector3.up, upwind).normalized;
+
+            float speed = _radius * 0.35f;
+            float length = _radius * 0.14f;
+            float width = Mathf.Max(_radius * 0.008f, 0.05f);
+            float top = _radius * 0.5f;
+
+            for (int i = 0; i < StreakCount; i++)
+            {
+                LineRenderer line = _streaks[i];
+                if (line == null) continue;
+
+                float lateral = _streakLateral[i];
+                float halfChord = _radius * Mathf.Sqrt(Mathf.Max(0.0001f, 1f - lateral * lateral));
+
+                _streakPhase[i] += dt * speed / (2f * halfChord);
+                if (_streakPhase[i] >= 1f)
+                {
+                    RespawnStreak(i, 0f);
+                    lateral = _streakLateral[i];
+                    halfChord = _radius * Mathf.Sqrt(Mathf.Max(0.0001f, 1f - lateral * lateral));
+                }
+
+                float phase = _streakPhase[i];
+                Vector3 head = across * (lateral * _radius)
+                    + upwind * (halfChord - 2f * halfChord * phase)
+                    + Vector3.up * (0.5f + _streakHeight[i] * top);
+                Vector3 tail = head + upwind * length;
+
+                line.SetPosition(0, tail);
+                line.SetPosition(1, head);
+                line.startWidth = width;
+                line.endWidth = width;
+
+                float alpha = 0.45f * _streakFade * Mathf.Sin(Mathf.PI * phase);
+                line.startColor = new Color(0.92f, 0.96f, 1f, 0f);
+                line.endColor = new Color(0.92f, 0.96f, 1f, alpha);
+            }
         }
 
         /// <summary>
@@ -992,6 +1189,12 @@ namespace SailwindRigBalance.UI
         /// unchanged because geometry and evaluation are now separate numbers.
         /// </summary>
         private void BuildMesh(float radius, float band, Color[] colors)
+        {
+            _band = band;
+            FillRing(_mesh, radius, band, colors);
+        }
+
+        private static void FillRing(Mesh mesh, float radius, float band, Color[] colors)
         {
             float inner = radius - band * 0.5f;
             float outer = radius + band * 0.5f;
@@ -1036,11 +1239,11 @@ namespace SailwindRigBalance.UI
                 triangles[t + 5] = v + 3;
             }
 
-            _mesh.Clear();
-            _mesh.vertices = vertices;
-            _mesh.colors = vertexColors;
-            _mesh.triangles = triangles;
-            _mesh.RecalculateBounds();
+            mesh.Clear();
+            mesh.vertices = vertices;
+            mesh.colors = vertexColors;
+            mesh.triangles = triangles;
+            mesh.RecalculateBounds();
         }
 
         /// <summary>

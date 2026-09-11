@@ -23,13 +23,23 @@ namespace SailwindRigBalance.UI
         /// <summary>Which sweep this was, so a caller can tell a fresh one from one it has seen.</summary>
         public readonly int Serial;
 
+        /// <summary>The sweep's own yardsticks, so it can be painted the way the ring was.</summary>
+        public readonly float MaxOutput;
+        public readonly float BalancedMeters;
+
         private readonly RigBalance[] _sampled;
         private readonly bool[] _usable;
         private readonly Vector3[] _centerLocal;
 
-        public RingSweep(int serial, RigBalance[] sampled, bool[] evaluated, Vector3[] centerLocal)
+        private readonly bool[] _evaluated;
+
+        public RingSweep(int serial, RigBalance[] sampled, bool[] evaluated, Vector3[] centerLocal,
+            float maxOutput, float balancedMeters)
         {
             Serial = serial;
+            MaxOutput = maxOutput;
+            BalancedMeters = balancedMeters;
+            _evaluated = (bool[])evaluated.Clone();
             int n = sampled.Length;
             _sampled = (RigBalance[])sampled.Clone();
             _centerLocal = (Vector3[])centerLocal.Clone();
@@ -40,6 +50,43 @@ namespace SailwindRigBalance.UI
             // ring paints those gray; here they are simply not used.
             for (int i = 0; i < n; i++)
                 _usable[i] = evaluated[i] && sampled[i].Sails != null && sampled[i].Sails.Count > 0;
+        }
+
+        /// <summary>The ring's colors for this sweep, bearing by bearing, as the ring painted them.</summary>
+        public Color[] Colors()
+        {
+            var colors = new Color[_sampled.Length];
+            for (int i = 0; i < colors.Length; i++)
+            {
+                colors[i] = _evaluated[i]
+                    ? BalanceRing.VerdictFor(_sampled[i], MaxOutput, BalancedMeters)
+                    : BalanceRing.NoVerdictColor;
+            }
+            return colors;
+        }
+
+        /// <summary>
+        /// Whether two sweeps describe the same rig as far as anything drawn from them can show:
+        /// the same bearings drawing, the center of effort within five centimeters, the same helm
+        /// to the centimeter and the same kind of verdict. Used to decide whether a ghost ring
+        /// would show anything, so an order that changes nothing the ring can see draws none.
+        /// </summary>
+        public bool SameAs(RingSweep other)
+        {
+            if (other == null || other._sampled.Length != _sampled.Length) return false;
+
+            for (int i = 0; i < _sampled.Length; i++)
+            {
+                if (_usable[i] != other._usable[i]) return false;
+                if (!_usable[i]) continue;
+
+                RigBalance a = _sampled[i], b = other._sampled[i];
+                if ((_centerLocal[i] - other._centerLocal[i]).magnitude > 0.05f) return false;
+                if (a.HelmMeaningful != b.HelmMeaningful || a.HelmOffScale != b.HelmOffScale) return false;
+                if (Mathf.Abs(a.HelmMeters - b.HelmMeters) > 0.01f) return false;
+            }
+
+            return true;
         }
 
         /// <summary>
