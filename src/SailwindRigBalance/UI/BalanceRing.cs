@@ -152,6 +152,7 @@ namespace SailwindRigBalance.UI
             _arrowGo = null;
             _dragging = false;
             _centerCapped = false;
+            _loggedAudit = null;
             MaxOutput = 0f;
         }
 
@@ -626,7 +627,17 @@ namespace SailwindRigBalance.UI
         /// which sail disagrees, and neither can a helm lever that has already averaged ten of them
         /// together. This can, and it reports the per-sail detail only when something is actually
         /// wrong, so a healthy rig costs one line.
+        ///
+        /// Logged when the answer changes, not on every sweep. The brig topsail's residual at 175/185
+        /// (FINDINGS section 14) is known, documented, and invisible on screen because both bearings
+        /// draw gray, but it was printed as four warnings per sweep: 52 of 52 warnings in one
+        /// ordinary shipyard session. Players are asked to send their logs, and a log whose every
+        /// warning is the same known residual is one where a real warning gets scrolled past. What
+        /// identifies an answer is which pairs disagree, not by how much, so a rig edit that moves
+        /// the same residual from 44.6 to 25.2 percent stays quiet and a new pair going wrong does not.
         /// </summary>
+        private static string _loggedAudit;
+
         private static void LogMirrorAudit(RigBalance[] sampled, bool[] evaluated)
         {
             try
@@ -635,6 +646,7 @@ namespace SailwindRigBalance.UI
 
                 int pairs = 0, broken = 0, worst = -1;
                 float worstGap = 0f;
+                var signature = new System.Text.StringBuilder();
 
                 for (int i = 0; i < Segments / 2; i++)
                 {
@@ -653,8 +665,13 @@ namespace SailwindRigBalance.UI
                     if (gap <= MirrorTolerance) continue;
 
                     broken++;
+                    signature.Append(i).Append(',');
                     if (gap > worstGap) { worstGap = gap; worst = i; }
                 }
+
+                string answer = $"{pairs}:{signature}";
+                if (answer == _loggedAudit) return;
+                _loggedAudit = answer;
 
                 if (broken == 0 || worst < 0)
                 {
@@ -668,6 +685,9 @@ namespace SailwindRigBalance.UI
 
                 DumpMirrorPair(sampled[worst], sampled[Segments - 1 - worst],
                     Bearing(worst), Bearing(Segments - 1 - worst));
+
+                Plugin.Log.LogInfo("[Ring] mirror audit: reported again only if a different set of "
+                    + "pairs disagrees.");
             }
             catch (Exception e)
             {

@@ -47,9 +47,3 @@ occluded rather than a broken screen.
 
 If every layer on your install is already named by other mods, the mod cannot claim one and
 falls back automatically. It logs when this happens.
-
-## Wind angle is a single sample
-
-Balance is judged at one apparent wind angle, close hauled by default. A rig that balances
-close hauled may behave differently on a reach. The angle is configurable, but the gizmo
-shows one at a time rather than a range.
