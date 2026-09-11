@@ -1563,6 +1563,7 @@ namespace SailwindRigBalance.UI
             _restAttitudesLogged = false;
             _loggedHullOffset = 0f;
             _cradleLogged = false;
+            RigModel.ResetHullLog();
 
             // The interface camera goes back to the depth it shipped with, and the next session
             // re-finds it rather than trusting a reference into a scene that may have been reloaded.

@@ -1129,7 +1129,9 @@ namespace SailwindRigBalance.Core
         /// moment the player added the sails most likely to unbalance the rig. They also set the
         /// ring's radius, so the ring visibly grew for a change that never touched the hull. The
         /// masts' walk capsules are the same trap wearing a different coat, and are excluded by
-        /// reference rather than by parentage.
+        /// reference rather than by parentage. So are the shipyard's fitted parts, the house and
+        /// cabin and keel options, because a hull does not get shorter when a house goes on it:
+        /// see FittedPartRoots.
         ///
         /// Extent is taken from each collider's OWN box, through its own transform, rather than by
         /// projecting the world-space AABB. A world AABB of a yawed hull is bigger than the hull:
@@ -1147,18 +1149,42 @@ namespace SailwindRigBalance.Core
             {
                 Collider[] colliders = boatRoot.GetComponentsInChildren<Collider>();
                 HashSet<Transform> mastWalkCols = MastWalkColliders(boatRoot);
+                HashSet<Transform> fittedParts = FittedPartRoots(boatRoot);
 
-                float length = SpanOf(colliders, boat, true, mastWalkCols, out hullCenterLocal);
-                if (Sane(length)) return length;
+                HullSpan span = SpanOf(colliders, boat, true, mastWalkCols, fittedParts);
+                string basis = HullAloneBasis;
 
-                // Nothing left after filtering. Better a hull length that includes the rig than the
-                // fixed default, but say so, because it widens the balanced band.
-                length = SpanOf(colliders, boat, false, mastWalkCols, out hullCenterLocal);
-                if (Sane(length))
+                if (!Sane(span.Length))
                 {
-                    WarnOnce("hull:filtered", "[RigModel] no hull colliders were found apart from rig "
-                        + $"geometry; hull length {length:F1} m includes the masts and sails.");
-                    return length;
+                    // A boat built entirely out of part options would have nothing left. Counting
+                    // its parts is still a better answer than counting its rig, so that is the next
+                    // step down, not the last one.
+                    span = SpanOf(colliders, boat, true, mastWalkCols, null);
+                    basis = "the hull and its fitted parts";
+                    if (Sane(span.Length))
+                        WarnOnce("hull:parts", "[RigModel] nothing was left of the hull once its "
+                            + "fitted parts were set aside; hull length "
+                            + $"{span.Length:F1} m includes them, so adding or removing a part can "
+                            + "resize the ring.");
+                }
+
+                if (!Sane(span.Length))
+                {
+                    // Nothing left after filtering. Better a hull length that includes the rig than
+                    // the fixed default, but say so, because it widens the balanced band.
+                    span = SpanOf(colliders, boat, false, mastWalkCols, null);
+                    basis = "the whole boat, rig included";
+                    if (Sane(span.Length))
+                        WarnOnce("hull:filtered", "[RigModel] no hull colliders were found apart "
+                            + $"from rig geometry; hull length {span.Length:F1} m includes the "
+                            + "masts and sails.");
+                }
+
+                if (Sane(span.Length))
+                {
+                    hullCenterLocal = span.Center;
+                    LogHullExtent(boatRoot, colliders, boat, mastWalkCols, fittedParts, span, basis);
+                    return span.Length;
                 }
             }
             catch (Exception e)
@@ -1173,6 +1199,81 @@ namespace SailwindRigBalance.Core
         }
 
         private static bool Sane(float length) => length > 1f && length < 500f;
+
+        private const string HullAloneBasis = "the hull alone";
+
+        /// <summary>
+        /// A measured box, and which collider set each of the ends a player would recognize, so the
+        /// log can say what the ring is sized by instead of only how big it came out.
+        /// </summary>
+        private struct HullSpan
+        {
+            public float Length;
+            public Vector3 Center;
+            public Collider Bow, Stern, Top;
+            public float BowZ, SternZ, TopY;
+        }
+
+        /// <summary>The boat and length last logged, so a steady measurement logs once.</summary>
+        private static int _loggedHullBoat;
+        private static float _loggedHullLength;
+        private static string _loggedHullBasis;
+
+        /// <summary>Forget the last hull report, so the next shipyard visit logs its own.</summary>
+        public static void ResetHullLog()
+        {
+            _loggedHullBoat = 0;
+            _loggedHullLength = 0f;
+            _loggedHullBasis = null;
+        }
+
+        /// <summary>
+        /// Says what the hull was measured from and what set its ends, when that changes by more
+        /// than ten centimeters. Two open questions hang on it. A player reported the ring shrinking
+        /// when a house was fitted to a junk, which a hull measurement should never do, and the
+        /// v0.15.10 breadcrumb put that junk's measured box center 9.4 m above the boat root, which
+        /// no hull is tall enough to explain. Both are "something that is not the hull is being
+        /// measured as hull", and naming the colliders at the ends answers that from one log.
+        ///
+        /// When fitted parts were set aside, the length they would have given is logged too, so
+        /// the effect of this very filter is visible rather than assumed.
+        /// </summary>
+        private static void LogHullExtent(GameObject boatRoot, Collider[] colliders, Transform boat,
+            HashSet<Transform> mastWalkCols, HashSet<Transform> fittedParts, HullSpan span, string basis)
+        {
+            int id = boatRoot.GetInstanceID();
+            if (id == _loggedHullBoat && basis == _loggedHullBasis
+                && Mathf.Abs(span.Length - _loggedHullLength) <= 0.1f) return;
+
+            _loggedHullBoat = id;
+            _loggedHullLength = span.Length;
+            _loggedHullBasis = basis;
+
+            string withParts = "";
+            if (basis == HullAloneBasis && fittedParts != null && fittedParts.Count > 0)
+            {
+                HullSpan counted = SpanOf(colliders, boat, true, mastWalkCols, null);
+                withParts = Mathf.Abs(counted.Length - span.Length) > 0.05f
+                    ? $" Counting the fitted parts would have made it {counted.Length:F1} m "
+                        + $"(bow '{NameOf(counted.Bow, boat)}', stern '{NameOf(counted.Stern, boat)}', "
+                        + $"top '{NameOf(counted.Top, boat)}' at {counted.TopY:F1} m)."
+                    : " The fitted parts do not change it.";
+            }
+
+            Plugin.Log.LogInfo($"[RigModel] hull {span.Length:F1} m, measured from {basis}: bow "
+                + $"'{NameOf(span.Bow, boat)}' at {span.BowZ:F1} m, stern '{NameOf(span.Stern, boat)}' "
+                + $"at {span.SternZ:F1} m, top '{NameOf(span.Top, boat)}' at {span.TopY:F1} m above "
+                + "the root." + withParts);
+        }
+
+        /// <summary>A collider's name with its parent's, which is usually enough to find it.</summary>
+        private static string NameOf(Collider collider, Transform boat)
+        {
+            if (collider == null) return "?";
+            Transform t = collider.transform;
+            Transform parent = t.parent;
+            return parent != null && parent != boat ? parent.name + "/" + t.name : t.name;
+        }
 
         /// <summary>
         /// Every mast's walk collider, which is rig geometry that the parent walk below cannot see.
@@ -1206,17 +1307,79 @@ namespace SailwindRigBalance.Core
             return walkCols;
         }
 
-        private static float SpanOf(Collider[] colliders, Transform boat, bool hullOnly,
-            HashSet<Transform> mastWalkCols, out Vector3 centerLocal)
+        /// <summary>
+        /// Everything the shipyard's parts menu can add or swap: every option of every part, its
+        /// child objects, and its walk collider, all of which BoatPart.SetOptionEnabled switches on
+        /// and off together (BoatPart.cs:21-34). Houses, cabins, rails, bowsprits and keel options
+        /// are all of this kind.
+        ///
+        /// They are set aside because the hull length is meant to be a property of the hull, and
+        /// these are not. Counted, they made the measurement depend on what was fitted: a player
+        /// reported the ring shrinking when a house went onto a junk, which can only happen if the
+        /// option the house replaced reached further fore or aft than the house does. The ring's
+        /// radius and the balanced band both scale with this number, so the verdict moved with the
+        /// furniture.
+        ///
+        /// The boat root and the boat's walk-collider root are never added, whatever an option
+        /// claims, because excluding either would exclude the hull with it.
+        /// </summary>
+        private static HashSet<Transform> FittedPartRoots(GameObject boatRoot)
+        {
+            var roots = new HashSet<Transform>();
+
+            try
+            {
+                var parts = boatRoot.GetComponent<BoatCustomParts>();
+                if (parts == null || parts.availableParts == null) return roots;
+
+                var refs = boatRoot.GetComponent<BoatRefs>();
+                Transform walkRoot = refs != null ? refs.walkCol : null;
+
+                foreach (BoatPart part in parts.availableParts)
+                {
+                    if (part == null || part.partOptions == null) continue;
+
+                    foreach (BoatPartOption option in part.partOptions)
+                    {
+                        if (option == null) continue;
+                        AddPartRoot(roots, option.transform, boatRoot.transform, walkRoot);
+                        if (option.walkColObject != null)
+                            AddPartRoot(roots, option.walkColObject.transform, boatRoot.transform, walkRoot);
+                        if (option.childOptions == null) continue;
+                        foreach (GameObject child in option.childOptions)
+                            if (child != null) AddPartRoot(roots, child.transform, boatRoot.transform, walkRoot);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning("[RigModel] the boat's fitted parts could not be listed: "
+                    + e.Message);
+            }
+
+            return roots;
+        }
+
+        private static void AddPartRoot(HashSet<Transform> roots, Transform part, Transform boat,
+            Transform walkRoot)
+        {
+            if (part == null || part == boat || part == walkRoot) return;
+            roots.Add(part);
+        }
+
+        private static HullSpan SpanOf(Collider[] colliders, Transform boat, bool hullOnly,
+            HashSet<Transform> mastWalkCols, HashSet<Transform> fittedParts)
         {
             float minZ = float.MaxValue, maxZ = float.MinValue;
             float minX = float.MaxValue, maxX = float.MinValue;
             float minY = float.MaxValue, maxY = float.MinValue;
+            var span = new HullSpan();
 
             foreach (Collider collider in colliders)
             {
                 if (collider == null || collider.isTrigger) continue;
                 if (hullOnly && IsRigGeometry(collider, mastWalkCols)) continue;
+                if (IsUnder(collider.transform, fittedParts)) continue;
 
                 Bounds box;
                 Transform frame;
@@ -1235,12 +1398,12 @@ namespace SailwindRigBalance.Core
                     if (frame != null) point = frame.TransformPoint(point);
 
                     Vector3 local = boat.InverseTransformPoint(point);
-                    if (local.z < minZ) minZ = local.z;
-                    if (local.z > maxZ) maxZ = local.z;
+                    if (local.z < minZ) { minZ = local.z; span.Stern = collider; }
+                    if (local.z > maxZ) { maxZ = local.z; span.Bow = collider; }
                     if (local.x < minX) minX = local.x;
                     if (local.x > maxX) maxX = local.x;
                     if (local.y < minY) minY = local.y;
-                    if (local.y > maxY) maxY = local.y;
+                    if (local.y > maxY) { maxY = local.y; span.Top = collider; }
                 }
             }
 
@@ -1248,11 +1411,16 @@ namespace SailwindRigBalance.Core
             // two answer different questions: the span sizes the ring and the balanced band, and the
             // midpoint says where the hull actually IS relative to the transform it hangs off, which
             // the first field report proved is not the same place on every boat.
-            centerLocal = maxZ > minZ
-                ? new Vector3((minX + maxX) * 0.5f, (minY + maxY) * 0.5f, (minZ + maxZ) * 0.5f)
-                : Vector3.zero;
+            if (maxZ > minZ)
+            {
+                span.Length = maxZ - minZ;
+                span.Center = new Vector3((minX + maxX) * 0.5f, (minY + maxY) * 0.5f, (minZ + maxZ) * 0.5f);
+                span.BowZ = maxZ;
+                span.SternZ = minZ;
+                span.TopY = maxY;
+            }
 
-            return maxZ > minZ ? maxZ - minZ : 0f;
+            return span;
         }
 
         /// <summary>
@@ -1265,11 +1433,16 @@ namespace SailwindRigBalance.Core
             if (collider.gameObject.layer == 24) return true;
             if (collider.GetComponentInParent<Sail>() != null) return true;
             if (collider.GetComponentInParent<Mast>() != null) return true;
+            return IsUnder(collider.transform, mastWalkCols);
+        }
 
-            if (mastWalkCols == null || mastWalkCols.Count == 0) return false;
+        /// <summary>True if the transform is one of the roots or anywhere beneath one.</summary>
+        private static bool IsUnder(Transform transform, HashSet<Transform> roots)
+        {
+            if (roots == null || roots.Count == 0) return false;
 
-            for (Transform t = collider.transform; t != null; t = t.parent)
-                if (mastWalkCols.Contains(t)) return true;
+            for (Transform t = transform; t != null; t = t.parent)
+                if (roots.Contains(t)) return true;
 
             return false;
         }
