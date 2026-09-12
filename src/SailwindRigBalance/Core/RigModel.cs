@@ -1255,24 +1255,42 @@ namespace SailwindRigBalance.Core
                 HullSpan counted = SpanOf(colliders, boat, true, mastWalkCols, null);
                 withParts = Mathf.Abs(counted.Length - span.Length) > 0.05f
                     ? $" Counting the fitted parts would have made it {counted.Length:F1} m "
-                        + $"(bow '{NameOf(counted.Bow, boat)}', stern '{NameOf(counted.Stern, boat)}', "
-                        + $"top '{NameOf(counted.Top, boat)}' at {counted.TopY:F1} m)."
+                        + $"(bow '{NameOf(counted.Bow, boat)}, stern '{NameOf(counted.Stern, boat)}, "
+                        + $"top '{NameOf(counted.Top, boat)} at {counted.TopY:F1} m)."
                     : " The fitted parts do not change it.";
             }
 
             Plugin.Log.LogInfo($"[RigModel] hull {span.Length:F1} m, measured from {basis}: bow "
-                + $"'{NameOf(span.Bow, boat)}' at {span.BowZ:F1} m, stern '{NameOf(span.Stern, boat)}' "
-                + $"at {span.SternZ:F1} m, top '{NameOf(span.Top, boat)}' at {span.TopY:F1} m above "
+                + $"'{NameOf(span.Bow, boat)} at {span.BowZ:F1} m, stern '{NameOf(span.Stern, boat)} "
+                + $"at {span.SternZ:F1} m, top '{NameOf(span.Top, boat)} at {span.TopY:F1} m above "
                 + "the root." + withParts);
         }
 
-        /// <summary>A collider's name with its parent's, which is usually enough to find it.</summary>
+        /// <summary>
+        /// A collider's path back to the boat, with its layer, which is what a filter has to be
+        /// written against.
+        ///
+        /// The parent's name alone was not enough. It named the collider that puts the junk's
+        /// measured box 20 m in the air, 'structure_container/sail capsule col', and that is as far
+        /// as it got: the name is not in the decompiled scripts, so it is scene geometry, and
+        /// whether it can be excluded by layer, by parentage or only by name cannot be told from a
+        /// name. Rig geometry has now hidden from this filter three times, under a shadow collider,
+        /// a mast's walk capsule and this, so the log says enough to write the next filter without
+        /// another round trip.
+        /// </summary>
         private static string NameOf(Collider collider, Transform boat)
         {
             if (collider == null) return "?";
-            Transform t = collider.transform;
-            Transform parent = t.parent;
-            return parent != null && parent != boat ? parent.name + "/" + t.name : t.name;
+
+            string path = collider.transform.name;
+            for (Transform t = collider.transform.parent; t != null && t != boat; t = t.parent)
+                path = t.name + "/" + path;
+
+            int layer = collider.gameObject.layer;
+            string layerName = LayerMask.LayerToName(layer);
+            return $"{path}' (layer {layer}"
+                + (string.IsNullOrEmpty(layerName) ? "" : " '" + layerName + "'")
+                + $", {collider.GetType().Name})";
         }
 
         /// <summary>
