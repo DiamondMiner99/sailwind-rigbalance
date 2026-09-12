@@ -21,7 +21,6 @@ markers, for a boat.
 - **A helm verdict at a glance** - a colored link between two of them: blue for weather helm, red for lee helm, green for balanced, and the color deepens the further out of balance she is
 - **A balance ring** - a rose around the boat showing what the helm would do at every point of sail at once, not just the one you are looking at
 - **Live** - swap, resize or move a sail and the markers follow, before you confirm the order
-- **Ghost markers** - while an order is pending, faded copies of the markers and the ring show where the balance stood on the boat you own, so you can see what the order changes
 - **Sail forces** - a button that draws each sail's pull as an arrow, so you can see which sail is doing the work and why the center of effort sits where it does
 - **Wind streaks** - faint lines drift across the ring to show which way the arrow's wind blows
 - **Measured, not tabulated** - every center of effort comes from the sail's actual geometry driven through the game's own force function, never a per-sail-type constant
@@ -113,7 +112,6 @@ balances. It does respond to a keel or ballast option where a hull has one.
 | `ShowCenterOfMass` | true | yellow marker |
 | `ShowReefTrack` | true | where the center of effort would go if you furled the selected sail |
 | `ShowBalanceRing` | true | the rose showing every point of sail at once |
-| `ShowGhostMarkers` | true | faded markers and ring for the rig as owned, while an order is pending |
 | `ShowSailForces` | false | an arrow for each sail's force at the wind arrow's angle (also a button) |
 | `ShowWindStreaks` | true | streaks showing the arrow's wind direction for a few seconds after it moves |
 | `ShowPanel` | true | the button strip |
@@ -141,7 +139,7 @@ this and nothing else - it does not modify Shipyard Expansion.
 ## Troubleshooting
 
 **No markers in the shipyard:**
-- Check `BepInEx/LogOutput.log` for `[Init] 10 shipyard hook(s) applied`. It names any hook
+- Check `BepInEx/LogOutput.log` for `[Init] 9 shipyard hook(s) applied`. It names any hook
   that failed.
 - `rig model available=False` means a game update moved something the force model reads, and
   the gizmo disabled itself rather than guess.

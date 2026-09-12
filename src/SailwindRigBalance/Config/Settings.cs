@@ -25,7 +25,6 @@ namespace SailwindRigBalance.Config
         public static ConfigEntry<bool> ShowMass { get; private set; }
         public static ConfigEntry<bool> ShowReefTrack { get; private set; }
         public static ConfigEntry<bool> ShowRing { get; private set; }
-        public static ConfigEntry<bool> ShowGhost { get; private set; }
         public static ConfigEntry<bool> ShowSailForces { get; private set; }
         public static ConfigEntry<bool> ShowWindStreaks { get; private set; }
         public static ConfigEntry<bool> ShowPanel { get; private set; }
@@ -60,13 +59,6 @@ namespace SailwindRigBalance.Config
                 + "sail: green balanced, blue weather helm, red lee helm, gray where the sails are "
                 + "not drawing enough for the question to mean anything. Red anywhere on the ring is "
                 + "a boat that develops lee helm on some heading, which a single reading cannot show.");
-
-            ShowGhost = config.Bind("Markers", "ShowGhostMarkers", true,
-                "While an order is pending, show faded copies of the center of effort and the "
-                + "center of mass where they stand on the boat as you own it, with a thin line to "
-                + "where the order moves the center of effort, and the old helm reading under the "
-                + "button strip. The ghost of the center of effort is read from the balance ring's "
-                + "sweep, so it follows the wind arrow and needs the ring switched on.");
 
             ShowSailForces = config.Bind("Markers", "ShowSailForces", false,
                 "Draw an arrow at each sail's center of effort showing the force it makes at the "

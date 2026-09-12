@@ -90,13 +90,7 @@ namespace SailwindRigBalance.UI
         /// <summary>True while the measured hull center is being clamped, so it is logged once.</summary>
         private bool _centerCapped;
         private float _radius = 10f;
-        private float _band = 0.5f;
 
-        // The as-owned ring: thinner, fainter, just inside the live one. See ShowGhost.
-        private GameObject _ghostGo;
-        private Mesh _ghostMesh;
-        private int _ghostSerial = -1;
-        private float _ghostRadius = -1f;
 
         // Wind streaks. See AnimateStreaks.
         private const int StreakCount = 18;
@@ -163,11 +157,6 @@ namespace SailwindRigBalance.UI
             if (_mesh != null) UnityEngine.Object.Destroy(_mesh);
             if (_go != null) UnityEngine.Object.Destroy(_go);
             if (_arrowMesh != null) UnityEngine.Object.Destroy(_arrowMesh);
-            if (_ghostMesh != null) UnityEngine.Object.Destroy(_ghostMesh);
-            _ghostMesh = null;
-            _ghostGo = null;
-            _ghostSerial = -1;
-            _ghostRadius = -1f;
             _streakGo = null;
             for (int i = 0; i < StreakCount; i++) _streaks[i] = null;
             _streakFade = 0f;
@@ -182,7 +171,6 @@ namespace SailwindRigBalance.UI
             _dragging = false;
             _centerCapped = false;
             _loggedAudit = null;
-            LastSweep = null;
             MaxOutput = 0f;
         }
 
@@ -422,8 +410,6 @@ namespace SailwindRigBalance.UI
                 _pendingBand = band;
                 _pendingSampled = new RigBalance[Segments];
                 _pendingEvaluated = new bool[Segments];
-                _pendingCenterLocal = new Vector3[Segments];
-                _pendingSerial = ++_serial;
                 _pendingBest = 0f;
                 _pendingIndex = 0;
                 _pendingMilliseconds = 0f;
@@ -448,15 +434,6 @@ namespace SailwindRigBalance.UI
         private float _pendingBest;
         private float _pendingMilliseconds;
         private int _pendingIndex = -1;
-        private Vector3[] _pendingCenterLocal;
-        private int _pendingSerial;
-        private int _serial;
-
-        /// <summary>The serial the most recently started sweep will carry when it finishes.</summary>
-        public int SweepSerial => _serial;
-
-        /// <summary>The most recent completed sweep, readable at any angle. Null until one finishes.</summary>
-        internal RingSweep LastSweep { get; private set; }
 
         /// <summary>
         /// Milliseconds of sweep to do per frame. Small enough to disappear into a frame at 30 fps,
@@ -498,11 +475,6 @@ namespace SailwindRigBalance.UI
                         null, 1f, _pendingHullLength, _pendingSnapshot);
                     _pendingSampled[i] = balance;
 
-                    // Into the boat's frame at the instant of evaluation, not later: the sweep spans
-                    // a dozen frames and a newly admitted boat is still being lerped into its
-                    // cradle across them. See SailContribution.Arm for the same trap in the audit.
-                    _pendingCenterLocal[i] = boat.InverseTransformPoint(balance.CombinedCenterOfEffort);
-
                     if (_pendingEvaluated[i] && balance.TotalOutput > _pendingBest)
                         _pendingBest = balance.TotalOutput;
 
@@ -543,15 +515,12 @@ namespace SailwindRigBalance.UI
 
                 LogMirrorAudit(_pendingSampled, _pendingEvaluated);
 
-                LastSweep = new RingSweep(_pendingSerial, _pendingSampled, _pendingEvaluated,
-                    _pendingCenterLocal, _pendingBest, _pendingBalancedMeters);
             }
             finally
             {
                 _pendingIndex = -1;
                 _pendingSampled = null;
                 _pendingEvaluated = null;
-                _pendingCenterLocal = null;
                 _pendingRoot = null;
                 _pendingSnapshot = null;
                 _sweepCompleted = true;
@@ -1006,22 +975,6 @@ namespace SailwindRigBalance.UI
             _arrowMesh.MarkDynamic();
             arrowFilter.sharedMesh = _arrowMesh;
 
-            // Children of the ring, so they follow the boat and hide with it for nothing. Neither
-            // overlaps the band: the ghost sits inside it, and the streaks are lines, not surfaces.
-            _ghostGo = new GameObject("GhostBalanceRing");
-            _ghostGo.layer = layer;
-            _ghostGo.transform.SetParent(_go.transform, false);
-            var ghostFilter = _ghostGo.AddComponent<MeshFilter>();
-            var ghostRenderer = _ghostGo.AddComponent<MeshRenderer>();
-            ghostRenderer.sharedMaterial = material;
-            ghostRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            ghostRenderer.receiveShadows = false;
-            ghostRenderer.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
-            ghostRenderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-            _ghostMesh = new Mesh { name = "GhostBalanceRingMesh" };
-            ghostFilter.sharedMesh = _ghostMesh;
-            _ghostGo.SetActive(false);
-
             _streakGo = new GameObject("WindStreaks");
             _streakGo.layer = layer;
             _streakGo.transform.SetParent(_go.transform, false);
@@ -1050,40 +1003,6 @@ namespace SailwindRigBalance.UI
 
             // Shown on arriving in the yard, then left to fade. See AnimateStreaks.
             _streakUntil = Time.unscaledTime + StreakSeconds;
-        }
-
-        /// <summary>
-        /// Draws the as-owned rig's ring just inside the live one, or hides it for null. Rebuilt
-        /// only when the baseline or the ring's size changes, since the colors of a finished sweep
-        /// cannot change.
-        ///
-        /// Thinner and fainter than the live ring, and inside it rather than outside, so the live
-        /// ring stays the thing the eye lands on and the arrow, which rides the live ring, never
-        /// has the ghost under it.
-        /// </summary>
-        internal void ShowGhost(RingSweep baseline)
-        {
-            if (_ghostGo == null) return;
-
-            if (baseline == null)
-            {
-                if (_ghostGo.activeSelf) _ghostGo.SetActive(false);
-                return;
-            }
-
-            if (baseline.Serial != _ghostSerial || !Mathf.Approximately(_ghostRadius, _radius))
-            {
-                _ghostSerial = baseline.Serial;
-                _ghostRadius = _radius;
-
-                Color[] colors = baseline.Colors();
-                for (int i = 0; i < colors.Length; i++) colors[i].a *= 0.6f;
-
-                float width = _band * 0.55f;
-                FillRing(_ghostMesh, _radius - _band * 0.5f - width * 0.9f, width, colors);
-            }
-
-            if (!_ghostGo.activeSelf) _ghostGo.SetActive(true);
         }
 
         private void RespawnStreak(int i, float phase)
@@ -1190,7 +1109,6 @@ namespace SailwindRigBalance.UI
         /// </summary>
         private void BuildMesh(float radius, float band, Color[] colors)
         {
-            _band = band;
             FillRing(_mesh, radius, band, colors);
         }
 

@@ -97,34 +97,6 @@ sail pushing her bow up or down", read before touching anything. It is not drawn
 reefing that sail would swing the reading through a sign change, where a straight line
 would lie about the path.
 
-## Ghost markers
-
-While an order is pending, faded copies of the magenta and yellow markers stay where they
-stood on the boat you own, a thin magenta line runs from the old center of effort to the
-new one, and a line under the button strip gives the old helm reading at the arrow's angle.
-Confirm or cancel the order and the ghosts go, because the boat you own and the boat on the
-cradle are the same boat again.
-
-The ring gets a ghost too: a thinner, fainter ring just inside the live one, painted with
-the verdicts of the boat you own. Read the two against each other to see which points of
-sail the order improves and which it makes worse. It only appears when the order changes
-something the ring can show.
-
-"The boat you own" is the game's own record, the one Cancel puts back. It is taken when the
-boat comes into the yard and again on every confirm and cancel. Until your first change
-after that, the ghost keeps following the boat, so furling or unfurling sails to look at
-the rig is fine. From your first change on, it holds still.
-
-The magenta ghost follows the wind arrow: swing the arrow and it shows where the old rig's
-center of effort was at that angle, not at the angle you happened to start from. It is
-read from the balance ring, so it needs the ring switched on. The yellow ghost only moves
-for keel options, since the yellow marker is the design center of mass and nothing else
-in an order changes it.
-
-Furling a sail after you have started an order moves the live marker and not the ghost,
-because furling is not part of the order but the ring reads sails as rigged. If the ghost
-seems to show a change you did not order, that is usually why.
-
 ## Sail forces
 
 The pink arrow button draws an arrow at each sail's center of effort, showing the force that

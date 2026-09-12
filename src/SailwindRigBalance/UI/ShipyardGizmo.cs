@@ -192,35 +192,6 @@ namespace SailwindRigBalance.UI
 
         private readonly BalanceRing _ring = new BalanceRing();
 
-        // ------------------------------------------------------------------ ghost markers
-        //
-        // Faded copies of two markers where they stand on the boat as owned, while an order is
-        // pending. Without them, judging an order meant remembering where the ball had been.
-        // "As owned" is the game's own snapshot, taken whenever the shipyard resets the order;
-        // see ShipyardHooks.OrderResets and TrackBaseline.
-        private const int GhostEffort = 0, GhostMass = 1, GhostCount = 2;
-        private readonly GameObject[] _ghosts = new GameObject[GhostCount];
-        private readonly Material[] _ghostMaterials = new Material[GhostCount];
-        private readonly Texture2D[] _ghostTextures = new Texture2D[GhostCount];
-        private readonly Vector3[] _ghostLocal = new Vector3[GhostCount];
-        private readonly bool[] _ghostShown = new bool[GhostCount];
-        private LineRenderer _drift;
-        private Material _driftMaterial;
-
-        /// <summary>The as-owned rig's sweep. Null until one has been measured for this order.</summary>
-        private RingSweep _baseline;
-        private Vector3 _baselineMass;
-        private bool _baselineMassValid;
-        private int _seenOrderResets = -1;
-        private int _lastSweepSeen = -1;
-
-        // What was true when the most recent ring sweep started, to judge it by when it finishes.
-        private int _sweepStartedSerial = -1;
-        private int _sweepStartedResets = -1;
-
-        /// <summary>The as-owned helm reading at the arrow's angle, for the line under the strip.</summary>
-        private string _ghostLine;
-
         // ------------------------------------------------------------------ sail force arrows
         //
         // One arrow per drawing sail, at its center of effort, showing the horizontal force it makes
@@ -243,12 +214,6 @@ namespace SailwindRigBalance.UI
             new Keyframe(0.7201f, 1f, 0f, -3.573f),
             new Keyframe(1f, 0f, -3.573f, 0f));
 
-        /// <summary>
-        /// How far the live marker has to have moved before a ghost is drawn. Below this the two
-        /// overlap anyway, and a ghost that appears for a few centimeters of interpolation noise
-        /// would say an order moved something when it did not.
-        /// </summary>
-        private const float GhostThresholdMeters = 0.05f;
 
         private Transform _boat;
         private Camera _overlay, _source;
@@ -556,15 +521,12 @@ namespace SailwindRigBalance.UI
             // A finished sweep establishes how much output this rig is capable of, which is what the
             // markers measure "no verdict" against. Re-color them against it. This does not restart
             // the sweep: the ring is only rebuilt when the RIG changed, and this is not that.
-            AdoptBaselineIfOwned();
-
             if (_ring.ConsumeSweepCompleted() && _rebuildAt < 0f)
             {
                 _rebuildAt = Time.unscaledTime;
                 ShipyardHooks.NoteReason("sweep finished");
             }
 
-            PlaceGhosts(eye, facing);
             PlaceForces(eye);
 
             if (_track != null && _track.enabled)
@@ -658,8 +620,6 @@ namespace SailwindRigBalance.UI
             _local[Resistance] = _boat.InverseTransformPoint(balance.HullOrigin);
             _local[Mass] = _boat.InverseTransformPoint(centerOfMass);
 
-            TrackBaseline();
-
             // The ring is a sweep of every wind angle, so its colors do not depend on where the
             // arrow points. Rebuilding it while the arrow is being dragged was doing thirteen full
             // rig evaluations per frame on top of the two the markers need, which is what dropped
@@ -679,8 +639,6 @@ namespace SailwindRigBalance.UI
                     _ringMaterial, _layer, _root == null ? null : _root.transform);
                 _ringNeedsRebuild = false;
 
-                _sweepStartedSerial = _ring.SweepSerial;
-                _sweepStartedResets = ShipyardHooks.OrderResets;
             }
 
             _helmDead = BalanceRing.IsDead(balance, _ring.MaxOutput);
@@ -690,7 +648,6 @@ namespace SailwindRigBalance.UI
             Repaint(Effort, _unreliable ? UnreliableColor : EffortColor);
             UpdateLinkColor();
             UpdateTrack(boat, balance);
-            UpdateGhosts();
             UpdateForces(balance);
 
             SetValid(true);
@@ -1047,234 +1004,11 @@ namespace SailwindRigBalance.UI
             }
             if (_link != null) _link.enabled = valid && _visible[Effort] && _visible[Resistance];
             if (_track != null) _track.enabled = valid && _trackValid && _visible[Effort];
-            for (int i = 0; i < GhostCount; i++)
-                if (_ghosts[i] != null) _ghosts[i].SetActive(valid && _ghostShown[i]);
-            if (_drift != null) _drift.enabled = valid && _ghostShown[GhostEffort] && _visible[Effort];
             if (!valid)
                 foreach (LineRenderer arrow in _forceArrows)
                     if (arrow != null) arrow.enabled = false;
             _ring.SetVisible(valid && (Config.Settings.ShowRing == null || Config.Settings.ShowRing.Value));
             if (_overlay != null && !valid) _overlay.enabled = false;
-        }
-
-        /// <summary>
-        /// Keeps the as-owned center of mass current, and forgets the as-owned sweep whenever the
-        /// shipyard takes a new original. Called from Recompute once the live markers are placed.
-        ///
-        /// The center of mass is refreshed on every reading while nothing has been edited since the
-        /// reset, and frozen from the first edit on. It needs no sweep: it does not depend on the
-        /// wind, and the keel and parts it does depend on are part of the order.
-        /// </summary>
-        private void TrackBaseline()
-        {
-            if (ShipyardHooks.OrderResets != _seenOrderResets)
-            {
-                _seenOrderResets = ShipyardHooks.OrderResets;
-                _baseline = null;
-                _baselineMassValid = false;
-            }
-
-            if (ShipyardHooks.EditsSinceReset == 0)
-            {
-                _baselineMass = _local[Mass];
-                _baselineMassValid = true;
-            }
-        }
-
-        /// <summary>
-        /// Takes a freshly finished sweep as the as-owned rig if it was measured wholly on the boat
-        /// as owned: started after the latest order reset, with no edit since. That keeps being true
-        /// through the sweeps that follow admitting a boat (the settle, a furl, the ring being shown)
-        /// so the baseline follows them, and stops being true at the first edit, which freezes it.
-        ///
-        /// A sweep interrupted by an edit is never taken. The ring abandons it and starts again, and
-        /// the one that finishes was started after the edit, so it fails the test and the baseline
-        /// stays with the last sweep of the rig as owned.
-        /// </summary>
-        private void AdoptBaselineIfOwned()
-        {
-            RingSweep sweep = _ring.LastSweep;
-            if (sweep == null || sweep.Serial == _lastSweepSeen) return;
-            _lastSweepSeen = sweep.Serial;
-
-            if (sweep.Serial != _sweepStartedSerial) return;
-            if (_sweepStartedResets != ShipyardHooks.OrderResets) return;
-            if (ShipyardHooks.EditsSinceReset != 0) return;
-
-            bool first = _baseline == null;
-            _baseline = sweep;
-            if (first) Plugin.Log.LogInfo("[Gizmo] measured the rig as owned; ghost markers will show "
-                + "where an order moves the balance.");
-        }
-
-        /// <summary>
-        /// Decides which ghosts to draw for the current reading, and the as-owned helm line.
-        ///
-        /// The center-of-effort ghost compares like with like: the as-owned sweep and the live sweep
-        /// read at the same angle by the same interpolation, so an unchanged rig compares equal and
-        /// no ghost appears for the interpolation's own error. The ghost is then drawn
-        /// at the as-owned reading, which is exact at the ring's bearings and close between them.
-        /// </summary>
-        private void UpdateGhosts()
-        {
-            for (int i = 0; i < GhostCount; i++) _ghostShown[i] = false;
-            _ghostLine = null;
-            _ring.ShowGhost(null);
-
-            bool wanted = Config.Settings.ShowGhost == null || Config.Settings.ShowGhost.Value;
-            if (!wanted) return;
-
-            bool ringOn = Config.Settings.ShowRing == null || Config.Settings.ShowRing.Value;
-            RingSweep live = _ring.LastSweep;
-
-            // The whole as-owned ring, just inside the live one, whenever the order changes
-            // anything the ring can show. Independent of the angle, unlike the ball.
-            if (ringOn && _baseline != null && live != null && _baseline.Serial != live.Serial
-                && !_baseline.SameAs(live))
-                _ring.ShowGhost(_baseline);
-
-            if (ringOn && _visible[Effort] && _baseline != null && live != null
-                && _baseline.Serial != live.Serial)
-            {
-                Vector3 owned, now;
-                float ownedHelm, nowHelm;
-                bool ownedMeaningful, nowMeaningful;
-                float angle = WindAngleDegrees;
-
-                if (_baseline.TryAt(angle, out owned, out ownedHelm, out ownedMeaningful))
-                {
-                    bool nowOk = live.TryAt(angle, out now, out nowHelm, out nowMeaningful);
-                    if (!nowOk || (owned - now).magnitude > GhostThresholdMeters)
-                    {
-                        _ghostShown[GhostEffort] = true;
-                        _ghostLocal[GhostEffort] = owned;
-                        _ghostLine = "Before this order: " + (ownedMeaningful
-                            ? DescribeHelm(ownedHelm)
-                            : "no helm reading at this angle");
-                    }
-                }
-            }
-
-            if (_visible[Mass] && _baselineMassValid
-                && (_local[Mass] - _baselineMass).magnitude > GhostThresholdMeters)
-            {
-                _ghostShown[GhostMass] = true;
-                _ghostLocal[GhostMass] = _baselineMass;
-            }
-        }
-
-        private string DescribeHelm(float helmMeters)
-        {
-            if (Mathf.Abs(helmMeters) < _balancedMeters) return "balanced";
-            return $"{Mathf.Abs(helmMeters):F2} m of {(helmMeters > 0f ? "weather" : "lee")} helm";
-        }
-
-        /// <summary>
-        /// Positions the ghosts and the drift line. Smaller than the live markers, so where the two
-        /// nearly coincide the live one still reads as the one on top.
-        /// </summary>
-        private void PlaceGhosts(Vector3 eye, Quaternion facing)
-        {
-            for (int i = 0; i < GhostCount; i++)
-            {
-                if (_ghosts[i] == null || !_ghosts[i].activeSelf) continue;
-
-                Vector3 world = _boat.TransformPoint(_ghostLocal[i]);
-                Transform t = _ghosts[i].transform;
-                t.position = world;
-                t.rotation = facing;
-                t.localScale = Vector3.one * MarkerSize(eye, world) * 0.8f;
-            }
-
-            if (_drift != null && _drift.enabled)
-            {
-                Vector3 from = _boat.TransformPoint(_ghostLocal[GhostEffort]);
-                Vector3 to = _boat.TransformPoint(_local[Effort]);
-                _drift.SetPosition(0, from);
-                _drift.SetPosition(1, to);
-
-                float width = MarkerSize(eye, (from + to) * 0.5f) * 0.05f;
-                _drift.startWidth = width;
-                _drift.endWidth = width;
-            }
-        }
-
-        private void MakeGhost(int index, string name, Color color)
-        {
-            try
-            {
-                var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
-                go.name = name;
-
-                var collider = go.GetComponent<Collider>();
-                if (collider != null) Destroy(collider);
-
-                go.layer = _layer;
-                go.transform.SetParent(_root.transform, false);
-                go.SetActive(false);
-
-                var renderer = go.GetComponent<Renderer>();
-                if (renderer != null)
-                {
-                    _ghostTextures[index] = MakeGhostTexture(color);
-                    _ghostMaterials[index] = MakeMaterial(_ghostTextures[index]);
-                    renderer.material = _ghostMaterials[index];
-                    renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                    renderer.receiveShadows = false;
-                    renderer.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
-                    renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-                }
-
-                _ghosts[index] = go;
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogWarning($"[Gizmo] ghost '{name}' failed: {e.Message}");
-                _ghosts[index] = null;
-            }
-        }
-
-        /// <summary>The marker's own ball at a third of its opacity.</summary>
-        private static Texture2D MakeGhostTexture(Color color)
-        {
-            Texture2D tex = MakeBallTexture(color);
-            Color32[] pixels = tex.GetPixels32();
-            for (int i = 0; i < pixels.Length; i++)
-                pixels[i].a = (byte)(pixels[i].a * 0.35f);
-            tex.SetPixels32(pixels);
-            tex.Apply(false, false);
-            return tex;
-        }
-
-        private void MakeDrift()
-        {
-            try
-            {
-                var go = new GameObject("GhostDrift");
-                go.layer = _layer;
-                go.transform.SetParent(_root.transform, false);
-
-                _drift = go.AddComponent<LineRenderer>();
-                _drift.useWorldSpace = true;
-                _drift.positionCount = 2;
-                _drift.numCapVertices = 2;
-                _drift.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                _drift.receiveShadows = false;
-                _drift.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
-                _drift.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-
-                _driftMaterial = MakeMaterial(_linkTexture);
-                _drift.material = _driftMaterial;
-                var faded = new Color(EffortColor.r, EffortColor.g, EffortColor.b, 0.45f);
-                _drift.startColor = faded;
-                _drift.endColor = faded;
-                _drift.enabled = false;
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogWarning("[Gizmo] ghost drift line failed: " + e.Message);
-                _drift = null;
-            }
         }
 
         /// <summary>
@@ -1526,12 +1260,8 @@ namespace SailwindRigBalance.UI
             MakeMarker(Resistance, "CenterOfLateralResistance", ResistanceColor);
             MakeMarker(Mass, "CenterOfMass", MassColor);
 
-            MakeGhost(GhostEffort, "GhostCenterOfEffort", EffortColor);
-            MakeGhost(GhostMass, "GhostCenterOfMass", MassColor);
-
             MakeLink();
             MakeTrack();
-            MakeDrift();
             MakeRingMaterial();
             MakeOverlayCamera();
         }
@@ -2079,30 +1809,11 @@ namespace SailwindRigBalance.UI
             // reclaimed by nothing short of a scene unload.
             DestroyMaterial(ref _linkMaterial);
             DestroyMaterial(ref _trackMaterial);
-            DestroyMaterial(ref _driftMaterial);
-            _drift = null;
             DestroyMaterial(ref _forceMaterial);
             _forceArrows.Clear();
             _forceFrom.Clear();
             _forceTo.Clear();
 
-            for (int i = 0; i < GhostCount; i++)
-            {
-                _ghosts[i] = null;
-                _ghostShown[i] = false;
-                if (_ghostMaterials[i] != null) Destroy(_ghostMaterials[i]);
-                _ghostMaterials[i] = null;
-                if (_ghostTextures[i] != null) Destroy(_ghostTextures[i]);
-                _ghostTextures[i] = null;
-            }
-
-            _baseline = null;
-            _baselineMassValid = false;
-            _seenOrderResets = -1;
-            _lastSweepSeen = -1;
-            _sweepStartedSerial = -1;
-            _sweepStartedResets = -1;
-            _ghostLine = null;
             DestroyMaterial(ref _ringMaterial);
 
             for (int i = 0; i < _markers.Length; i++)
@@ -2280,11 +1991,6 @@ namespace SailwindRigBalance.UI
                 ? "A sail's center of effort does not follow its size. The magenta marker is unreliable."
                 : (hoverReady ? _hoverTracked : null);
 
-            // The as-owned helm, whenever the ghost is up. Under the other note rather than instead
-            // of it: a hover hint is asked for, and this is the answer to a question already asked.
-            if (!string.IsNullOrEmpty(_ghostLine))
-                note = string.IsNullOrEmpty(note) ? _ghostLine : note + "\n" + _ghostLine;
-
             if (string.IsNullOrEmpty(note)) return;
 
             // One line, box sized to the line. Measured with wrapping OFF, because CalcSize on a
@@ -2433,10 +2139,6 @@ namespace SailwindRigBalance.UI
             if (_markers[index] != null) _markers[index].SetActive(_visible[index]);
             if (_link != null) _link.enabled = _visible[Effort] && _visible[Resistance];
 
-            // A hidden marker takes its ghost with it now, not at the next reading.
-            UpdateGhosts();
-            SetValid(_valid);
-
             ConfigEntry<bool> entry = VisibilityEntry(index);
             if (entry != null) entry.Value = _visible[index];
         }
@@ -2481,9 +2183,6 @@ namespace SailwindRigBalance.UI
             {
                 _ring.SetVisible(false);
 
-                // The center-of-effort ghost is read from the ring's sweeps, so it goes with it.
-                UpdateGhosts();
-                SetValid(_valid);
             }
         }
 

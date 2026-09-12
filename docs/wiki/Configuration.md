@@ -13,14 +13,11 @@ shipyard: marker visibility is re-read on every shipyard visit.
 | `ShowCenterOfMass` | `true` | the yellow marker |
 | `ShowReefTrack` | `true` | with a sail selected, where the center of effort would go if you furled it |
 | `ShowBalanceRing` | `true` | the ring showing the helm at every point of sail |
-| `ShowGhostMarkers` | `true` | faded markers and ring for the rig as owned, while an order is pending |
 | `ShowSailForces` | `false` | an arrow for each sail's force at the wind arrow's angle |
 | `ShowWindStreaks` | `true` | streaks showing the arrow's wind direction for a few seconds after it moves |
 
-The three markers, the ring and the sail forces are also buttons in game. Clicking a button writes the
-setting, so a marker you hide stays hidden next session. Hiding a marker hides its ghost
-too, and the center-of-effort ghost needs the ring on, because it is read from the ring's
-sweep.
+The three markers, the ring and the sail forces are also buttons in game. Clicking a
+button writes the setting, so a marker you hide stays hidden next session.
 
 ## Interface
 
