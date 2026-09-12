@@ -1260,10 +1260,20 @@ namespace SailwindRigBalance.Core
                     : " The fitted parts do not change it.";
             }
 
+            string byName = "";
+            foreach (Collider collider in colliders)
+            {
+                if (collider == null || collider.isTrigger || !NamedAsRig(collider)) continue;
+                if (collider.GetComponentInParent<Sail>() != null) continue;
+                if (collider.GetComponentInParent<Mast>() != null) continue;
+                byName += (byName.Length == 0 ? " Set aside by name: '" : ", '") + NameOf(collider, boat);
+            }
+            if (byName.Length > 0) byName += ".";
+
             Plugin.Log.LogInfo($"[RigModel] hull {span.Length:F1} m, measured from {basis}: bow "
                 + $"'{NameOf(span.Bow, boat)} at {span.BowZ:F1} m, stern '{NameOf(span.Stern, boat)} "
                 + $"at {span.SternZ:F1} m, top '{NameOf(span.Top, boat)} at {span.TopY:F1} m above "
-                + "the root." + withParts);
+                + "the root." + withParts + byName);
         }
 
         /// <summary>
@@ -1451,7 +1461,44 @@ namespace SailwindRigBalance.Core
             if (collider.gameObject.layer == 24) return true;
             if (collider.GetComponentInParent<Sail>() != null) return true;
             if (collider.GetComponentInParent<Mast>() != null) return true;
-            return IsUnder(collider.transform, mastWalkCols);
+            if (IsUnder(collider.transform, mastWalkCols)) return true;
+            return NamedAsRig(collider);
+        }
+
+        /// <summary>
+        /// Rig words a collider's own name may carry. The last resort, and it exists because the
+        /// measurement asked the log what was topping the junk's hull box and the answer was
+        /// 'medi medium new/structure_container/sail capsule col', a solid capsule 20.4 m up. It
+        /// hangs off the hull container rather than off a sail or a mast, so parentage does not
+        /// catch it, and nothing else about it separates it from hull either: it sits on layer 0,
+        /// Default, which half the game shares, and its being a capsule means nothing because some
+        /// hulls have a genuine capsule of their own (BoatDamage takes one off the boat root).
+        ///
+        /// Its name is the only thing that distinguishes it, so the name is what is used, and every
+        /// collider set aside this way is named in the log so a wrong guess is visible rather than
+        /// silent. Matched on the collider's own name and its parent's, both lowercased.
+        /// </summary>
+        private static readonly string[] RigWords = { "sail", "mast", "spar", "boom", "gaff" };
+
+        internal static bool NamedAsRig(Collider collider)
+        {
+            if (collider == null) return false;
+
+            if (NameCarriesRigWord(collider.transform.name)) return true;
+
+            Transform parent = collider.transform.parent;
+            return parent != null && NameCarriesRigWord(parent.name);
+        }
+
+        private static bool NameCarriesRigWord(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+
+            string lowered = name.ToLowerInvariant();
+            foreach (string word in RigWords)
+                if (lowered.Contains(word)) return true;
+
+            return false;
         }
 
         /// <summary>True if the transform is one of the roots or anywhere beneath one.</summary>

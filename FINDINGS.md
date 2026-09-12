@@ -1081,3 +1081,34 @@ change with half a degree of hysteresis, because the amplifier in this whole sto
 invisible on screen: a boat two degrees down by the head looks level in a shipyard that
 is itself built on a slope. The next log of this shape says whether the offset is still
 growing, and if it is, by how much and along which axis.
+
+## 17. Rig geometry has hidden from the hull measurement three times
+
+The hull length is measured by walking every solid collider on the boat, dropping the rig and
+taking the fore-and-aft span. It sizes the ring and scales the balanced band, so counting
+something that is not hull is not cosmetic. Three different pieces of rig have now been
+counted, each hiding somewhere the previous filter did not look.
+
+**A staysail's shadow mesh.** `SailShadowCol.Awake` leaves it a NON-trigger collider for
+staysails only (`SailShadowCol.cs:21-24`), so every jib's shadow hung solid off the bowsprit,
+ahead of the stem. Counted, it grew the measured hull, which widened the balanced band at the
+moment the player added the sails most likely to unbalance the rig. Caught by layer: 24.
+
+**A mast's walking surface.** `Mast.walkColMast` is a reference INTO the boat's separate
+walk-collider hierarchy, registered from the far end at `Mast.cs:195`, so
+`GetComponentInParent<Mast>` on it returns null. Solid, as tall as the mast, moved and
+rescaled by every mast edit. Caught by collecting the references and walking parents.
+
+**A sail capsule on the hull container.** Found by asking the log rather than by reading:
+the junk's measured box was topped by `medi medium new/structure_container/sail capsule col`,
+a solid capsule 20.4 m above the root. Nothing structural separates it from hull. It is on
+layer 0, Default, which half the game shares, where the real hull mesh is on layer 2, Ignore
+Raycast. Its being a capsule means nothing either, because `BoatDamage` takes a genuine
+capsule off the boat root (`BoatDamage.cs:64`), so excluding capsules would drop real hull on
+some boats. Only its name distinguishes it, so the name is what is matched, and every
+collider set aside that way is named in the log so a wrong guess shows up instead of
+silently shortening a hull.
+
+The lesson for the next one is the measurement's own honesty: it logged what set each end of
+the box, and the answer was in the first line of the first log that carried it. Before that
+the same question had been guessed at twice.
