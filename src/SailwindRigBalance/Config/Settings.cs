@@ -26,7 +26,6 @@ namespace SailwindRigBalance.Config
         public static ConfigEntry<bool> ShowReefTrack { get; private set; }
         public static ConfigEntry<bool> ShowRing { get; private set; }
         public static ConfigEntry<bool> ShowSailForces { get; private set; }
-        public static ConfigEntry<bool> ShowWindStreaks { get; private set; }
         public static ConfigEntry<bool> ShowPanel { get; private set; }
         public static ConfigEntry<bool> DrawThroughHull { get; private set; }
         public static ConfigEntry<float> MarkerScale { get; private set; }
@@ -65,11 +64,6 @@ namespace SailwindRigBalance.Config
                 + "wind arrow's angle, trimmed for best drive, in the horizontal plane that decides "
                 + "the helm. The longest arrow is the sail pulling hardest. Shows why the center of "
                 + "effort sits where it does. Also a button on the strip.");
-
-            ShowWindStreaks = config.Bind("Markers", "ShowWindStreaks", true,
-                "Faint streaks drifting across the ring in the wind arrow's direction, for a few "
-                + "seconds on arriving in the yard and whenever the arrow is moved. They show which "
-                + "way the arrow's wind is blowing.");
 
             ShowPanel = config.Bind("Interface", "ShowPanel", true,
                 "Show the button strip. Turn this off to keep the markers with no interface at all.");

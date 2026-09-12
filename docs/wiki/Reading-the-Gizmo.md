@@ -111,14 +111,6 @@ drags it toward itself. A large jib on a reach, for example, can pull the center
 well forward of where the canvas alone would put it. Swing the wind arrow and watch the
 arrows change length to see why the marker moves.
 
-## Wind streaks
-
-For a few seconds after you arrive and whenever you move the wind arrow, faint streaks drift
-across the ring in the arrow's wind, from the side the wind comes from to the side it blows
-toward. The arrow sits on the ring where the wind comes from and points the way the air
-moves; the streaks show the same thing in motion. They are the arrow's wind, not the weather
-outside, and they fade out on their own. `ShowWindStreaks` turns them off.
-
 ## The yellow marker
 
 The center of mass behaves differently from the other two, and it is worth knowing why.

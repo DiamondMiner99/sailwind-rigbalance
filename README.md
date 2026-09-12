@@ -22,7 +22,6 @@ markers, for a boat.
 - **A balance ring** - a rose around the boat showing what the helm would do at every point of sail at once, not just the one you are looking at
 - **Live** - swap, resize or move a sail and the markers follow, before you confirm the order
 - **Sail forces** - a button that draws each sail's pull as an arrow, so you can see which sail is doing the work and why the center of effort sits where it does
-- **Wind streaks** - faint lines drift across the ring to show which way the arrow's wind blows
 - **Measured, not tabulated** - every center of effort comes from the sail's actual geometry driven through the game's own force function, never a per-sail-type constant
 - **Visible through the hull and at night** - two of the three markers sit inside the boat, and unlit markers hold their color after dark
 - **Shipyard Expansion support** - resized sails, rotated spars, sails on stays, and SE's own keel options
@@ -113,7 +112,6 @@ balances. It does respond to a keel or ballast option where a hull has one.
 | `ShowReefTrack` | true | where the center of effort would go if you furled the selected sail |
 | `ShowBalanceRing` | true | the rose showing every point of sail at once |
 | `ShowSailForces` | false | an arrow for each sail's force at the wind arrow's angle (also a button) |
-| `ShowWindStreaks` | true | streaks showing the arrow's wind direction for a few seconds after it moves |
 | `ShowPanel` | true | the button strip |
 | `DrawThroughHull` | true | draw markers on top of the boat |
 | `MarkerScale` | 1.0 | marker size multiplier |

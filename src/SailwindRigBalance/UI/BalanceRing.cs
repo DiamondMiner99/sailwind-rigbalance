@@ -92,18 +92,6 @@ namespace SailwindRigBalance.UI
         private float _radius = 10f;
 
 
-        // Wind streaks. See AnimateStreaks.
-        private const int StreakCount = 18;
-        private const float StreakSeconds = 6f;
-        private GameObject _streakGo;
-        private readonly LineRenderer[] _streaks = new LineRenderer[StreakCount];
-        private readonly float[] _streakLateral = new float[StreakCount];
-        private readonly float[] _streakPhase = new float[StreakCount];
-        private readonly float[] _streakHeight = new float[StreakCount];
-        private readonly System.Random _streakRandom = new System.Random(20260911);
-        private float _streakUntil;
-        private float _streakFade;
-        private float _streakAngle = float.NaN;
 
         private GameObject _arrowGo;
         private Mesh _arrowMesh;
@@ -157,10 +145,6 @@ namespace SailwindRigBalance.UI
             if (_mesh != null) UnityEngine.Object.Destroy(_mesh);
             if (_go != null) UnityEngine.Object.Destroy(_go);
             if (_arrowMesh != null) UnityEngine.Object.Destroy(_arrowMesh);
-            _streakGo = null;
-            for (int i = 0; i < StreakCount; i++) _streaks[i] = null;
-            _streakFade = 0f;
-            _streakAngle = float.NaN;
             if (_arrowGo != null) UnityEngine.Object.Destroy(_arrowGo);
             _mesh = null;
             _go = null;
@@ -200,7 +184,6 @@ namespace SailwindRigBalance.UI
             if (_arrowGo != null)
                 _arrowGo.transform.SetPositionAndRotation(_go.transform.position, _go.transform.rotation);
 
-            if (_go.activeSelf) AnimateStreaks();
         }
 
         /// <summary>
@@ -974,139 +957,8 @@ namespace SailwindRigBalance.UI
             _arrowMesh = new Mesh { name = "WindArrowMesh" };
             _arrowMesh.MarkDynamic();
             arrowFilter.sharedMesh = _arrowMesh;
-
-            _streakGo = new GameObject("WindStreaks");
-            _streakGo.layer = layer;
-            _streakGo.transform.SetParent(_go.transform, false);
-            for (int i = 0; i < StreakCount; i++)
-            {
-                var go = new GameObject("Streak");
-                go.layer = layer;
-                go.transform.SetParent(_streakGo.transform, false);
-
-                var line = go.AddComponent<LineRenderer>();
-                line.useWorldSpace = false;
-                line.positionCount = 2;
-                line.numCapVertices = 2;
-                line.sharedMaterial = material;
-                line.sortingOrder = 2;
-                line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                line.receiveShadows = false;
-                line.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
-                line.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-                _streaks[i] = line;
-
-                // Spread along the path from the start, so they do not all enter together.
-                RespawnStreak(i, (float)_streakRandom.NextDouble());
-            }
-            _streakGo.SetActive(false);
-
-            // Shown on arriving in the yard, then left to fade. See AnimateStreaks.
-            _streakUntil = Time.unscaledTime + StreakSeconds;
         }
 
-        private void RespawnStreak(int i, float phase)
-        {
-            _streakLateral[i] = (float)(_streakRandom.NextDouble() * 1.8 - 0.9);
-            _streakHeight[i] = (float)_streakRandom.NextDouble();
-            _streakPhase[i] = phase;
-        }
-
-        /// <summary>
-        /// Faint lines drifting across the ring in the arrow's wind, the synthetic one the ring is
-        /// evaluated in, never the weather outside.
-        ///
-        /// They settle which way the arrow means. A static arrow is ambiguous by nature: a player
-        /// asked for it to point into the wind like a weather vane, which is a real convention, and
-        /// the arrow's current one, pointing the way the air moves as a weather map does, is a real
-        /// convention too. Flipping it would only move the confusion to the other half of the
-        /// players. Moving lines have no second reading.
-        ///
-        /// Shown on arrival and whenever the arrow moves, then faded out after a few seconds, so
-        /// they explain the arrow and then get out of the way of the markers. Streaks stay inside
-        /// the ring's circle, travel from the upwind side to the downwind side at a steady pace,
-        /// and fade in and out along the way so nothing pops.
-        /// </summary>
-        private void AnimateStreaks()
-        {
-            if (_streakGo == null) return;
-
-            bool wanted = Config.Settings.ShowWindStreaks == null || Config.Settings.ShowWindStreaks.Value;
-
-            if (!Mathf.Approximately(_streakAngle, WindAngle) || _dragging)
-            {
-                _streakAngle = WindAngle;
-                _streakUntil = Time.unscaledTime + StreakSeconds;
-            }
-
-            float dt = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
-            float target = wanted && Time.unscaledTime < _streakUntil ? 1f : 0f;
-            _streakFade = Mathf.MoveTowards(_streakFade, target, dt / 0.8f);
-
-            if (_streakFade <= 0f)
-            {
-                if (_streakGo.activeSelf) _streakGo.SetActive(false);
-                return;
-            }
-            if (!_streakGo.activeSelf) _streakGo.SetActive(true);
-
-            float rad = WindAngle * Mathf.Deg2Rad;
-            Vector3 upwind = new Vector3(-Mathf.Sin(rad), 0f, Mathf.Cos(rad));
-            Vector3 across = Vector3.Cross(Vector3.up, upwind).normalized;
-
-            float speed = _radius * 0.35f;
-            float length = _radius * 0.14f;
-            float width = Mathf.Max(_radius * 0.008f, 0.05f);
-            float top = _radius * 0.5f;
-
-            for (int i = 0; i < StreakCount; i++)
-            {
-                LineRenderer line = _streaks[i];
-                if (line == null) continue;
-
-                float lateral = _streakLateral[i];
-                float halfChord = _radius * Mathf.Sqrt(Mathf.Max(0.0001f, 1f - lateral * lateral));
-
-                _streakPhase[i] += dt * speed / (2f * halfChord);
-                if (_streakPhase[i] >= 1f)
-                {
-                    RespawnStreak(i, 0f);
-                    lateral = _streakLateral[i];
-                    halfChord = _radius * Mathf.Sqrt(Mathf.Max(0.0001f, 1f - lateral * lateral));
-                }
-
-                float phase = _streakPhase[i];
-                Vector3 head = across * (lateral * _radius)
-                    + upwind * (halfChord - 2f * halfChord * phase)
-                    + Vector3.up * (0.5f + _streakHeight[i] * top);
-                Vector3 tail = head + upwind * length;
-
-                line.SetPosition(0, tail);
-                line.SetPosition(1, head);
-                line.startWidth = width;
-                line.endWidth = width;
-
-                float alpha = 0.45f * _streakFade * Mathf.Sin(Mathf.PI * phase);
-                line.startColor = new Color(0.92f, 0.96f, 1f, 0f);
-                line.endColor = new Color(0.92f, 0.96f, 1f, alpha);
-            }
-        }
-
-        /// <summary>
-        /// One quad per drawn segment, each edge carrying the color interpolated for its own
-        /// bearing, so the hardware washes the color along the ring instead of stepping it.
-        ///
-        /// The quads used to be flat, deliberately, so that neighboring verdicts could not blend.
-        /// That was the right call while a verdict was one of three colors and blending two of them
-        /// would have invented a fourth. It stopped being right when the color became a continuous
-        /// function of the helm: with a ramp, the value between two sampled bearings really is
-        /// between the two, and drawing it as a hard step is the lie. Twenty four flat bands also
-        /// hid the magnitude entirely, so a rig just outside the band and a rig hopelessly outside
-        /// it looked identical.
-        ///
-        /// At 72 quads that is 288 vertices, which is still nothing, and the sampling cost is
-        /// unchanged because geometry and evaluation are now separate numbers.
-        /// </summary>
         private void BuildMesh(float radius, float band, Color[] colors)
         {
             FillRing(_mesh, radius, band, colors);
