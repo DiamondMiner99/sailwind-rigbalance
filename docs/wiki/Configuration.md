@@ -24,11 +24,8 @@ button writes the setting, so a marker you hide stays hidden next session.
 | setting | default | what it does |
 | --- | --- | --- |
 | `ShowPanel` | `true` | the button strip |
-| `PanelPosition` | unset | where the strip sits |
 
-Turn `ShowPanel` off for markers and nothing else. `PanelPosition` is written whenever you
-drag the strip; a negative value means unset, which puts it in the top right corner. Delete
-the line to reset it.
+Turn `ShowPanel` off for markers and nothing else. The strip sits in the top right corner.
 
 ## Rendering
 
@@ -52,16 +49,17 @@ Markers already scale with camera distance to hold a roughly constant size on sc
 | setting | default | what it does |
 | --- | --- | --- |
 | `WindAngleDegrees` | `45` | apparent wind angle used to judge the rig, 20 to 150 |
-| `BalancedThresholdMeters` | `0.3` | how far off center still reads as balanced, 0.05 to 3 |
+| `BalancedThresholdFraction` | `0.02` | how far off center reads as balanced, as a fraction of hull length, 0.002 to 0.15 |
 
 `WindAngleDegrees` is 45, close hauled, because that is where balance bites. Raise it
 toward 90 to judge a beam reach. Push it much past 120 and there is barely any side force
 left to balance, so everything will read as neutral. This is a judgement about where
 balance matters, not a physical constant, which is why it is exposed.
 
-`BalancedThresholdMeters` is the green band on the link. Inside it the rig reads as
-balanced; outside, the link takes a helm color. Raise it if you want a more forgiving
-verdict, lower it if you want to tune a rig finely.
+`BalancedThresholdFraction` is the green band on the link, as a fraction of the hull's
+length, so one setting suits a small boat and a brig. At the default of 0.02 a 30 m hull gets
+a 0.6 m band. Inside it the rig reads as balanced; outside, the link takes a helm color.
+Raise it if you want a more forgiving verdict, lower it if you want to tune a rig finely.
 
 ## What is not configurable
 
