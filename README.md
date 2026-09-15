@@ -21,7 +21,7 @@ markers, for a boat.
 - **A helm verdict at a glance** - a colored link between two of them: blue for weather helm, red for lee helm, green for balanced, and the color deepens the further out of balance she is
 - **A balance ring** - a rose around the boat showing what the helm would do at every point of sail at once, not just the one you are looking at
 - **Live** - swap, resize or move a sail and the markers follow, before you confirm the order
-- **Sail forces** - a button that draws each sail's pull as an arrow with its share of the rig's force written beside it, so you can see which sail is doing the work and why the center of effort sits where it does
+- **Sail forces** - a button that draws each sail's pull as an arrow with its force written beside it, in kN or as a share of the rig, so you can see which sail is doing the work and why the center of effort sits where it does
 - **Measured, not tabulated** - every center of effort comes from the sail's actual geometry driven through the game's own force function, never a per-sail-type constant
 - **Visible through the hull and at night** - two of the three markers sit inside the boat, and unlit markers hold their color after dark
 - **Shipyard Expansion support** - resized sails, rotated spars, sails on stays, and SE's own keel options
@@ -112,6 +112,7 @@ balances. It does respond to a keel or ballast option where a hull has one.
 | `ShowReefTrack` | true | where the center of effort would go if you furled the selected sail |
 | `ShowBalanceRing` | true | the rose showing every point of sail at once |
 | `ShowSailForces` | false | an arrow for each sail's force at the wind arrow's angle (also a button) |
+| `SailForceUnits` | Kilonewtons | whether the arrows' numbers are kN or percent (the button cycles it) |
 | `ShowPanel` | true | the button strip |
 | `DrawThroughHull` | true | draw markers on top of the boat |
 | `MarkerScale` | 1.0 | marker size multiplier |

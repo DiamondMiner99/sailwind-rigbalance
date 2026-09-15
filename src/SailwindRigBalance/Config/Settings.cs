@@ -18,6 +18,13 @@ namespace SailwindRigBalance.Config
     /// else in the shipyard can be dragged, so one thing that could read as belonging to a
     /// different program rather than to the game.
     /// </summary>
+    /// <summary>What the number beside each sail force arrow is written in.</summary>
+    public enum SailForceUnits
+    {
+        Kilonewtons,
+        Percent,
+    }
+
     public static class Settings
     {
         public static ConfigEntry<bool> ShowEffort { get; private set; }
@@ -26,6 +33,7 @@ namespace SailwindRigBalance.Config
         public static ConfigEntry<bool> ShowReefTrack { get; private set; }
         public static ConfigEntry<bool> ShowRing { get; private set; }
         public static ConfigEntry<bool> ShowSailForces { get; private set; }
+        public static ConfigEntry<SailForceUnits> SailForceUnit { get; private set; }
         public static ConfigEntry<bool> ShowPanel { get; private set; }
         public static ConfigEntry<bool> DrawThroughHull { get; private set; }
         public static ConfigEntry<float> MarkerScale { get; private set; }
@@ -62,9 +70,14 @@ namespace SailwindRigBalance.Config
             ShowSailForces = config.Bind("Markers", "ShowSailForces", false,
                 "Draw an arrow at each sail's center of effort showing the force it makes at the "
                 + "wind arrow's angle, trimmed for best drive, in the horizontal plane that decides "
-                + "the helm, with that sail's share of the rig's total force written beside it. The "
-                + "longest arrow is the sail pulling hardest. Shows why the center of effort sits "
-                + "where it does. Also a button on the strip.");
+                + "the helm, with the force written beside it. The longest arrow is the sail pulling "
+                + "hardest. Also a button on the strip, which cycles off, kN, percent.");
+
+            SailForceUnit = config.Bind("Markers", "SailForceUnits", SailForceUnits.Kilonewtons,
+                "How the number beside each sail force arrow is written. Kilonewtons is the sail's "
+                + "force in a 10 m/s (19 knot) apparent wind. Percent is that sail's share of all "
+                + "the sails' force added together, ignoring direction, so a rig adds up to 100. "
+                + "The strip's button sets this as it cycles.");
 
             ShowPanel = config.Bind("Interface", "ShowPanel", true,
                 "Show the button strip. Turn this off to keep the markers with no interface at all.");

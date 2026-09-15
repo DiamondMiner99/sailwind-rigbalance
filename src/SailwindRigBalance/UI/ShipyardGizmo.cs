@@ -207,6 +207,10 @@ namespace SailwindRigBalance.UI
         private readonly System.Collections.Generic.List<float> _forceShare
             = new System.Collections.Generic.List<float>();
 
+        /// <summary>Each drawn arrow's force, in newtons at the model's reference wind.</summary>
+        private readonly System.Collections.Generic.List<float> _forceNewtons
+            = new System.Collections.Generic.List<float>();
+
         /// <summary>
         /// Below this share an arrow keeps its arrow but loses its number. A fourteen-sail junk
         /// would otherwise carry fourteen labels, and the question the numbers answer is which
@@ -1028,9 +1032,9 @@ namespace SailwindRigBalance.UI
         /// <summary>
         /// Recomputes the sail force arrows from the current reading. Scaled so the sail pulling
         /// hardest gets an arrow a fifth of the hull long and every other arrow is in proportion,
-        /// because what the arrows are for is comparing sails with each other: which one is doing
-        /// the work, and which way it pulls. Absolute newtons at a synthetic wind speed would mean
-        /// nothing to anyone.
+        /// because what the arrow lengths are for is comparing sails with each other: which one is
+        /// pulling hardest, and which way. The absolute figure is written beside each head instead;
+        /// see DrawForceLabels.
         ///
         /// Horizontal only, side force along the boat's starboard axis and drive along its bow,
         /// because that is the plane the helm lives in. A sail too weak to see at this scale, under
@@ -1041,6 +1045,7 @@ namespace SailwindRigBalance.UI
             _forceFrom.Clear();
             _forceTo.Clear();
             _forceShare.Clear();
+            _forceNewtons.Clear();
 
             bool wanted = Config.Settings.ShowSailForces != null && Config.Settings.ShowSailForces.Value;
             if (!wanted || balance.Sails == null || balance.Sails.Count == 0) return;
@@ -1066,6 +1071,7 @@ namespace SailwindRigBalance.UI
                 _forceFrom.Add(c.Arm);
                 _forceTo.Add(c.Arm + force * scale);
                 _forceShare.Add(force.magnitude / total * 100f);
+                _forceNewtons.Add(force.magnitude);
             }
         }
 
@@ -1078,10 +1084,13 @@ namespace SailwindRigBalance.UI
         /// looks long, and comparing sails by eye means correcting for both. Text drawn in screen
         /// space is the same size wherever the sail is and whichever way it pulls.
         ///
-        /// A percentage and not a force. The model drives every sail with a synthetic wind whose
-        /// speed is a constant of this mod, and the force is proportional to it, so newtons would
-        /// be a figure of that constant rather than of the rig. A share is the same at any wind,
-        /// and it is what an arrow's length encodes, since the lengths are in proportion.
+        /// Written either as a force or as a share, chosen by the button's cycle. The force is in
+        /// kilonewtons at the model's own apparent wind, RigModel.SyntheticWindSpeed, 10 m/s: the
+        /// game's force is proportional to wind speed, so the figure is exact for that breeze and
+        /// scales with any other, and every sail's ratio to every other is the same at any wind.
+        /// The share is of all the sails' force added together, direction ignored, so a rig's
+        /// numbers add up to 100. Either way the unit is printed on the label, so the mode the
+        /// button was left in is never something the player has to remember.
         ///
         /// Placed a little past the head along the arrow, so the number never covers the point it
         /// labels, and skipped for any head behind the camera.
@@ -1107,7 +1116,11 @@ namespace SailwindRigBalance.UI
                 _forceLabelStyle.normal.background = null;
             }
 
-            int count = Mathf.Min(_forceShare.Count, Mathf.Min(_forceFrom.Count, _forceTo.Count));
+            bool percent = Config.Settings.SailForceUnit != null
+                && Config.Settings.SailForceUnit.Value == Config.SailForceUnits.Percent;
+
+            int count = Mathf.Min(Mathf.Min(_forceShare.Count, _forceNewtons.Count),
+                Mathf.Min(_forceFrom.Count, _forceTo.Count));
             for (int i = 0; i < count; i++)
             {
                 float share = _forceShare[i];
@@ -1117,7 +1130,9 @@ namespace SailwindRigBalance.UI
                 Vector3 screen = camera.WorldToScreenPoint(_boat.TransformPoint(local));
                 if (screen.z <= 0f) continue;
 
-                _forceLabel.text = Mathf.RoundToInt(share) + "%";
+                _forceLabel.text = percent
+                    ? Mathf.RoundToInt(share) + "%"
+                    : Kilonewtons(_forceNewtons[i]);
                 Vector2 size = _forceLabelStyle.CalcSize(_forceLabel);
                 size.x += 2f;
 
@@ -1195,22 +1210,43 @@ namespace SailwindRigBalance.UI
             return _forceArrows[index];
         }
 
+        /// <summary>
+        /// Cycles off, arrows with kilonewtons, arrows with percentages, off. Two settings carry
+        /// it rather than one three-way setting, because ShowSailForces shipped as a plain on/off
+        /// in v0.16.0 and a player who turned the arrows on should find them still on. Switching
+        /// off resets the unit to kilonewtons, so the cycle always starts in the same place.
+        /// </summary>
         private void ForceToggle()
         {
             ConfigEntry<bool> entry = Config.Settings.ShowSailForces;
+            ConfigEntry<Config.SailForceUnits> unit = Config.Settings.SailForceUnit;
             bool on = entry != null && entry.Value;
+            bool percent = unit != null && unit.Value == Config.SailForceUnits.Percent;
 
             Color previous = GUI.color;
             GUI.color = on ? Color.white : new Color(0.32f, 0.32f, 0.32f, 0.85f);
 
-            bool clicked = GUILayout.Button(new GUIContent(string.Empty, "Sail forces"), _forceStyle,
+            string tip = !on ? "Sail forces"
+                : percent ? "Sail forces, share of the rig (click to hide)"
+                : "Sail forces in kN at a 19 knot breeze (click for percent)";
+
+            bool clicked = GUILayout.Button(new GUIContent(string.Empty, tip), _forceStyle,
                 GUILayout.Width(24f), GUILayout.Height(24f));
 
             GUI.color = previous;
 
             if (!clicked || entry == null) return;
 
+            if (on && !percent && unit != null)
+            {
+                // kN to percent: the arrows stay, only the labels change, and OnGUI reads the
+                // setting every frame, so there is nothing to rebuild.
+                unit.Value = Config.SailForceUnits.Percent;
+                return;
+            }
+
             entry.Value = !on;
+            if (unit != null) unit.Value = Config.SailForceUnits.Kilonewtons;
 
             // The arrows come from the reading, so the next one draws them. Hidden now, not then.
             if (!entry.Value)
@@ -1218,6 +1254,7 @@ namespace SailwindRigBalance.UI
                 _forceFrom.Clear();
                 _forceTo.Clear();
                 _forceShare.Clear();
+                _forceNewtons.Clear();
                 foreach (LineRenderer arrow in _forceArrows)
                     if (arrow != null) arrow.enabled = false;
             }
@@ -1228,6 +1265,19 @@ namespace SailwindRigBalance.UI
                 _rebuildAt = Time.unscaledTime;
                 ShipyardHooks.NoteReason("sail forces shown");
             }
+        }
+
+        /// <summary>
+        /// A force as kilonewtons with two significant figures: "12 kN", "2.3 kN", "0.45 kN".
+        /// Small boats make forces well under a kilonewton per sail, where one decimal place would
+        /// write most of them as 0.1 or 0.2 and lose the comparison the number is there for.
+        /// </summary>
+        private static string Kilonewtons(float newtons)
+        {
+            float kn = newtons / 1000f;
+            if (kn >= 10f) return kn.ToString("F0") + " kN";
+            if (kn >= 1f) return kn.ToString("F1") + " kN";
+            return kn.ToString("F2") + " kN";
         }
 
         /// <summary>An arrow, pointing up and to the right, in the force arrows' own color.</summary>
@@ -1896,6 +1946,7 @@ namespace SailwindRigBalance.UI
             _forceFrom.Clear();
             _forceTo.Clear();
             _forceShare.Clear();
+            _forceNewtons.Clear();
 
             DestroyMaterial(ref _ringMaterial);
 

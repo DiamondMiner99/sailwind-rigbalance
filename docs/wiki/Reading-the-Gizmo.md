@@ -104,13 +104,24 @@ sail makes at the wind arrow's angle, trimmed for best drive. Only the horizonta
 drawn, the side force and the drive, because that is the part that decides the helm. The
 sail pulling hardest gets the longest arrow and the rest are in proportion.
 
-Each arrow has a number beside its head: that sail's share of the whole rig's force, so the
-numbers on a rig add up to 100. Read the numbers rather than the lengths when comparing
-sails, because the arrows are drawn in 3D and perspective distorts them: an arrow pointing
-toward you looks shorter than it is. Sails under 3 percent keep their arrow but get no
-number, to keep a big rig readable. It is a share rather than a force in newtons because the
-mod evaluates every rig at the same made-up wind speed, and a newton figure would only
-describe that.
+Each arrow has that sail's force written beside its head. Read the numbers rather than the
+lengths when comparing sails, because the arrows are drawn in 3D and perspective distorts
+them: an arrow pointing toward you looks shorter than it is.
+
+The button cycles through three states: off, arrows with the force in kilonewtons, and arrows
+with the force as a percentage. The unit is printed on every label, so you can always tell
+which you are looking at.
+
+- **Kilonewtons** is the sail's force in a 10 m/s (about 19 knot) apparent wind, the wind the
+  mod evaluates every rig in. In a stronger or lighter wind every sail's force goes up or down
+  together, so the comparison between sails holds at any wind.
+- **Percent** is that sail's share of all the sails' force added together, ignoring which way
+  each one pulls, so the numbers on a rig add up to 100.
+
+Neither number is how much a sail drives the boat forward, since a sail pulling mostly
+sideways counts as much as one pulling ahead, and neither is how much it moves the magenta
+marker, which also depends on where along the boat the sail sits. Sails under 3 percent keep
+their arrow but get no number, to keep a big rig readable.
 
 This is the answer to "why is the magenta marker there". The center of effort is where the
 sails' forces balance out, not the middle of the sail area, so one big sail pulling hard
