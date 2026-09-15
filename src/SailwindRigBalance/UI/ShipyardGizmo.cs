@@ -674,6 +674,7 @@ namespace SailwindRigBalance.UI
             LogUiSurvey();
             LogCradleAttitude();
             LogHullOffset(balance);
+            LogBodyOffset(balance);
             LogBalance(balance);
         }
 
@@ -682,6 +683,44 @@ namespace SailwindRigBalance.UI
 
         /// <summary>The hull-versus-root offset last reported, so a stable boat logs it once.</summary>
         private float _loggedHullOffset;
+
+        /// <summary>The rigidbody offset last reported, so a steady boat logs nothing.</summary>
+        private float _loggedBodyOffset;
+
+        /// <summary>
+        /// Reports when the boat's rigidbody and its transform disagree about where the boat is.
+        ///
+        /// Nothing is measured from the rigidbody any more, so this changes no reading. It is here
+        /// because a gap of about 1.1 m between the two, once, made a whole ring lopsided while the
+        /// model still took its origin from the rigidbody, and nothing in the log said so: the only
+        /// trace was every sail in the mirror audit sitting the same distance to port on both
+        /// tacks. If it happens again, this names the size and the moment.
+        ///
+        /// A quarter meter before it speaks, with the same again of hysteresis. The shipyard's own
+        /// two-second lerp into the cradle can put physics a frame behind the transform, which is
+        /// a few centimeters and not news; a gap worth reporting is a lot larger than that.
+        /// </summary>
+        private void LogBodyOffset(RigBalance balance)
+        {
+            float offset = balance.BodyOffsetLocal.magnitude;
+            if (Mathf.Abs(offset - _loggedBodyOffset) <= 0.25f) return;
+
+            bool wasReported = _loggedBodyOffset > 0.25f;
+            _loggedBodyOffset = offset;
+
+            if (offset <= 0.25f)
+            {
+                if (wasReported)
+                    Plugin.Log.LogInfo("[Gizmo] the boat's rigidbody and transform agree again.");
+                return;
+            }
+
+            Plugin.Log.LogWarning($"[Gizmo] the boat's rigidbody sits ({balance.BodyOffsetLocal.x:F2}, "
+                + $"{balance.BodyOffsetLocal.y:F2}, {balance.BodyOffsetLocal.z:F2}) m from its transform "
+                + "(x starboard, y up, z forward). Readings are measured from the transform, where the "
+                + "sail positions come from, so they are unaffected; something moved the boat outside "
+                + "physics.");
+        }
 
         /// <summary>The cradle attitude last reported, in degrees, so a settled boat logs it once.</summary>
         private float _loggedPitch, _loggedHeel;
@@ -986,8 +1025,13 @@ namespace SailwindRigBalance.UI
 
             if (keel == null || body == null) return fromBody;
 
-            // Same space the rigidbody uses, so this matches Unity's own worldCenterOfMass maths.
-            Vector3 fromKeel = body.position + body.rotation * keel.centerOfMass;
+            // Rigidbody.centerOfMass is local to the rigidbody's own pose, and on the boat root that
+            // is the transform's pose, so this is Unity's worldCenterOfMass maths. It is taken off
+            // the transform rather than the rigidbody so the yellow marker sits in the same frame as
+            // the other two whenever physics and the transform are briefly out of step; see the
+            // pivot note on RigModel.
+            Transform frame = boat.transform;
+            Vector3 fromKeel = frame.position + frame.rotation * keel.centerOfMass;
 
             // Reported when it CHANGES, not on every rebuild. This is a statement about the boat, and
             // the boat does not change between two rebuilds a frame apart, so logging it per rebuild
@@ -1903,6 +1947,7 @@ namespace SailwindRigBalance.UI
             // The next boat reports its own rest attitudes rather than inheriting this one's.
             _restAttitudesLogged = false;
             _loggedHullOffset = 0f;
+            _loggedBodyOffset = 0f;
             _cradleLogged = false;
             RigModel.ResetHullLog();
             RigModel.ResetLimitsLog();

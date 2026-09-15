@@ -125,6 +125,14 @@ namespace SailwindRigBalance.Core
 
         public Vector3 CombinedCenterOfEffort;
         public Vector3 HullOrigin;
+
+        /// <summary>
+        /// Where the boat's rigidbody says the boat is, relative to where its transform says it is,
+        /// in boat axes. Zero whenever physics is in step with the transform, which is nearly always.
+        /// Nothing is measured from it; it is carried so the gizmo can report when it is not zero.
+        /// See the pivot note on TryEvaluate.
+        /// </summary>
+        public Vector3 BodyOffsetLocal;
         public bool AnySailHasFrozenCe;
         public float HullLength;         // m, along the boat's own fore-aft axis
         public float WindAngle;          // degrees off the bow this was evaluated at
@@ -228,6 +236,22 @@ namespace SailwindRigBalance.Core
     /// rb.position + _forceHeightOffset * up, and a purely vertical offset cannot change a yaw
     /// moment), so the two side-force terms collapse to a single lever about that point. That is
     /// what makes a pre-purchase number possible: it needs no leeway and no wind speed.
+    ///
+    /// The origin is read off the boat's transform, not off the rigidbody, although the game
+    /// applies the drag at rb.position. On the boat root the two are the same point whenever
+    /// physics is in step with the transform, so for the game there is no difference. For this
+    /// model there is one when they are briefly out of step, because every sail position it
+    /// measures FROM that point comes from a transform (windcenter.position), and mixing a
+    /// transform position with a rigidbody position measures the gap between them as if it were
+    /// rig geometry. That happened: a fourteen-sail rig drew a ring whose two halves disagreed by
+    /// up to 12.5 m of helm, and every sail in the mirror audit sat about 1.1 m to port on BOTH
+    /// tacks, the jib included, sheeted amidships on the centerline stay. A sideways offset of the
+    /// origin hands every sail's forward drive a false lever with the same sign on both tacks,
+    /// while the side force it is divided by changes sign, so the error flips between the halves
+    /// and grows as drive outgrows side force: small head to wind, largest on a broad reach, which
+    /// is what the ring showed. The next session, with the same rig, read symmetric. Measuring
+    /// from the transform keeps the origin in the same frame as the positions, and the rigidbody's
+    /// offset is carried in BodyOffsetLocal so the gizmo can say when it happens.
     ///
     /// Hull windage is deliberately NOT in the sum. BoatWind.FixedUpdate (BoatWind.cs:33) pushes the
     /// hull downwind at an offset measured 7 to 12 m aft on every playable hull, which is a genuine
@@ -458,7 +482,8 @@ namespace SailwindRigBalance.Core
             result.YawMoment = totalYaw;
             result.YawFromSide = yawFromSide;
             result.YawFromThrust = yawFromThrust;
-            result.HullOrigin = body.position;
+            result.HullOrigin = boat.position;
+            result.BodyOffsetLocal = boat.InverseTransformVector(body.position - boat.position);
             result.AnySailHasFrozenCe = anyFrozen;
             Vector3 hullCenterLocal = Vector3.zero;
             result.HullLength = knownHullLength > 0f
@@ -530,7 +555,7 @@ namespace SailwindRigBalance.Core
             result.HelmMeters = result.HelmMeaningful ? lever : 0f;
 
             result.CombinedCenterOfEffort = CombineCenterOfEffort(
-                boat, body, weightSum > 0.0001f ? ceAccum / weightSum : body.position,
+                boat, weightSum > 0.0001f ? ceAccum / weightSum : boat.position,
                 result.HelmMeters, result.HelmMeaningful, result.HullLength);
 
             // A rig where no sail is drawing is a valid reading, not a failure: the result above is
@@ -648,7 +673,7 @@ namespace SailwindRigBalance.Core
         /// character. A smooth blend between a real answer and a placeholder would only disguise
         /// which of the two is on screen.
         /// </summary>
-        private static Vector3 CombineCenterOfEffort(Transform boat, Rigidbody body, Vector3 centroid,
+        private static Vector3 CombineCenterOfEffort(Transform boat, Vector3 centroid,
             float helmMeters, bool helmMeaningful, float hullLength)
         {
             if (!helmMeaningful) return centroid;
@@ -656,11 +681,11 @@ namespace SailwindRigBalance.Core
             // Boat axes: x starboard, z forward. A point on the centerline at -helmMeters has, by
             // construction, the rig's own moment about the hull origin: yaw = arm.z * side.
             // Only the height is taken from the centroid; x and z are replaced outright.
-            float height = boat.InverseTransformVector(centroid - body.position).y;
+            float height = boat.InverseTransformVector(centroid - boat.position).y;
             float limit = Mathf.Max(hullLength, DefaultHullLength) * 0.5f;
 
             var arm = new Vector3(0f, height, Mathf.Clamp(-helmMeters, -limit, limit));
-            return body.position + boat.TransformVector(arm);
+            return boat.position + boat.TransformVector(arm);
         }
 
         /// <summary>
@@ -814,7 +839,7 @@ namespace SailwindRigBalance.Core
                 // snapshot back instead would have this mod quietly undoing whatever another
                 // component did to the sail while the sweep was running.
                 Vector3 euler = (state.Valid ? state.LocalRotation : sRot).eulerAngles;
-                float waterline = body.position.y;
+                float waterline = boat.position.y;
 
                 // A fixed slice of what THIS sail could make at full power, computed once and held
                 // constant across every trim, so the tie window means the same thing whether the
@@ -933,7 +958,9 @@ namespace SailwindRigBalance.Core
                 float bestFwd = TrimCandidates[winner].Fwd;
                 float bestSide = TrimCandidates[winner].Side;
                 Vector3 ce = TrimCandidates[winner].Ce;
-                Vector3 armLocal = boat.InverseTransformVector(ce - body.position);  // about the HULL ORIGIN
+                // About the hull origin, taken off the transform like the center of effort itself,
+                // so both ends of the arm are in one frame. See the pivot note on the class.
+                Vector3 armLocal = boat.InverseTransformVector(ce - boat.position);
 
                 // Boat axes: x starboard, z forward. Unity's cross product about up reduces to
                 // arm.z * force.x - arm.x * force.z, which is exactly these two terms. Taken in the

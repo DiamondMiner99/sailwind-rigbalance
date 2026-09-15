@@ -1112,3 +1112,35 @@ silently shortening a hull.
 The lesson for the next one is the measurement's own honesty: it logged what set each end of
 the box, and the answer was in the first line of the first log that carried it. Before that
 the same question had been guessed at twice.
+
+## 18. A lopsided ring measured from a point that had moved
+
+A fourteen-sail rig on the junk hull drew a ring whose halves disagreed badly: 45 degrees read
+1.7 m of weather helm against 5.1 m at 315, and 125 read 4.0 m of lee helm against 8.5 m of
+weather at 235. The mirror audit reported almost nothing, because it compared only force, and
+force did mirror. Two explanations were tested and ruled out with a diagnostic build and a
+second session on the same rig: the swing limits were symmetric on every sail (-89 to +89) with
+no collision check running at any capture, and all nine sweeps of that session, across furl
+states from 1.5 to 13.5 kN of output, mirrored to within 0.1 m.
+
+What the lopsided session's dump did show was every sail sitting about 1.1 m to port on BOTH
+tacks, including the jib, sheeted amidships on the centerline stay, which the second session
+put at -0.01 m. Every sail shifted by the same amount is not the rig; it is the point the rig is
+measured from. The model took its origin from `Rigidbody.position` and every sail position from
+a transform (`windcenter.position`), so any moment the two were out of step, the gap was read as
+rig geometry.
+
+The size of the effect follows from one line of the model. A sideways offset `d` of the origin
+adds `-(-d) * drive` to every sail's turning moment, with the same sign on both tacks, while the
+side force it is divided by changes sign, so the lever gains `d * drive / side` on one tack and
+loses it on the other. The halves disagree by about `2 * d * drive / side`, which is small head
+to wind where drive is near nothing and grows as the wind goes aft and drive outgrows side force.
+That is the shape the ring had: 5/355 within a meter, 45/315 by 3.4 m, 125/235 by 12.5 m.
+
+What moved the rigidbody off the transform is not known; the session's log was overwritten. The
+fix does not depend on knowing. Every arm, the waterline, the combined center, the hull origin
+and the keel's center of mass are now taken off the boat's transform, the frame the sail
+positions come from, and the rigidbody's offset from it is logged whenever it exceeds a quarter
+meter. Two lessons: an audit that checks only one of a reading's terms can pass a reading that is
+wrong in the other, so the audit now compares the helm lever as well; and a model that mixes
+positions from two sources is measuring the distance between the sources whenever they disagree.
