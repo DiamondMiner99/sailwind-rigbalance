@@ -389,6 +389,7 @@ namespace SailwindRigBalance.UI
                 // identical port halves and different starboard ones, one mirroring correctly and
                 // one not, because the second sweep straddled the flip.
                 _pendingSnapshot = RigModel.CaptureRig(boatRoot);
+                RigModel.LogSwingLimits(_pendingSnapshot);
                 _pendingBalancedMeters = balancedMeters;
                 _pendingBand = band;
                 _pendingSampled = new RigBalance[Segments];
@@ -496,7 +497,8 @@ namespace SailwindRigBalance.UI
                 LogSweep(_pendingSampled, _pendingEvaluated, _pendingBest,
                     _pendingBalancedMeters, _pendingMilliseconds);
 
-                LogMirrorAudit(_pendingSampled, _pendingEvaluated);
+                LogMirrorAudit(_pendingSampled, _pendingEvaluated, _pendingBalancedMeters);
+                RigModel.LogLimitsChangedDuringSweep(_pendingSnapshot);
 
             }
             finally
@@ -642,7 +644,7 @@ namespace SailwindRigBalance.UI
         /// </summary>
         private static string _loggedAudit;
 
-        private static void LogMirrorAudit(RigBalance[] sampled, bool[] evaluated)
+        private static void LogMirrorAudit(RigBalance[] sampled, bool[] evaluated, float balancedMeters)
         {
             try
             {
@@ -652,15 +654,40 @@ namespace SailwindRigBalance.UI
                 float worstGap = 0f;
                 var signature = new System.Text.StringBuilder();
 
+                // The helm, separately. The force test below cannot see a ring whose two halves
+                // disagree about the helm while making the same force, which is the case where the
+                // sails pull equally hard on both tacks but act in different places, and one sweep
+                // of that shape went through this audit with nothing reported: 45 degrees
+                // read 1.7 m of weather helm against 5.1 m at 315, and 125 read 4.0 m of lee helm
+                // against 8.5 m of weather at 235. The lever is only compared where both halves have
+                // a reading, since near a run it is a ratio of vanishing terms, and a gap counts
+                // once it is as wide as the balanced band, which is where the ring shows it.
+                int helmBroken = 0, worstHelm = -1;
+                float worstHelmGap = 0f;
+                float helmTolerance = Mathf.Max(balancedMeters, 0.25f);
+                var helmSignature = new System.Text.StringBuilder();
+
                 for (int i = 0; i < Segments / 2; i++)
                 {
                     int j = Segments - 1 - i;
                     if (!evaluated[i] || !evaluated[j]) continue;
                     pairs++;
 
-                    // Total output and side force, not the lever: the lever is a ratio and can agree
-                    // by luck while both of its terms are wrong, and it is suppressed outright wherever
-                    // the reading is judged meaningless, which is exactly where the trouble is.
+                    float leverI, leverJ;
+                    if (LeverOf(sampled[i], out leverI) && LeverOf(sampled[j], out leverJ))
+                    {
+                        float helmGap = Mathf.Abs(leverI - leverJ);
+                        if (helmGap > helmTolerance)
+                        {
+                            helmBroken++;
+                            helmSignature.Append(i).Append(',');
+                            if (helmGap > worstHelmGap) { worstHelmGap = helmGap; worstHelm = i; }
+                        }
+                    }
+
+                    // Total output and side force as well as the lever: the lever is a ratio and can
+                    // agree by luck while both of its terms are wrong, and it is suppressed outright
+                    // wherever the reading is judged meaningless, which is where the trouble is.
                     float gap = Mathf.Max(
                         RelativeGap(sampled[i].TotalOutput, sampled[j].TotalOutput),
                         RelativeGap(Mathf.Abs(sampled[i].TotalSideForce),
@@ -673,22 +700,36 @@ namespace SailwindRigBalance.UI
                     if (gap > worstGap) { worstGap = gap; worst = i; }
                 }
 
-                string answer = $"{pairs}:{signature}";
+                string answer = $"{pairs}:{signature}|{helmSignature}";
                 if (answer == _loggedAudit) return;
                 _loggedAudit = answer;
 
-                if (broken == 0 || worst < 0)
+                if ((broken == 0 || worst < 0) && (helmBroken == 0 || worstHelm < 0))
                 {
                     Plugin.Log.LogInfo($"[Ring] mirror audit: {pairs} pairs, symmetric.");
                     return;
                 }
 
-                Plugin.Log.LogWarning($"[Ring] mirror audit: {broken} of {pairs} pairs asymmetric, "
-                    + $"worst {Bearing(worst):F0}/{Bearing(Segments - 1 - worst):F0} off by "
-                    + $"{worstGap * 100f:F1} percent.");
+                if (broken > 0 && worst >= 0)
+                {
+                    Plugin.Log.LogWarning($"[Ring] mirror audit: {broken} of {pairs} pairs asymmetric in "
+                        + $"force, worst {Bearing(worst):F0}/{Bearing(Segments - 1 - worst):F0} off by "
+                        + $"{worstGap * 100f:F1} percent.");
 
-                DumpMirrorPair(sampled[worst], sampled[Segments - 1 - worst],
-                    Bearing(worst), Bearing(Segments - 1 - worst));
+                    DumpMirrorPair(sampled[worst], sampled[Segments - 1 - worst],
+                        Bearing(worst), Bearing(Segments - 1 - worst));
+                }
+
+                if (helmBroken > 0 && worstHelm >= 0)
+                {
+                    Plugin.Log.LogWarning($"[Ring] mirror audit: {helmBroken} of {pairs} pairs disagree "
+                        + $"about the helm by more than {helmTolerance:F2} m, worst "
+                        + $"{Bearing(worstHelm):F0}/{Bearing(Segments - 1 - worstHelm):F0} off by "
+                        + $"{worstHelmGap:F2} m.");
+
+                    DumpHelmPair(sampled[worstHelm], sampled[Segments - 1 - worstHelm],
+                        Bearing(worstHelm), Bearing(Segments - 1 - worstHelm));
+                }
 
                 Plugin.Log.LogInfo("[Ring] mirror audit: reported again only if a different set of "
                     + "pairs disagrees.");
@@ -697,6 +738,99 @@ namespace SailwindRigBalance.UI
             {
                 Plugin.Log.LogWarning("[Ring] mirror audit failed: " + e.Message);
             }
+        }
+
+        /// <summary>The helm lever a bearing reads, where it has one: the verdict, or the off-scale figure.</summary>
+        private static bool LeverOf(RigBalance balance, out float lever)
+        {
+            lever = balance.HelmMeaningful ? balance.HelmMeters
+                : balance.HelmOffScale ? balance.RawLever
+                : 0f;
+            return balance.HelmMeaningful || balance.HelmOffScale;
+        }
+
+        /// <summary>
+        /// Splits one mirror pair's helm into what each sail contributes on each tack, and lists
+        /// the sails whose contribution differs, biggest difference first.
+        ///
+        /// The lever is minus the total turning moment over the total side force, so each sail's
+        /// share of it is minus its own turning moment over that same total, and the shares plus
+        /// the hull's windage add up to the reading. Under reflection every share should match. A
+        /// sail whose share does not is the sail making the ring lopsided, and its trims, limits
+        /// and fore-and-aft position on each tack say why.
+        /// </summary>
+        private static void DumpHelmPair(RigBalance a, RigBalance b, float bearingA, float bearingB)
+        {
+            float leverA, leverB;
+            LeverOf(a, out leverA);
+            LeverOf(b, out leverB);
+
+            Plugin.Log.LogWarning($"[Ring] helm {bearingA:F0} vs {bearingB:F0}: {leverA:+0.00;-0.00} vs "
+                + $"{leverB:+0.00;-0.00} m (want equal; positive is weather), side force "
+                + $"{a.TotalSideForce:F0} vs {b.TotalSideForce:F0} N (want negated)");
+
+            if (a.Sails == null || b.Sails == null) return;
+            if (Mathf.Abs(a.TotalSideForce) < 1f || Mathf.Abs(b.TotalSideForce) < 1f) return;
+
+            var rows = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<float, string>>();
+            float sumA = 0f, sumB = 0f;
+
+            foreach (SailContribution ca in a.Sails)
+            {
+                float shareA = -(ca.YawFromSide + ca.YawFromThrust) / a.TotalSideForce;
+                sumA += shareA;
+
+                SailContribution cb = default(SailContribution);
+                bool found = false;
+                foreach (SailContribution candidate in b.Sails)
+                {
+                    if (ReferenceEquals(candidate.Sail, ca.Sail)) { cb = candidate; found = true; break; }
+                }
+
+                string label = RigModel.SailLabel(ca.Sail, ca.Name);
+                if (!found)
+                {
+                    rows.Add(new System.Collections.Generic.KeyValuePair<float, string>(Mathf.Abs(shareA),
+                        $"{label}: {shareA:+0.00;-0.00} m at {bearingA:F0}, not drawing at {bearingB:F0}"));
+                    continue;
+                }
+
+                float shareB = -(cb.YawFromSide + cb.YawFromThrust) / b.TotalSideForce;
+                float diff = Mathf.Abs(shareA - shareB);
+                if (diff < 0.1f) continue;
+
+                rows.Add(new System.Collections.Generic.KeyValuePair<float, string>(diff,
+                    $"{label}: helm share {shareA:+0.00;-0.00} vs {shareB:+0.00;-0.00} m, "
+                    + $"trim {ca.Trim:F1} vs {cb.Trim:F1} (limits {ca.MinTrim:+0;-0;0} to {ca.MaxTrim:+0;-0;0}), "
+                    + $"side {ca.SideForce:F0} vs {cb.SideForce:F0} N, "
+                    + $"ce.z {ca.Arm.z:F2} vs {cb.Arm.z:F2}, ce.x {ca.Arm.x:F2} vs {cb.Arm.x:F2}"));
+            }
+
+            foreach (SailContribution cb in b.Sails)
+            {
+                float shareB = -(cb.YawFromSide + cb.YawFromThrust) / b.TotalSideForce;
+                sumB += shareB;
+
+                bool seen = false;
+                foreach (SailContribution candidate in a.Sails)
+                {
+                    if (ReferenceEquals(candidate.Sail, cb.Sail)) { seen = true; break; }
+                }
+                if (seen) continue;
+
+                rows.Add(new System.Collections.Generic.KeyValuePair<float, string>(Mathf.Abs(shareB),
+                    $"{RigModel.SailLabel(cb.Sail, cb.Name)}: not drawing at {bearingA:F0}, "
+                    + $"{shareB:+0.00;-0.00} m at {bearingB:F0}"));
+            }
+
+            rows.Sort((x, y) => y.Key.CompareTo(x.Key));
+            int shown = Mathf.Min(rows.Count, 8);
+            for (int k = 0; k < shown; k++) Plugin.Log.LogWarning("[Ring]   " + rows[k].Value);
+            if (rows.Count > shown)
+                Plugin.Log.LogWarning($"[Ring]   ...and {rows.Count - shown} more sail(s) differing by less.");
+
+            Plugin.Log.LogWarning($"[Ring]   hull windage and rounding: {leverA - sumA:+0.00;-0.00} vs "
+                + $"{leverB - sumB:+0.00;-0.00} m");
         }
 
         /// <summary>
@@ -754,7 +888,8 @@ namespace SailwindRigBalance.UI
                 if (trimOk && fwdOk && sideOk && ceOk) continue;
 
                 Plugin.Log.LogWarning($"[Ring]   '{ca.Name}': "
-                    + $"trim {ca.Trim:F1} vs {cb.Trim:F1}{(trimOk ? "" : $" WANT {-ca.Trim:F1}")}, "
+                    + $"trim {ca.Trim:F1} vs {cb.Trim:F1}{(trimOk ? "" : $" WANT {-ca.Trim:F1}")} "
+                    + $"(limits {ca.MinTrim:+0;-0;0} to {ca.MaxTrim:+0;-0;0}), "
                     + $"fwd {ca.ForwardForce:F0} vs {cb.ForwardForce:F0}{(fwdOk ? "" : " WANT EQUAL")}, "
                     + $"side {ca.SideForce:F0} vs {cb.SideForce:F0}{(sideOk ? "" : $" WANT {-ca.SideForce:F0}")}, "
                     + $"ce.x {pa.x:F2} vs {pb.x:F2}{(ceOk ? "" : $" WANT {-pa.x:F2}")}, "

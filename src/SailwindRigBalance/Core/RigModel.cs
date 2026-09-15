@@ -91,6 +91,9 @@ namespace SailwindRigBalance.Core
         /// positions did. This is that same frame-correct arm, kept so the audit can use it.
         /// </summary>
         public Vector3 Arm;
+
+        /// <summary>The swing limits this sail's trim search was allowed, in degrees.</summary>
+        public float MinTrim, MaxTrim;
     }
 
     /// <summary>The whole answer for one rig at one synthetic wind.</summary>
@@ -956,6 +959,8 @@ namespace SailwindRigBalance.Core
                 c.Aback = TrimCandidates[winner].Aback;
                 c.DriveClamped = TrimCandidates[winner].DriveClamped;
                 c.Arm = armLocal;
+                c.MinTrim = minTrim;
+                c.MaxTrim = maxTrim;
                 c.RestEuler = euler;
                 c.UpwindEfficiency = sail.upwindEfficiency;
                 c.Category = sail.category;
@@ -1690,6 +1695,12 @@ namespace SailwindRigBalance.Core
             public float MaxAngle;
             public Quaternion LocalRotation;
             public bool Valid;
+
+            /// <summary>
+            /// The shipyard's collision check for this sail was still sweeping when the rig was
+            /// captured, so MinAngle and MaxAngle are not its final limits. See LogSwingLimits.
+            /// </summary>
+            public bool Checking;
         }
 
         /// <summary>
@@ -1743,11 +1754,129 @@ namespace SailwindRigBalance.Core
                         MaxAngle = sail.maxAngle,
                         LocalRotation = sail.transform.localRotation,
                         Valid = true,
+                        Checking = CollisionCheckRunning(sail),
                     };
                 }
             }
 
             return snapshot;
+        }
+
+        private static bool CollisionCheckRunning(Sail sail)
+        {
+            try
+            {
+                var connections = sail.GetComponent<SailConnections>();
+                return connections != null && connections.colChecker != null && connections.colChecker.checking;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>A sail's name with the mast it hangs on, since a rig can carry two of a name.</summary>
+        internal static string SailLabel(Sail sail, string fallbackName)
+        {
+            string name = sail != null && !string.IsNullOrEmpty(sail.sailName) ? sail.sailName : fallbackName;
+            Mast mast = sail != null ? sail.GetComponentInParent<Mast>() : null;
+            return mast != null ? $"'{name}' (mast {mast.orderIndex})" : $"'{name}'";
+        }
+
+        private static string _loggedLimits;
+
+        /// <summary>Forget the last swing limit report, so the next shipyard visit logs its own.</summary>
+        public static void ResetLimitsLog() => _loggedLimits = null;
+
+        /// <summary>
+        /// Logs every sail's swing limits, whenever the set of them changes.
+        ///
+        /// Added to explain a ring whose port and starboard halves disagreed badly on a fourteen-sail
+        /// rig. The mirror audit showed the sails making the same force on both tacks but acting in
+        /// different places, and the sails it named were not swinging symmetrically: a square yard
+        /// bracing to -77.9 on one tack and only -66.8 on the other where it should reach +77.9. The
+        /// trim search can only use the limits the sail has, so a lopsided limit is a lopsided ring.
+        ///
+        /// This answers whether that is the boat or the mod. A sail's limits come
+        /// from the shipyard's collision check (ShipyardSailColChecker), which swings a probe through
+        /// the sail's range in 5 degree steps over many physics frames and cuts the range at the first
+        /// collision on each side. A crowded rig can genuinely collide sooner on one side. But the
+        /// limits are only written back to the sail when that sweep ends (Mast.CheckInitialAngles,
+        /// Mast.cs:166-176), and AttachSailToMast copies the checker's in-progress values straight
+        /// across (Mast.cs:192-193), so a rig captured mid-check carries limits that are about to
+        /// change. Each sail is flagged when its check was still running, and when its range is not
+        /// symmetric, so one log line says which of the two is happening.
+        /// </summary>
+        public static void LogSwingLimits(RigSnapshot snapshot)
+        {
+            if (snapshot == null || snapshot.Sails.Count == 0) return;
+
+            try
+            {
+                var lines = new List<string>();
+                foreach (KeyValuePair<Sail, SailState> entry in snapshot.Sails)
+                {
+                    if (entry.Key == null) continue;
+                    SailState state = entry.Value;
+
+                    string line = $"{SailLabel(entry.Key, entry.Key.name)}: {state.MinAngle:+0;-0;0} to "
+                        + $"{state.MaxAngle:+0;-0;0} deg";
+
+                    float lopsided = Mathf.Abs(state.MinAngle + state.MaxAngle);
+                    if (lopsided >= 1f) line += $", reaches {lopsided:F0} deg further one way than the other";
+                    if (state.Checking) line += ", COLLISION CHECK STILL RUNNING, these limits are not final";
+
+                    lines.Add(line);
+                }
+
+                lines.Sort(StringComparer.Ordinal);
+                string table = string.Join("\n", lines.ToArray());
+                if (table == _loggedLimits) return;
+                _loggedLimits = table;
+
+                Plugin.Log.LogInfo($"[Limits] swing limits for {lines.Count} sail(s), as this sweep uses them:");
+                foreach (string line in lines) Plugin.Log.LogInfo("[Limits]   " + line);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning("[Limits] could not report swing limits: " + e.Message);
+            }
+        }
+
+        /// <summary>
+        /// Reports any sail whose limits or collision check state changed while a sweep was running,
+        /// because that sweep was then computed from limits the sail no longer has. Called when the
+        /// sweep finishes, against the snapshot it started from.
+        /// </summary>
+        public static void LogLimitsChangedDuringSweep(RigSnapshot snapshot)
+        {
+            if (snapshot == null) return;
+
+            try
+            {
+                foreach (KeyValuePair<Sail, SailState> entry in snapshot.Sails)
+                {
+                    Sail sail = entry.Key;
+                    if (sail == null) continue;
+                    SailState was = entry.Value;
+
+                    bool checking = CollisionCheckRunning(sail);
+                    if (Mathf.Approximately(was.MinAngle, sail.minAngle)
+                        && Mathf.Approximately(was.MaxAngle, sail.maxAngle)
+                        && was.Checking == checking) continue;
+
+                    Plugin.Log.LogWarning($"[Limits] {SailLabel(sail, sail.name)} changed during the sweep: "
+                        + $"{was.MinAngle:+0;-0;0} to {was.MaxAngle:+0;-0;0} deg"
+                        + (was.Checking ? " (check running)" : "")
+                        + $" became {sail.minAngle:+0;-0;0} to {sail.maxAngle:+0;-0;0} deg"
+                        + (checking ? " (check running)" : "")
+                        + ". The ring just drawn used the old limits; the next rig change redraws it.");
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning("[Limits] could not compare swing limits: " + e.Message);
+            }
         }
 
         private static float ToFloat(object o) => o is float f ? f : 0f;
