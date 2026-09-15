@@ -21,7 +21,7 @@ markers, for a boat.
 - **A helm verdict at a glance** - a colored link between two of them: blue for weather helm, red for lee helm, green for balanced, and the color deepens the further out of balance she is
 - **A balance ring** - a rose around the boat showing what the helm would do at every point of sail at once, not just the one you are looking at
 - **Live** - swap, resize or move a sail and the markers follow, before you confirm the order
-- **Sail forces** - a button that draws each sail's pull as an arrow, so you can see which sail is doing the work and why the center of effort sits where it does
+- **Sail forces** - a button that draws each sail's pull as an arrow with its share of the rig's force written beside it, so you can see which sail is doing the work and why the center of effort sits where it does
 - **Measured, not tabulated** - every center of effort comes from the sail's actual geometry driven through the game's own force function, never a per-sail-type constant
 - **Visible through the hull and at night** - two of the three markers sit inside the boat, and unlit markers hold their color after dark
 - **Shipyard Expansion support** - resized sails, rotated spars, sails on stays, and SE's own keel options

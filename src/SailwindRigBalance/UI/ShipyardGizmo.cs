@@ -202,6 +202,20 @@ namespace SailwindRigBalance.UI
             = new System.Collections.Generic.List<Vector3>();
         private readonly System.Collections.Generic.List<Vector3> _forceTo
             = new System.Collections.Generic.List<Vector3>();
+
+        /// <summary>Each drawn arrow's share of the whole rig's force, in percent.</summary>
+        private readonly System.Collections.Generic.List<float> _forceShare
+            = new System.Collections.Generic.List<float>();
+
+        /// <summary>
+        /// Below this share an arrow keeps its arrow but loses its number. A fourteen-sail junk
+        /// would otherwise carry fourteen labels, and the question the numbers answer is which
+        /// sails are doing the work, which the small ones are not.
+        /// </summary>
+        private const float ForceLabelMinPercent = 3f;
+
+        private GUIStyle _forceLabelStyle;
+        private readonly GUIContent _forceLabel = new GUIContent();
         private Material _forceMaterial;
         private static readonly Color ForceColor = new Color(1.00f, 0.62f, 0.95f, 0.95f);
 
@@ -1026,14 +1040,21 @@ namespace SailwindRigBalance.UI
         {
             _forceFrom.Clear();
             _forceTo.Clear();
+            _forceShare.Clear();
 
             bool wanted = Config.Settings.ShowSailForces != null && Config.Settings.ShowSailForces.Value;
             if (!wanted || balance.Sails == null || balance.Sails.Count == 0) return;
 
-            float strongest = 0f;
+            // Shares are of the whole rig, the sails too small to draw included, so the numbers
+            // on a rig add up to a hundred whether or not every sail got an arrow.
+            float strongest = 0f, total = 0f;
             foreach (SailContribution c in balance.Sails)
-                strongest = Mathf.Max(strongest, new Vector2(c.SideForce, c.ForwardForce).magnitude);
-            if (strongest <= 0f) return;
+            {
+                float magnitude = new Vector2(c.SideForce, c.ForwardForce).magnitude;
+                strongest = Mathf.Max(strongest, magnitude);
+                total += magnitude;
+            }
+            if (strongest <= 0f || total <= 0f) return;
 
             float scale = balance.HullLength * 0.2f / strongest;
 
@@ -1044,6 +1065,66 @@ namespace SailwindRigBalance.UI
 
                 _forceFrom.Add(c.Arm);
                 _forceTo.Add(c.Arm + force * scale);
+                _forceShare.Add(force.magnitude / total * 100f);
+            }
+        }
+
+        /// <summary>
+        /// Writes each arrow's share of the rig's force next to its head, as flat text on the
+        /// screen.
+        ///
+        /// A player asked for these because the arrows are drawn in the world, so perspective
+        /// distorts their lengths: one pointing at the camera looks short, one near the camera
+        /// looks long, and comparing sails by eye means correcting for both. Text drawn in screen
+        /// space is the same size wherever the sail is and whichever way it pulls.
+        ///
+        /// A percentage and not a force. The model drives every sail with a synthetic wind whose
+        /// speed is a constant of this mod, and the force is proportional to it, so newtons would
+        /// be a figure of that constant rather than of the rig. A share is the same at any wind,
+        /// and it is what an arrow's length encodes, since the lengths are in proportion.
+        ///
+        /// Placed a little past the head along the arrow, so the number never covers the point it
+        /// labels, and skipped for any head behind the camera.
+        /// </summary>
+        private void DrawForceLabels()
+        {
+            if (_forceShare.Count == 0 || _boat == null) return;
+            if (Event.current.type != EventType.Repaint) return;
+
+            Camera camera = ResolveSourceCamera();
+            if (camera == null) return;
+
+            if (_forceLabelStyle == null)
+            {
+                // After AdoptGameStyle, so it inherits the shipyard's lettering and ink.
+                _forceLabelStyle = new GUIStyle(_tipStyle)
+                {
+                    fontSize = 12,
+                    wordWrap = false,
+                    alignment = TextAnchor.MiddleCenter,
+                    padding = new RectOffset(5, 5, 1, 1),
+                };
+                _forceLabelStyle.normal.background = null;
+            }
+
+            int count = Mathf.Min(_forceShare.Count, Mathf.Min(_forceFrom.Count, _forceTo.Count));
+            for (int i = 0; i < count; i++)
+            {
+                float share = _forceShare[i];
+                if (share < ForceLabelMinPercent) continue;
+
+                Vector3 local = _forceTo[i] + (_forceTo[i] - _forceFrom[i]) * 0.14f;
+                Vector3 screen = camera.WorldToScreenPoint(_boat.TransformPoint(local));
+                if (screen.z <= 0f) continue;
+
+                _forceLabel.text = Mathf.RoundToInt(share) + "%";
+                Vector2 size = _forceLabelStyle.CalcSize(_forceLabel);
+                size.x += 2f;
+
+                var rect = new Rect(screen.x - size.x * 0.5f, Screen.height - screen.y - size.y * 0.5f,
+                    size.x, size.y);
+                DrawPaper(rect);
+                GUI.Label(rect, _forceLabel, _forceLabelStyle);
             }
         }
 
@@ -1136,6 +1217,7 @@ namespace SailwindRigBalance.UI
             {
                 _forceFrom.Clear();
                 _forceTo.Clear();
+                _forceShare.Clear();
                 foreach (LineRenderer arrow in _forceArrows)
                     if (arrow != null) arrow.enabled = false;
             }
@@ -1813,6 +1895,7 @@ namespace SailwindRigBalance.UI
             _forceArrows.Clear();
             _forceFrom.Clear();
             _forceTo.Clear();
+            _forceShare.Clear();
 
             DestroyMaterial(ref _ringMaterial);
 
@@ -1945,9 +2028,15 @@ namespace SailwindRigBalance.UI
         private void OnGUI()
         {
             if (!ShipyardHooks.InShipyard || !_valid) return;
-            if (Config.Settings.ShowPanel != null && !Config.Settings.ShowPanel.Value) return;
             EnsureStyles();
             AdoptGameStyle();
+
+            // First, so the strip and its notes draw over a label rather than under one, and
+            // before the panel check, because the arrows can be switched on from the config with
+            // the strip hidden and their numbers belong to them, not to the strip.
+            DrawForceLabels();
+
+            if (Config.Settings.ShowPanel != null && !Config.Settings.ShowPanel.Value) return;
 
             // The furl button only exists while a sail is selected, so the panel has to grow and
             // shrink with it or the fourth button spills past the background.

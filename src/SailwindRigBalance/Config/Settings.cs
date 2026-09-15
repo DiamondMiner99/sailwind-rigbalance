@@ -62,8 +62,9 @@ namespace SailwindRigBalance.Config
             ShowSailForces = config.Bind("Markers", "ShowSailForces", false,
                 "Draw an arrow at each sail's center of effort showing the force it makes at the "
                 + "wind arrow's angle, trimmed for best drive, in the horizontal plane that decides "
-                + "the helm. The longest arrow is the sail pulling hardest. Shows why the center of "
-                + "effort sits where it does. Also a button on the strip.");
+                + "the helm, with that sail's share of the rig's total force written beside it. The "
+                + "longest arrow is the sail pulling hardest. Shows why the center of effort sits "
+                + "where it does. Also a button on the strip.");
 
             ShowPanel = config.Bind("Interface", "ShowPanel", true,
                 "Show the button strip. Turn this off to keep the markers with no interface at all.");

@@ -102,8 +102,15 @@ would lie about the path.
 The pink arrow button draws an arrow at each sail's center of effort, showing the force that
 sail makes at the wind arrow's angle, trimmed for best drive. Only the horizontal part is
 drawn, the side force and the drive, because that is the part that decides the helm. The
-sail pulling hardest gets the longest arrow and the rest are in proportion, so the arrows
-compare sails with each other rather than giving a number of newtons.
+sail pulling hardest gets the longest arrow and the rest are in proportion.
+
+Each arrow has a number beside its head: that sail's share of the whole rig's force, so the
+numbers on a rig add up to 100. Read the numbers rather than the lengths when comparing
+sails, because the arrows are drawn in 3D and perspective distorts them: an arrow pointing
+toward you looks shorter than it is. Sails under 3 percent keep their arrow but get no
+number, to keep a big rig readable. It is a share rather than a force in newtons because the
+mod evaluates every rig at the same made-up wind speed, and a newton figure would only
+describe that.
 
 This is the answer to "why is the magenta marker there". The center of effort is where the
 sails' forces balance out, not the middle of the sail area, so one big sail pulling hard
