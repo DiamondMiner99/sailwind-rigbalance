@@ -24,7 +24,7 @@ namespace SailwindRigBalance.UI
     /// two dozen renderers to draw one ring would be silly. The unlit shader the markers already
     /// use multiplies by vertex color, so the same shader works unchanged.
     ///
-    /// It gets its OWN material, never the helm link's. The link's material carries the current
+    /// It gets its OWN material, never the helm bar's. The bar's material carries the current
     /// verdict color in _Color, and Sprites/Default multiplies _Color into the vertex color, so
     /// sharing it multiplied every one of the ring's verdicts by the verdict at the one angle the
     /// arrow happened to point at. A lee-helm reading painted the entire ring red, which is exactly
@@ -34,7 +34,7 @@ namespace SailwindRigBalance.UI
     {
         /// <summary>
         /// Bearings the rig is actually evaluated at, every ten degrees. This is the expensive
-        /// number: each one drives the game's force function ten times per sail, and the whole sweep
+        /// number: each one drives the game's force function about twelve times per sail, and the whole sweep
         /// is spread across frames because in one go it measured 189 ms.
         /// </summary>
         private const int Segments = 36;
@@ -48,12 +48,22 @@ namespace SailwindRigBalance.UI
         private const int MeshSegments = 72;
 
         /// <summary>
-        /// How far past the balanced band the helm has to go before the color saturates, in
-        /// multiples of the band. Inside the band it is flat green, because that is what balanced
+        /// Where the color ramp reaches its middle stop (orange or light blue), in multiples of
+        /// the balanced band. Inside the band it is flat green, because that is what balanced
         /// means; beyond it the color ramps so the ring shows HOW one-handed she is, not merely
-        /// that she is. Three bands is about the point where a rig stops being a trim problem.
+        /// that she is.
         /// </summary>
-        private const float SaturateAtBands = 3f;
+        internal const float MidAtBands = 3f;
+
+        /// <summary>
+        /// Where the ramp reaches its far stop (red or dark blue). This used to be 3 bands with a
+        /// square-root ease, which put a rig at 1.5 bands halfway to full color; players reported
+        /// the ring reading as plain green, blue or red, with helm the rudder holds without trouble
+        /// already painted at the extreme (Discord, 2026-11-09). Eight bands is a judgment, not a
+        /// measurement: the rudder's authority depends on boat speed (Rudder.cs:55-57), which the
+        /// shipyard does not know.
+        /// </summary>
+        internal const float FarAtBands = 8f;
 
         /// <summary>
         /// How much of the rig's best output an angle must produce before the ring will offer a
@@ -99,7 +109,7 @@ namespace SailwindRigBalance.UI
         private bool _angleChanged;
 
         /// <summary>
-        /// The best total output found anywhere on the last sweep. The markers and the helm link
+        /// The best total output found anywhere on the last sweep. The markers and the helm bar
         /// evaluate one angle only and so cannot work this out for themselves; taking it from here
         /// is what keeps the ring and the panel from contradicting each other about whether there is
         /// a verdict to give. Zero until the first rebuild, which reads as "no opinion yet".
@@ -118,6 +128,19 @@ namespace SailwindRigBalance.UI
             WindAngle = Mathf.Repeat(degrees, 360f);
         }
 
+        /// <summary>
+        /// The wind speed the boat is heeled in, m/s. The arrow's length shows it and the knob on its
+        /// outer end sets it. The helm lever does not depend on it upright, because every sail force
+        /// is linear in the wind (Sail.cs:410); it matters through how far she heels.
+        /// </summary>
+        public float WindSpeed { get; private set; } = RigModel.SyntheticWindSpeed;
+
+        public void SetWindSpeed(float metersPerSecond)
+        {
+            WindSpeed = Mathf.Clamp(metersPerSecond, Config.RigBalanceLimits.MinWindSpeed,
+                Config.RigBalanceLimits.MaxWindSpeed);
+        }
+
         /// <summary>True once after the arrow has been dragged, so the caller can recompute.</summary>
         public bool ConsumeAngleChanged()
         {
@@ -126,7 +149,37 @@ namespace SailwindRigBalance.UI
             return true;
         }
 
+        /// <summary>
+        /// True once when a wind speed drag ends. The ring's colors depend on the speed through the
+        /// heel at every bearing, so unlike the angle, a new speed needs a new sweep; it is asked for
+        /// once on release rather than every frame of the drag.
+        /// </summary>
+        public bool ConsumeSpeedSettled()
+        {
+            if (!_speedSettled) return false;
+            _speedSettled = false;
+            return true;
+        }
+
+        private bool _speedSettled;
+
+        /// <summary>True while the knob, not the arrow, is being dragged.</summary>
+        private bool _draggingSpeed;
+
         public bool Dragging => _dragging;
+
+        /// <summary>The knob on the arrow's outer end, in world space, for the speed label.</summary>
+        public Vector3 KnobWorld
+        {
+            get
+            {
+                if (_go == null) return Vector3.zero;
+                return _go.transform.TransformPoint(ArrowDirectionLocal * KnobDistance);
+            }
+        }
+
+        /// <summary>Whether the ring and its arrow are on screen.</summary>
+        public bool Visible => _go != null && _go.activeSelf;
 
         public bool Exists => _go != null;
 
@@ -137,7 +190,11 @@ namespace SailwindRigBalance.UI
 
             // A drag in progress holds the shipyard camera still every frame. Hiding the ring
             // mid-drag would leave that suppression running with nothing on screen to explain it.
-            if (!visible) _dragging = false;
+            if (!visible)
+            {
+                _dragging = false;
+                _draggingSpeed = false;
+            }
         }
 
         public void Destroy()
@@ -153,6 +210,8 @@ namespace SailwindRigBalance.UI
             _arrowMesh = null;
             _arrowGo = null;
             _dragging = false;
+            _draggingSpeed = false;
+            _speedSettled = false;
             _centerCapped = false;
             _loggedAudit = null;
             MaxOutput = 0f;
@@ -183,7 +242,6 @@ namespace SailwindRigBalance.UI
             _go.transform.SetPositionAndRotation(center, boat.rotation);
             if (_arrowGo != null)
                 _arrowGo.transform.SetPositionAndRotation(_go.transform.position, _go.transform.rotation);
-
         }
 
         /// <summary>
@@ -213,11 +271,28 @@ namespace SailwindRigBalance.UI
             {
                 if (!Input.GetMouseButtonDown(0)) { SetArrowHighlight(false); return; }
 
-                Vector3 screen = camera.WorldToScreenPoint(handle);
-                if (screen.z <= 0f) return;   // behind the camera
+                // The knob first, because it sits on the end of the arrow and the arrow's own target
+                // reaches it. The knob is the smaller target, so it gets the tie.
+                Vector3 knob = camera.WorldToScreenPoint(KnobWorld);
+                if (knob.z > 0f && Vector2.Distance(new Vector2(Input.mousePosition.x, Input.mousePosition.y),
+                        new Vector2(knob.x, knob.y)) <= KnobGrabPixels)
+                {
+                    _dragging = true;
+                    _draggingSpeed = true;
+                    SetArrowHighlight(true);
+                    SuppressCameraLook();
+                    return;
+                }
 
-                if (Vector2.Distance(new Vector2(screen.x, screen.y),
-                        new Vector2(Input.mousePosition.x, Input.mousePosition.y)) > GrabRadiusPixels)
+                // The whole arrow is the target, tip to tail, projected to the screen. A single point
+                // on the ring lands on the head in one arrow style and far from it in the other.
+                Vector3 direction = DirectionFor(WindAngle, boat);
+                Vector3 inner = camera.WorldToScreenPoint(center + direction * (_radius - ArrowHeadLength));
+                Vector3 outer = camera.WorldToScreenPoint(center + direction * (_radius + ArrowShaftLength));
+                if (inner.z <= 0f || outer.z <= 0f) return;   // behind the camera
+
+                if (DistanceToSegment(new Vector2(Input.mousePosition.x, Input.mousePosition.y),
+                        new Vector2(inner.x, inner.y), new Vector2(outer.x, outer.y)) > GrabRadiusPixels)
                     return;
 
                 _dragging = true;
@@ -237,6 +312,8 @@ namespace SailwindRigBalance.UI
                 // scheduled again: the last line in the log described the angle the arrow was at
                 // BEFORE the drag, with nothing to say it had moved.
                 _angleChanged = true;
+                if (_draggingSpeed) _speedSettled = true;
+                _draggingSpeed = false;
                 return;
             }
 
@@ -256,6 +333,22 @@ namespace SailwindRigBalance.UI
             Vector3 local = boat.InverseTransformDirection(ray.GetPoint(enter) - center);
             if (local.sqrMagnitude < 0.0001f) return;
 
+            if (_draggingSpeed)
+            {
+                // Only the distance along the arrow counts, so the bearing cannot wander while the
+                // speed is being set. Rounded to half a meter per second so the label settles.
+                float along = Vector3.Dot(local, ArrowDirectionLocal);
+                float speed = SpeedForKnobDistance(along);
+                speed = Mathf.Round(speed * 2f) * 0.5f;
+                speed = Mathf.Clamp(speed, Config.RigBalanceLimits.MinWindSpeed, Config.RigBalanceLimits.MaxWindSpeed);
+                if (Mathf.Abs(speed - WindSpeed) < 0.01f) return;
+
+                WindSpeed = speed;
+                _angleChanged = true;
+                UpdateArrow(boat);
+                return;
+            }
+
             // Inverse of DirectionFor: that maps an angle to (-sin, 0, cos).
             float degrees = Mathf.Repeat(Mathf.Atan2(-local.x, local.z) * Mathf.Rad2Deg, 360f);
             if (Mathf.Abs(Mathf.DeltaAngle(degrees, WindAngle)) < 0.5f) return;
@@ -266,6 +359,7 @@ namespace SailwindRigBalance.UI
         }
 
         private const float GrabRadiusPixels = 40f;
+        private const float KnobGrabPixels = 22f;
 
         /// <summary>
         /// Stops the shipyard camera looking around while the arrow is being dragged. The rotator
@@ -273,6 +367,10 @@ namespace SailwindRigBalance.UI
         /// </summary>
         private static void SuppressCameraLook()
         {
+            // The showcase has its own camera and no shipyard rotator is fighting the drag, so the
+            // game's camera components are left exactly as they are.
+            if (HullShowcase.Active) return;
+
             try
             {
                 if (BoatCamera.instance == null) return;
@@ -374,7 +472,7 @@ namespace SailwindRigBalance.UI
                 // synchronous burst is a five frame freeze every time a sail is touched. The cost is
                 // not reflection overhead that could be optimised away: it is the game's own force
                 // function plus a transform write and a world-position read per trim pose, and there
-                // are thirty six times ten times ten of those. Making the answer cruder to fit it
+                // are thirty six times twelve per sail of those. Making the answer cruder to fit it
                 // into one frame would be trading the thing the tool is for against a stutter, so it
                 // is spread instead. The ring keeps showing the previous sweep until the new one is
                 // complete, about half a second later, which for a background readout nobody is
@@ -392,6 +490,10 @@ namespace SailwindRigBalance.UI
                 RigModel.LogSwingLimits(_pendingSnapshot);
                 _pendingBalancedMeters = balancedMeters;
                 _pendingBand = band;
+
+                // The whole sweep heels her in one wind, the one set when it started, so a drag of the
+                // knob mid-sweep cannot paint half the ring at one speed and half at another.
+                _pendingWindSpeed = WindSpeed;
                 _pendingSampled = new RigBalance[Segments];
                 _pendingEvaluated = new bool[Segments];
                 _pendingBest = 0f;
@@ -416,6 +518,7 @@ namespace SailwindRigBalance.UI
         private float _pendingBalancedMeters;
         private float _pendingBand;
         private float _pendingBest;
+        private float _pendingWindSpeed;
         private float _pendingMilliseconds;
         private int _pendingIndex = -1;
 
@@ -456,7 +559,7 @@ namespace SailwindRigBalance.UI
                     // The hull cannot change length between bearings, so it is measured once by the
                     // caller and passed in.
                     _pendingEvaluated[i] = RigModel.TryEvaluate(_pendingRoot, angle, out balance,
-                        null, 1f, _pendingHullLength, _pendingSnapshot);
+                        null, 1f, _pendingHullLength, _pendingSnapshot, _pendingWindSpeed);
                     _pendingSampled[i] = balance;
 
                     if (_pendingEvaluated[i] && balance.TotalOutput > _pendingBest)
@@ -519,7 +622,7 @@ namespace SailwindRigBalance.UI
         ///
         /// MaxOutput is the yardstick the "no verdict" test measures against, and it is only known
         /// once every bearing has been evaluated. With the sweep spread over frames, the markers and
-        /// the helm link are first drawn against the PREVIOUS sweep's yardstick, or against none at
+        /// the helm bar are first drawn against the PREVIOUS sweep's yardstick, or against none at
         /// all on the first visit of a session. This is the nudge that makes them catch up. It
         /// cannot loop: the caller only starts a sweep when the RIG changed, and this is not that.
         /// </summary>
@@ -578,7 +681,20 @@ namespace SailwindRigBalance.UI
                         : 0f;
 
                     line.Append($" {angle:F0}:{verdict}{meters:F1}/{share:F0}%");
+
+                    // The heel this bearing was read at, where heel is modeled. A plus marks a
+                    // bearing where she found no balance and lies over further than the model follows;
+                    // a question mark one where the heel search ran out of rounds.
+                    if (b.Attitude.Valid)
+                        line.Append($"@{Mathf.Abs(b.Attitude.Heel):F0}{(b.Attitude.Overpowered ? "+" : "")}"
+                            + (b.HeelUnsettled ? "?" : ""));
                 }
+
+                RigBalance any = default(RigBalance);
+                for (int i = 0; i < Segments; i++) if (evaluated[i]) { any = sampled[i]; break; }
+                line.Append(any.Attitude.Valid
+                    ? $" (heeled in {any.WindSpeed:F1} m/s; @ is degrees of heel, + laid over, ? heel not settled)"
+                    : " (upright)");
 
                 Plugin.Log.LogInfo(line.ToString());
             }
@@ -644,6 +760,43 @@ namespace SailwindRigBalance.UI
         /// </summary>
         private static string _loggedAudit;
 
+        /// <summary>
+        /// Whether a mirror pair differs only because the game shades the two tacks differently.
+        ///
+        /// Every sail's shadow collider is one flat single-sided plane (wind_shadow_col_mesh) and the
+        /// game's physics settings have queriesHitBackfaces off, so a shading ray is blocked by
+        /// another sail only when it meets that sail's front face. Reflected to the other tack, the
+        /// same ray meets the back face and passes. SailShadowCol.CheckShadow casts its rays the same
+        /// way, so at sea the two tacks really are shaded differently and the ring shows it. Found
+        /// 2026-11-13: with heel and trims mirroring exactly, the only remaining difference was
+        /// shading (a square shaded 0% against 51%), and the forces divided by (1 - shading) matched.
+        ///
+        /// True when some sail's shading differs between the two readings and the forces with
+        /// shading taken back out agree.
+        /// </summary>
+        private static bool ShadingOnly(RigBalance a, RigBalance b)
+        {
+            if (a.Sails == null || b.Sails == null || a.Sails.Count != b.Sails.Count) return false;
+
+            float fwdA = 0f, fwdB = 0f, sideA = 0f, sideB = 0f;
+            bool shadingDiffers = false;
+            for (int k = 0; k < a.Sails.Count; k++)
+            {
+                SailContribution ca = a.Sails[k], cb = b.Sails[k];
+                float keepA = 1f - ca.Shading, keepB = 1f - cb.Shading;
+                if (keepA < 0.05f || keepB < 0.05f) return false;
+                if (Mathf.Abs(ca.Shading - cb.Shading) > 0.005f) shadingDiffers = true;
+                fwdA += ca.ForwardForce / keepA;
+                fwdB += cb.ForwardForce / keepB;
+                sideA += Mathf.Abs(ca.SideForce / keepA);
+                sideB += Mathf.Abs(cb.SideForce / keepB);
+            }
+
+            return shadingDiffers
+                && RelativeGap(fwdA, fwdB) <= MirrorTolerance * 2f
+                && RelativeGap(sideA, sideB) <= MirrorTolerance * 2f;
+        }
+
         private static void LogMirrorAudit(RigBalance[] sampled, bool[] evaluated, float balancedMeters)
         {
             try
@@ -662,6 +815,7 @@ namespace SailwindRigBalance.UI
                 // against 8.5 m of weather at 235. The lever is only compared where both halves have
                 // a reading, since near a run it is a ratio of vanishing terms, and a gap counts
                 // once it is as wide as the balanced band, which is where the ring shows it.
+                int shadingOnly = 0;
                 int helmBroken = 0, worstHelm = -1;
                 float worstHelmGap = 0f;
                 float helmTolerance = Mathf.Max(balancedMeters, 0.25f);
@@ -672,6 +826,9 @@ namespace SailwindRigBalance.UI
                     int j = Segments - 1 - i;
                     if (!evaluated[i] || !evaluated[j]) continue;
                     pairs++;
+
+                    // The game's own one-sided shading, not a fault in the model: counted, not warned.
+                    if (ShadingOnly(sampled[i], sampled[j])) { shadingOnly++; continue; }
 
                     float leverI, leverJ;
                     if (LeverOf(sampled[i], out leverI) && LeverOf(sampled[j], out leverJ))
@@ -700,15 +857,23 @@ namespace SailwindRigBalance.UI
                     if (gap > worstGap) { worstGap = gap; worst = i; }
                 }
 
-                string answer = $"{pairs}:{signature}|{helmSignature}";
+                string answer = $"{pairs}:{signature}|{helmSignature}|{shadingOnly}";
                 if (answer == _loggedAudit) return;
                 _loggedAudit = answer;
 
+                string shadingNote = shadingOnly > 0
+                    ? $"; {shadingOnly} differ only in sail shading, which the game does per tack (single-sided shadow planes)"
+                    : "";
+
                 if ((broken == 0 || worst < 0) && (helmBroken == 0 || worstHelm < 0))
                 {
-                    Plugin.Log.LogInfo($"[Ring] mirror audit: {pairs} pairs, symmetric.");
+                    Plugin.Log.LogInfo($"[Ring] mirror audit: {pairs} pairs, symmetric{shadingNote}.");
                     return;
                 }
+
+                if (shadingOnly > 0)
+                    Plugin.Log.LogInfo($"[Ring] mirror audit: {shadingOnly} of {pairs} pairs differ only in sail "
+                        + "shading, which the game does per tack (single-sided shadow planes).");
 
                 if (broken > 0 && worst >= 0)
                 {
@@ -902,7 +1067,8 @@ namespace SailwindRigBalance.UI
                     // cannot identify.
                     + $"sideShare {ca.SideShare:F2} vs {cb.SideShare:F2}, "
                     + $"aback {ca.Aback} vs {cb.Aback}, "
-                    + $"clamped {ca.DriveClamped} vs {cb.DriveClamped}");
+                    + $"clamped {ca.DriveClamped} vs {cb.DriveClamped}, "
+                    + $"shaded {ca.Shading * 100f:F0}% vs {cb.Shading * 100f:F0}%");
             }
 
             for (int n = 0; n < b.Sails.Count; n++)
@@ -922,7 +1088,7 @@ namespace SailwindRigBalance.UI
         }
 
         /// <summary>
-        /// The verdict color for one evaluated angle. Shared with the helm link through
+        /// The verdict color for one evaluated angle. Shared with the helm bar through
         /// <see cref="IsDead"/> so the ring behind the markers cannot disagree with them.
         /// </summary>
         internal static Color VerdictFor(RigBalance balance, float maxOutput, float balancedMeters)
@@ -937,7 +1103,7 @@ namespace SailwindRigBalance.UI
             // that their monstrously lopsided lateen "had no power".
             if (balance.HelmOffScale)
                 return balance.RawLever > 0f
-                    ? ShipyardGizmo.WeatherHelmColor
+                    ? ShipyardGizmo.WeatherHelmFarColor
                     : ShipyardGizmo.LeeHelmColor;
 
             return HelmColor(balance.HelmMeters, balancedMeters);
@@ -956,7 +1122,7 @@ namespace SailwindRigBalance.UI
         /// so there was no way to see whether an edit had helped unless it crossed a threshold. The
         /// ramp makes an improvement visible while it is still an improvement.
         ///
-        /// Used by the ring, the helm link and the reef track alike, so the three cannot drift into
+        /// Used by the ring, the helm bar and the reef track alike, so the three cannot drift into
         /// disagreeing about what a color means.
         /// </summary>
         internal static Color HelmColor(float helmMeters, float balancedMeters)
@@ -965,17 +1131,26 @@ namespace SailwindRigBalance.UI
 
             float bands = Mathf.Abs(helmMeters) / balancedMeters;
 
-            // Square-rooted, so the hue commits early and then deepens. A linear ramp spends most of
-            // its range near the neutral color, which hides the first and most useful part of the
-            // signal: the point where a rig starts to go one-handed, not the point where it is
-            // hopeless. This is most of the way to blue or red by a quarter of the range.
-            float t = Mathf.Sqrt(Mathf.InverseLerp(1f, SaturateAtBands, bands));
+            // Two linear legs through a middle stop. The middle stop is what makes the start of
+            // the signal visible (green turning orange or light blue), so the old square-root ease
+            // is no longer needed for that, and dropping it leaves room to see the far end deepen.
+            bool weather = helmMeters > 0f;
+            Color mid = weather ? ShipyardGizmo.WeatherHelmColor : ShipyardGizmo.LeeHelmMidColor;
+            Color far = weather ? ShipyardGizmo.WeatherHelmFarColor : ShipyardGizmo.LeeHelmColor;
 
-            Color extreme = helmMeters > 0f
-                ? ShipyardGizmo.WeatherHelmColor
-                : ShipyardGizmo.LeeHelmColor;
+            if (bands <= MidAtBands)
+                return Color.Lerp(ShipyardGizmo.BalancedColor, mid, Mathf.InverseLerp(1f, MidAtBands, bands));
+            return Color.Lerp(mid, far, Mathf.InverseLerp(MidAtBands, FarAtBands, bands));
+        }
 
-            return Color.Lerp(ShipyardGizmo.BalancedColor, extreme, t);
+        /// <summary>
+        /// The same ramp over a signed position from -1 (far lee) through 0 (balanced) to +1 (far
+        /// weather), for the ring button's texture, which shows the whole scale at once.
+        /// </summary>
+        internal static Color HelmColorAt(float signedPosition)
+        {
+            float bands = 1f + Mathf.Abs(signedPosition) * (FarAtBands - 1f);
+            return HelmColor(Mathf.Sign(signedPosition) * bands, 1f);
         }
 
         /// <summary>
@@ -991,15 +1166,70 @@ namespace SailwindRigBalance.UI
         internal static Color NoVerdictColor => DeadColor;
 
         /// <summary>
-        /// Rebuilds the arrow so it sits at the current wind bearing, pointing inward at the boat,
-        /// because that is the direction the wind blows. It is drawn in the ring's own local space
-        /// and rotated with the boat, so it needs no transform of its own beyond following.
+        /// Rebuilds the arrow so it sits at the current wind bearing. By default it points inward at
+        /// the boat, the direction the wind blows; the WindArrowStyle setting turns it round to point
+        /// into the wind like a weather vane. It is drawn in the ring's own local space and rotated
+        /// with the boat, so it needs no transform of its own beyond following.
         /// </summary>
         private void UpdateArrow(Transform boat)
         {
             if (_arrowGo == null || _arrowMesh == null) return;
             BuildArrowMesh(_dragging);
         }
+
+        private static bool WeatherVaneWanted => Config.Settings.WindArrowStyle != null
+            && Config.Settings.WindArrowStyle.Value == Config.WindArrowStyles.WeatherVane;
+
+        private float ArrowHeadLength => Mathf.Max(_radius * 0.16f, 0.8f);
+
+        // The shaft grows with the wind speed, from 0.4 heads in a calm to 4.9 at 100 knots. At the
+        // 10 m/s default it is about 1.2 heads, close to the fixed 1.5 it used to be, and at 30 m/s
+        // about 3, the same lengths as when the range stopped at 30.
+        private const float ShaftAtCalm = 0.4f;
+        private const float ShaftAtStorm = 4.9f;
+
+        private float SpeedFraction => Mathf.InverseLerp(Config.RigBalanceLimits.MinWindSpeed,
+            Config.RigBalanceLimits.MaxWindSpeed, WindSpeed);
+
+        private float ArrowShaftLength => ArrowHeadLength * Mathf.Lerp(ShaftAtCalm, ShaftAtStorm, SpeedFraction);
+
+        private float KnobRadius => ArrowHeadLength * 0.28f;
+
+        /// <summary>From the ring's center to the knob's center, which sits just past the arrow's outer end.</summary>
+        private float KnobDistance => _radius + ArrowShaftLength + KnobRadius;
+
+        /// <summary>The arrow's bearing in the ring's own frame, outward from the boat.</summary>
+        private Vector3 ArrowDirectionLocal
+        {
+            get
+            {
+                float rad = WindAngle * Mathf.Deg2Rad;
+                return new Vector3(-Mathf.Sin(rad), 0f, Mathf.Cos(rad));
+            }
+        }
+
+        /// <summary>Inverse of KnobDistance: the wind speed that would put the knob this far out.</summary>
+        private float SpeedForKnobDistance(float distance)
+        {
+            float shaftHeads = (distance - _radius - KnobRadius) / ArrowHeadLength;
+            float t = Mathf.InverseLerp(ShaftAtCalm, ShaftAtStorm, shaftHeads);
+            return Mathf.Lerp(Config.RigBalanceLimits.MinWindSpeed, Config.RigBalanceLimits.MaxWindSpeed, t);
+        }
+
+        private static float DistanceToSegment(Vector2 point, Vector2 a, Vector2 b)
+        {
+            Vector2 span = b - a;
+            float lengthSquared = span.sqrMagnitude;
+            if (lengthSquared < 0.0001f) return Vector2.Distance(point, a);
+
+            float along = Mathf.Clamp01(Vector2.Dot(point - a, span) / lengthSquared);
+            return Vector2.Distance(point, a + span * along);
+        }
+
+        private const int KnobSegments = 16;
+
+        /// <summary>The waterline's color, shared so the knob reads as the control for it.</summary>
+        internal static readonly Color KnobColor = new Color(0.35f, 0.80f, 1f, 0.95f);
 
         private void BuildArrowMesh(bool highlighted)
         {
@@ -1009,32 +1239,60 @@ namespace SailwindRigBalance.UI
             Vector3 d = new Vector3(-Mathf.Sin(rad), 0f, Mathf.Cos(rad));
             Vector3 side = Vector3.Cross(Vector3.up, d).normalized;
 
-            float head = Mathf.Max(_radius * 0.16f, 0.8f);
+            float head = ArrowHeadLength;
             float halfWidth = head * 0.55f;
-            float shaft = head * 1.5f;
+            float shaft = ArrowShaftLength;
             float shaftHalf = halfWidth * 0.30f;
 
-            Vector3 at = d * _radius;                 // on the ring
-            Vector3 tip = at - d * head;              // pointing in toward the boat
-            Vector3 tail = at + d * shaft;
+            // Downwind: the head's point is just inside the ring, its base on the ring, and the
+            // shaft runs outward. Weather vane: the same footprint turned end for end, so the arrow
+            // covers the same stretch of water and the ring point the drag grabs (HandleDrag) still
+            // lies on it, now partway along the shaft.
+            bool vane = WeatherVaneWanted;
 
-            var vertices = new Vector3[]
-            {
-                tip,                                  // 0 head
-                at + side * halfWidth,                // 1
-                at - side * halfWidth,                // 2
-                at + side * shaftHalf,                // 3 shaft
-                at - side * shaftHalf,                // 4
-                tail + side * shaftHalf,              // 5
-                tail - side * shaftHalf,              // 6
-            };
+            // Turning the arrow end for end alone would mirror it, which reverses the winding of
+            // every triangle, and the Standard fallback material culls back faces. Flipping the
+            // sideways axis as well makes it a half turn about the vertical instead, which keeps the
+            // winding; the arrow is symmetric about its own axis, so its shape does not change.
+            if (vane) side = -side;
 
-            var triangles = new[]
+            Vector3 inner = d * (_radius - head);
+            Vector3 outer = d * (_radius + shaft);
+            Vector3 tip = vane ? outer : inner;
+            Vector3 headBase = vane ? outer - d * head : inner + d * head;
+            Vector3 tail = vane ? inner : outer;
+
+            // The knob that sets the wind speed: a disc just past the arrow's outer end, which is the
+            // tail in the default style and the head with the weather vane. Wound the same way as the
+            // ring's own quads, which the fallback material's back-face culling already accepts.
+            Vector3 knobCenter = d * KnobDistance;
+            float knobRadius = KnobRadius;
+
+            var vertices = new Vector3[7 + 1 + KnobSegments];
+            vertices[0] = tip;                                  // head
+            vertices[1] = headBase + side * halfWidth;
+            vertices[2] = headBase - side * halfWidth;
+            vertices[3] = headBase + side * shaftHalf;          // shaft
+            vertices[4] = headBase - side * shaftHalf;
+            vertices[5] = tail + side * shaftHalf;
+            vertices[6] = tail - side * shaftHalf;
+            vertices[7] = knobCenter;
+            for (int k = 0; k < KnobSegments; k++)
             {
-                0, 1, 2,
-                3, 5, 6,
-                3, 6, 4,
-            };
+                float a = 2f * Mathf.PI * k / KnobSegments;
+                vertices[8 + k] = knobCenter + new Vector3(-Mathf.Sin(a), 0f, Mathf.Cos(a)) * knobRadius;
+            }
+
+            var triangles = new int[9 + KnobSegments * 3];
+            int[] arrowTriangles = { 0, 1, 2, 3, 5, 6, 3, 6, 4 };
+            Array.Copy(arrowTriangles, triangles, arrowTriangles.Length);
+            for (int k = 0; k < KnobSegments; k++)
+            {
+                int t = 9 + k * 3;
+                triangles[t + 0] = 7;
+                triangles[t + 1] = 8 + k;
+                triangles[t + 2] = 8 + (k + 1) % KnobSegments;
+            }
 
             Color color = highlighted
                 ? new Color(1f, 1f, 1f, 1f)
@@ -1042,6 +1300,10 @@ namespace SailwindRigBalance.UI
 
             var colors = new Color[vertices.Length];
             for (int i = 0; i < colors.Length; i++) colors[i] = color;
+
+            // The knob in the waterline's blue, so it reads as the control for the heel it shows.
+            Color knobColor = highlighted && _draggingSpeed ? Color.white : KnobColor;
+            for (int i = 7; i < colors.Length; i++) colors[i] = knobColor;
 
             _arrowMesh.Clear();
             _arrowMesh.vertices = vertices;

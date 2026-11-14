@@ -9,7 +9,7 @@ namespace SailwindRigBalance.UI
     /// <summary>
     /// The shipyard gizmo: three world-space markers, read the way KSP's CoM/CoL/CoT are read.
     ///
-    ///   magenta  center of effort      where the sail plan's turning force acts
+    ///   magenta  center of effort      where the sails pull, weighted by each sail's force
     ///   blue     center of resistance  where the hull's lateral drag pushes back
     ///   yellow   center of mass        the boat's own balance point
     ///
@@ -23,21 +23,14 @@ namespace SailwindRigBalance.UI
     /// of magenta above yellow is the heeling lever. And it moves when the hull's own loadout does,
     /// which is a real shipyard choice wherever a part carries a BoatCustomKeel (BoatCustomKeel.cs:11).
     ///
-    /// The balance answer is the fore-and-aft offset between magenta and blue, and nothing else. Magenta
-    /// aft of blue is weather helm, magenta forward is lee helm. A colored link between the two
-    /// carries that verdict so it reads from any camera angle without a number on screen.
+    /// The balance answer is the helm bar: a colored post up from blue to the top of the hull, then a
+    /// bar along the centerline whose length is the lever the rig's yaw moment about the hull origin
+    /// works out to. Aft is weather helm and forward is lee helm, without a number on screen.
     ///
-    /// The marker and the link color are the same statement, which took work to make true. Magenta
-    /// is not simply where the sails average out to. It is drawn on the centerline at the lever arm
-    /// the rig's yaw moment about the hull origin works out to, so the fore-and-aft run of the elbow
-    /// IS the balance figure rather than merely correlating with it
-    /// (RigModel.CombineCenterOfEffort). Its height is still the sails' own centroid, because that
-    /// is the heeling lever against yellow and a separate reading.
-    ///
-    /// Without that the two halves came from different quantities and could point opposite ways on
-    /// a square rigger, where the courses carry the drive and the headsails the side force from
-    /// opposite ends of the boat: magenta plainly forward of blue while the link between them was
-    /// painted for weather helm.
+    /// Magenta is a separate statement, where the sails pull, and the two can point opposite ways.
+    /// Yaw weights each sail's station by its side force and its offset from the centerline by its
+    /// drive, and it includes the hull's windage, so a one-sail junk can show magenta forward of blue
+    /// and a bar running aft. See RigBalance.HelmMeters and FINDINGS section 19.
     ///
     /// Four decisions carry the whole file:
     ///
@@ -72,7 +65,8 @@ namespace SailwindRigBalance.UI
         /// is a judgement about where balance matters, not a fact.
         /// </summary>
         /// <summary>
-        /// The angle everything is evaluated at. Starts from config and is then owned by the wind
+        /// The angle everything is evaluated at. Starts from the wind in port (or config, see
+        /// SeedFromWorldWind) and is then owned by the wind
         /// arrow: dragging it round the ring is the same act as choosing a point of sail, so there
         /// is no second source of truth to keep in step.
         /// </summary>
@@ -81,9 +75,96 @@ namespace SailwindRigBalance.UI
             get
             {
                 if (_ring.Exists) return _ring.WindAngle;
+                if (_carryWind) return _carryAngle;
                 return Config.Settings.WindAngle != null ? Config.Settings.WindAngle.Value : 45f;
             }
         }
+
+        // ------------------------------------------------------------------ what the gizmo is on
+        //
+        // A shipyard boat, or the boat the hull showcase is looking at from the main menu. The two
+        // never overlap: the showcase only runs while no game is being played.
+
+        private static bool TargetActive => ShipyardHooks.InShipyard || HullShowcase.Active;
+
+        private static GameObject TargetBoat => HullShowcase.Active ? HullShowcase.CurrentBoat : ShipyardHooks.CurrentBoat;
+
+        /// <summary>The boat the visuals were built for, so a showcase step rebuilds them for the next.</summary>
+        private GameObject _sessionBoat;
+
+        /// <summary>
+        /// The wind the arrow was set to on the previous showcase boat, carried to the next so a
+        /// chosen wind compares hull against hull, or, in the shipyard, the wind blowing in port when
+        /// the visit started. Cleared when the shipyard or the showcase closes.
+        /// </summary>
+        private bool _carryWind;
+        private float _carryAngle, _carrySpeed;
+
+        /// <summary>Set when a shipyard visit starts, so the first evaluation starts the arrow at the
+        /// wind blowing in port. Only the start: after that the arrow is the player's.</summary>
+        private bool _seedFromWorld;
+
+        /// <summary>
+        /// Starts the arrow at the wind blowing where the boat lies: the bearing it comes from against
+        /// her heading, and its speed. Wind.currentWind is the way the air moves (HeelCheck reads the
+        /// apparent wind as it minus the boat's velocity, BoatWind.cs:25-33), so it comes from minus that.
+        /// In a dead calm there is no bearing to take, and the config values stand.
+        /// </summary>
+        private void SeedFromWorldWind(GameObject boat)
+        {
+            if (Config.Settings.StartFromLocalWind != null && !Config.Settings.StartFromLocalWind.Value) return;
+            try
+            {
+                Vector3 wind = Wind.currentWind;
+                Vector3 from = boat.transform.InverseTransformDirection(-wind);
+                from.y = 0f;
+                if (wind.magnitude < 0.1f || from.sqrMagnitude < 0.0001f) return;
+
+                // The same bearing convention as the arrow's drag (BalanceRing: (-sin, 0, cos)), and the
+                // same half meter per second steps its knob sets.
+                float angle = Mathf.Repeat(Mathf.Atan2(-from.x, from.z) * Mathf.Rad2Deg, 360f);
+                float speed = Mathf.Clamp(Mathf.Round(wind.magnitude * 2f) * 0.5f,
+                    Config.RigBalanceLimits.MinWindSpeed, Config.RigBalanceLimits.MaxWindSpeed);
+
+                _carryWind = true;
+                _carryAngle = angle;
+                _carrySpeed = speed;
+                Plugin.Log.LogInfo($"[Gizmo] wind arrow starts at the wind in port: {angle:F0} deg, {speed:F1} m/s.");
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogDebug("[Gizmo] the wind in port could not be read: " + e.Message);
+            }
+        }
+
+        /// <summary>
+        /// The wind speed she is heeled in, m/s. Owned by the knob on the wind arrow once the ring
+        /// exists, from the config before then and whenever the ring is switched off.
+        /// </summary>
+        private float WindSpeed
+        {
+            get
+            {
+                if (_ring.Exists) return _ring.WindSpeed;
+                if (_carryWind) return _carrySpeed;
+                return Config.Settings.WindSpeed != null ? Config.Settings.WindSpeed.Value : RigModel.SyntheticWindSpeed;
+            }
+        }
+
+        private readonly Waterline _waterline = new Waterline();
+        private Material _waterlineMaterial;
+        private bool _waterlineMeasured;
+
+        /// <summary>The attitude of the last reading, for the heel label and the log.</summary>
+        private SeaAttitude _attitude;
+
+        private static bool HeelModeled => Config.Settings.ModelHeel == null || Config.Settings.ModelHeel.Value;
+
+        // The ring's button hides the waterline with it (user's call, 2026-11-14): one button for
+        // everything drawn around the hull, rather than a sixth in the strip.
+        private static bool WaterlineWanted => HeelModeled
+            && (Config.Settings.ShowWaterline == null || Config.Settings.ShowWaterline.Value)
+            && (Config.Settings.ShowRing == null || Config.Settings.ShowRing.Value);
 
         /// <summary>
         /// Seconds to wait after the last change event before recomputing. Not a performance tweak:
@@ -121,10 +202,18 @@ namespace SailwindRigBalance.UI
         // that and carries the safe-versus-dangerous reading for free. (The version before amber had
         // weather helm red, which signalled the safe direction as the dangerous one.)
         //
-        // Lighter and more cyan than the center-of-resistance marker's blue, so the helm link
+        // Lighter and more cyan than the center-of-resistance marker's blue, so the helm bar
         // arriving at that marker still reads as a separate thing from it.
         internal static readonly Color WeatherHelmColor = new Color(0.25f, 0.78f, 1.00f);
         internal static readonly Color LeeHelmColor = new Color(1.00f, 0.20f, 0.15f);
+
+        // The middle stops of the ramp (BalanceRing.HelmColor). With only the two ends, a rig a
+        // little outside the band was already most of the way to full blue or red, so players saw
+        // three colors and no gradient. Orange sits between green and red on the lee side; on the
+        // weather side the light blue above becomes the middle stop and a dark blue marks the far
+        // end. The dark blue stays deeper than ResistanceColor so the bar still reads apart from it.
+        internal static readonly Color LeeHelmMidColor = new Color(1.00f, 0.60f, 0.10f);
+        internal static readonly Color WeatherHelmFarColor = new Color(0.12f, 0.22f, 0.85f);
         internal static readonly Color BalancedColor = new Color(0.35f, 1.00f, 0.45f);
 
         private readonly GameObject[] _markers = new GameObject[MarkerCount];
@@ -147,6 +236,7 @@ namespace SailwindRigBalance.UI
 
         private GameObject _root;
         private LineRenderer _link;
+        private LineRenderer _barHead;
         private Material _linkMaterial;
         private Texture2D _linkTexture;
 
@@ -189,6 +279,47 @@ namespace SailwindRigBalance.UI
         private bool _settleArmed;
         private float _stillSince;
         private const float SettleSeconds = 0.15f;
+
+        // Held back at the start of a visit, so it appears once, finished, instead of three times.
+        // Read 2026-11-14: the first reading came 0.25 s in with the boat still sliding into the
+        // cradle (lever 0.64 m), the ring's sweep finishing re-read her mid-slide (4.18 m), and the
+        // settle gave the real one (1.04 m), then a second sweep re-colored it again. Now nothing is
+        // computed while she moves, and nothing is drawn on the boat until the first sweep after she
+        // stops has finished and the markers have been re-colored against it. The strip and legend
+        // stay up meanwhile with a Calculating note (user's call, 2026-11-14: a vanishing interface
+        // read as a mod that had stopped). HoldSeconds is the backstop: past
+        // it everything shows whatever state it is in, so a boat that never stops twitching (another
+        // mod, a future game change) cannot keep the gizmo hidden.
+        private bool _holding;
+        private bool _revealAfterRecompute;
+        private float _holdUntil, _holdStart;
+        private const float HoldSeconds = 6f;
+
+        private void Start()
+        {
+            StartCoroutine(SamplePaperLoop());
+        }
+
+        private void StartHold()
+        {
+            _holding = true;
+            _revealAfterRecompute = false;
+            _holdStart = Time.unscaledTime;
+            _holdUntil = _holdStart + HoldSeconds;
+            ApplyHold();
+        }
+
+        private void Reveal()
+        {
+            _holding = false;
+            _revealAfterRecompute = false;
+            ApplyHold();
+        }
+
+        private void ApplyHold()
+        {
+            if (_root != null && _root.activeSelf == _holding) _root.SetActive(!_holding);
+        }
 
         private readonly BalanceRing _ring = new BalanceRing();
 
@@ -254,8 +385,11 @@ namespace SailwindRigBalance.UI
         /// </summary>
         private bool _helmOffScale;
         private float _rawLever;        // the unbounded lever, only trusted while _helmOffScale
+        private float _barLever;        // the helm bar in meters, positive aft; zero means no lean to draw
+        private float _helmBarHeight;   // the bar's height above the boat root, the top of the hull
+        private float _unrollSeen = float.NaN;  // what PollFurlState last read; NaN means nothing yet
         private bool _ringNeedsRebuild = true;
-        private float _helmMeters;      // positive = weather helm, in meters of CE offset
+        private float _helmMeters;      // positive = weather helm, in meters of helm lever
         private string _lastSummary;    // so an unchanged verdict is not logged every rebuild
 
         private float _rebuildAt = -1f;
@@ -290,22 +424,59 @@ namespace SailwindRigBalance.UI
 
         private void Update()
         {
-            if (!ShipyardHooks.InShipyard)
+            // Eases toward the last sample, so a change of light shifts the panels instead of
+            // snapping them.
+            _paper = Color.Lerp(_paper, _paperTarget, 1f - Mathf.Exp(-4f * Time.unscaledDeltaTime));
+
+            if (!TargetActive)
             {
                 if (_root != null) Teardown();
                 _rebuildAt = -1f;
+                _sessionBoat = null;
+                _carryWind = false;
+                _seedFromWorld = false;
                 return;
+            }
+
+            // A showcase step puts the gizmo on another boat. Everything is rebuilt for it, as for a
+            // fresh shipyard visit, with the wind the arrow was set to carried across.
+            GameObject target = TargetBoat;
+            if (target != _sessionBoat)
+            {
+                if (HullShowcase.Active && _root != null)
+                {
+                    if (_ring.Exists)
+                    {
+                        _carryWind = true;
+                        _carryAngle = _ring.WindAngle;
+                        _carrySpeed = _ring.WindSpeed;
+                    }
+                    Teardown();
+                }
+                _sessionBoat = target;
+                if (target != null) StartHold();
+                if (!HullShowcase.Active && target != null) _seedFromWorld = true;
+                if (HullShowcase.Active && target != null)
+                {
+                    _rebuildAt = Time.unscaledTime + RebuildDelay;
+                    _ringNeedsRebuild = true;
+                    ShipyardHooks.NoteReason("showcase hull");
+                }
             }
 
             WatchForSettle();
             Shipyard.UnrollWatch.Tick();
-            EnsureFurlButton();
+            if (!HullShowcase.Active) EnsureFurlButton();
 
             if (ShipyardHooks.ConsumeDirty())
             {
                 _rebuildAt = Time.unscaledTime + RebuildDelay;
                 _ringNeedsRebuild = true;
             }
+
+            // In the showcase every sail is judged set whatever its furl state, so there is nothing to
+            // poll for.
+            if (!HullShowcase.Active) PollFurlState();
 
             // Selecting a different sail changes which reef track is meaningful, and the shipyard
             // gives no event for it, so it is polled. Cheap: one accessor, no allocation.
@@ -332,11 +503,18 @@ namespace SailwindRigBalance.UI
                 }
             }
 
+            PollFurlKey(selection);
+
             // Tested against the same sentinel LateUpdate tests, >= 0 here and < 0 there. With a
             // strict > 0 here, a deadline of exactly zero would have satisfied neither: Update would
             // never have fired it and LateUpdate would never have been allowed to replace it, so the
             // gizmo would have latched dead for the session with nothing in the log.
-            if (_rebuildAt >= 0f && Time.unscaledTime >= _rebuildAt)
+            // While held, a boat still moving is not read: the settle marks the rig dirty when she
+            // stops, which schedules the reading that counts. Not pushed back, only not fired, and
+            // only until the backstop.
+            bool backstop = _holding && Time.unscaledTime >= _holdUntil;
+            bool stillMoving = _holding && _settleArmed && !backstop;
+            if (_rebuildAt >= 0f && Time.unscaledTime >= _rebuildAt && !stillMoving)
             {
                 _rebuildAt = -1f;
 
@@ -347,6 +525,116 @@ namespace SailwindRigBalance.UI
 
                 Recompute();
             }
+
+            if (backstop)
+            {
+                Plugin.Log.LogInfo($"[Gizmo] shown after {HoldSeconds:F0} s without the boat settling and "
+                    + "the ring finishing; the reading may still change.");
+                Reveal();
+            }
+        }
+
+        /// <summary>
+        /// The furl key: the same toggle as the strip's circle and the cloned "Furl this sail"
+        /// button, for the sail selected right now. Players balancing a big rig asked for it,
+        /// because every sail they want to try in or out is otherwise a click on the sail and a
+        /// trip to the corner of the screen and back.
+        ///
+        /// Skipped while an IMGUI text field has the keyboard, so typing a G into another mod's
+        /// box does not furl a sail, and with ShowPanel off, which promises no interface at all. The
+        /// game cannot open its pause menu in a shipyard (StartMenu.cs:129), so that needs no check.
+        ///
+        /// A closed window can leave the keyboard focus behind with nothing on screen to show it, so
+        /// a press that is ignored for that reason says so in the log.
+        ///
+        /// Not KeyboardShortcut.IsDown, which refuses to fire while any other key or button is held,
+        /// so a press would do nothing while the player happened to be holding something else.
+        /// </summary>
+        private static void PollFurlKey(Sail selection)
+        {
+            if (selection == null || Config.Settings.FurlSelectedSailKey == null) return;
+            if (Config.Settings.ShowPanel != null && !Config.Settings.ShowPanel.Value) return;
+
+            try
+            {
+                KeyboardShortcut shortcut = Config.Settings.FurlSelectedSailKey.Value;
+                if (shortcut.MainKey == KeyCode.None || !Input.GetKeyDown(shortcut.MainKey)) return;
+
+                foreach (KeyCode modifier in shortcut.Modifiers)
+                    if (!Input.GetKey(modifier)) return;
+            }
+            catch (Exception e)
+            {
+                if (!_furlKeyFailureLogged)
+                {
+                    _furlKeyFailureLogged = true;
+                    Plugin.Log.LogWarning("[Gizmo] the furl key could not be read: " + e.Message);
+                }
+                return;
+            }
+
+            if (GUIUtility.keyboardControl != 0)
+            {
+                Plugin.Log.LogInfo("[Gizmo] furl key ignored: another window has the keyboard (control "
+                    + GUIUtility.keyboardControl + ").");
+                return;
+            }
+
+            Shipyard.FurlSailButton.Toggle(selection);
+        }
+
+        private static bool _furlKeyFailureLogged;
+
+        /// <summary>
+        /// Rebuilds when any sail's furl state changes, whoever changed it.
+        ///
+        /// Sail.currentUnroll is a public field with no event. Shipyard Expansion's Furl Sails button
+        /// writes it from a coroutine (ShipyardUnfurlButton.UnrollSails) without passing through
+        /// anything this mod hooks, so the ring kept painting the rig as it was before the click, and
+        /// the markers only caught up on the next unrelated rebuild. Reading the field is the one
+        /// approach that does not depend on knowing every mod that writes it.
+        ///
+        /// Never pushes back a rebuild already pending. A field that changed every frame would then
+        /// hold the deadline off forever, which froze the whole gizmo once before: see the note on
+        /// the selection poll in Update. Here it only means a rebuild every RebuildDelay.
+        /// </summary>
+        private void PollFurlState()
+        {
+            float now = UnrollFingerprint(TargetBoat);
+            bool changed = !float.IsNaN(_unrollSeen) && Mathf.Abs(now - _unrollSeen) > 0.005f;
+            _unrollSeen = now;
+            if (!changed) return;
+
+            _ringNeedsRebuild = true;
+            ShipyardHooks.NoteReason("sail furled or set");
+            if (_rebuildAt < 0f) _rebuildAt = Time.unscaledTime + RebuildDelay;
+        }
+
+        /// <summary>
+        /// One number that moves when any sail's unroll does. Weighted by position, so swapping one
+        /// sail's furl for another's still registers.
+        /// </summary>
+        private static float UnrollFingerprint(GameObject boat)
+        {
+            var refs = boat == null ? null : boat.GetComponent<BoatRefs>();
+            if (refs == null || refs.masts == null) return 0f;
+
+            float sum = 0f;
+            int index = 0;
+            foreach (Mast mast in refs.masts)
+            {
+                if (mast == null || mast.sails == null) continue;
+
+                foreach (GameObject sailObject in mast.sails)
+                {
+                    if (sailObject == null) continue;
+                    var sail = sailObject.GetComponent<Sail>();
+                    if (sail == null) continue;
+                    sum += sail.currentUnroll * (1f + 0.37f * index++);
+                }
+            }
+
+            return sum;
         }
 
         private string _lastRebuildReason;
@@ -409,7 +697,7 @@ namespace SailwindRigBalance.UI
         /// </summary>
         private void WatchForSettle()
         {
-            GameObject boat = ShipyardHooks.CurrentBoat;
+            GameObject boat = TargetBoat;
             if (boat == null)
             {
                 _settleArmed = false;
@@ -492,23 +780,43 @@ namespace SailwindRigBalance.UI
 
             if (_link != null && _link.enabled)
             {
-                // An elbow, not a straight line. A sail plan's center of effort sits many meters
-                // above the hull, so a direct line is almost vertical and the fore-and-aft offset,
-                // which is the entire answer, shows up as an imperceptible lean. Dropping straight
-                // down to the hull's height first turns that offset into the horizontal run of the
-                // elbow, at true scale, readable from any angle.
-                Vector3 effort = _local[Effort];
+                // The helm bar: a post straight up from the blue marker to the top of the hull, then a
+                // bar along the centerline, aft for weather helm and forward for lee helm, with an
+                // arrowhead on the end. The bar's length is the lever, at true length at any zoom.
+                //
+                // Up at the hull's top it cannot hide behind the blue ball however short it gets, and
+                // it still shows with DrawThroughHull off. The post carries the color from every
+                // camera angle, including bow-on, where a fore-and-aft bar foreshortens to a point.
+                // With no lean to show, balanced or no verdict, the post stands alone.
                 Vector3 resistance = _local[Resistance];
-                Vector3 bend = new Vector3(effort.x, resistance.y, effort.z);
+                var deck = new Vector3(resistance.x, Mathf.Max(_helmBarHeight, resistance.y + 1f), resistance.z);
+                float size = MarkerSize(eye, _boat.TransformPoint(deck));
 
-                Vector3 a = _boat.TransformPoint(effort);
-                Vector3 b = _boat.TransformPoint(bend);
-                Vector3 c = _boat.TransformPoint(resistance);
-                _link.SetPosition(0, a);
-                _link.SetPosition(1, b);
-                _link.SetPosition(2, c);
+                _link.positionCount = _barLever == 0f ? 2 : 3;
+                _link.SetPosition(0, _boat.TransformPoint(resistance));
+                _link.SetPosition(1, _boat.TransformPoint(deck));
 
-                float width = MarkerSize(eye, b) * 0.14f;
+                if (_barLever != 0f)
+                {
+                    // Never more than half the bar, so a short lever still shows some shaft.
+                    float length = Mathf.Abs(_barLever);
+                    float headLength = Mathf.Min(size * 0.7f, length * 0.5f);
+                    float aft = -Mathf.Sign(_barLever);
+
+                    Vector3 headBase = _boat.TransformPoint(deck + new Vector3(0f, 0f, aft * (length - headLength)));
+                    Vector3 tip = _boat.TransformPoint(deck + new Vector3(0f, 0f, aft * length));
+                    _link.SetPosition(2, headBase);
+
+                    if (_barHead != null)
+                    {
+                        _barHead.SetPosition(0, headBase);
+                        _barHead.SetPosition(1, tip);
+                        _barHead.startWidth = size * 0.55f;
+                        _barHead.endWidth = 0f;
+                    }
+                }
+
+                float width = size * 0.2f;
                 _link.startWidth = width;
                 _link.endWidth = width;
             }
@@ -536,13 +844,30 @@ namespace SailwindRigBalance.UI
                 ShipyardHooks.NoteReason("wind arrow");
             }
 
+            // A new wind speed heels her differently at every bearing, so the ring needs a fresh
+            // sweep, once, when the knob is let go. During the drag only the arrow's own bearing is
+            // re-read, through the angle-changed path above, which keeps the drag smooth.
+            if (_ring.ConsumeSpeedSettled())
+            {
+                _ringNeedsRebuild = true;
+                if (_rebuildAt < 0f) _rebuildAt = Time.unscaledTime;
+                ShipyardHooks.NoteReason("wind speed");
+            }
+
+            _waterline.Tick(_boat, MarkerSize(eye, _boat.position) * 0.12f, Time.unscaledDeltaTime);
+
             // A finished sweep establishes how much output this rig is capable of, which is what the
             // markers measure "no verdict" against. Re-color them against it. This does not restart
             // the sweep: the ring is only rebuilt when the RIG changed, and this is not that.
-            if (_ring.ConsumeSweepCompleted() && _rebuildAt < 0f)
+            if (_ring.ConsumeSweepCompleted())
             {
-                _rebuildAt = Time.unscaledTime;
-                ShipyardHooks.NoteReason("sweep finished");
+                // Whichever reading comes next is colored against this sweep, so it is the one to show.
+                if (_holding) _revealAfterRecompute = true;
+                if (_rebuildAt < 0f)
+                {
+                    _rebuildAt = Time.unscaledTime;
+                    ShipyardHooks.NoteReason("sweep finished");
+                }
             }
 
             PlaceForces(eye);
@@ -554,7 +879,7 @@ namespace SailwindRigBalance.UI
                 _track.SetPosition(0, from);
                 _track.SetPosition(1, to);
 
-                // Thinner than the helm link: this is a what-if, not the current state.
+                // Thinner than the helm bar: this is a what-if, not the current state.
                 float width = MarkerSize(eye, (from + to) * 0.5f) * 0.07f;
                 _track.startWidth = width;
                 _track.endWidth = width;
@@ -591,13 +916,15 @@ namespace SailwindRigBalance.UI
             if (_ringTex != null) Destroy(_ringTex);
             if (_forceTex != null) Destroy(_forceTex);
             if (_panelTex != null) Destroy(_panelTex);
+            if (_paperRead != null) Destroy(_paperRead);
+            if (_legendTex != null) Destroy(_legendTex);
         }
 
         // ------------------------------------------------------------------ evaluation
 
         private void Recompute()
         {
-            GameObject boat = ShipyardHooks.CurrentBoat;
+            GameObject boat = TargetBoat;
             if (boat == null || !RigModel.Available)
             {
                 if (!RigModel.Available)
@@ -606,19 +933,25 @@ namespace SailwindRigBalance.UI
                 return;
             }
 
+            if (_seedFromWorld)
+            {
+                _seedFromWorld = false;
+                if (!_ring.Exists) SeedFromWorldWind(boat);
+            }
+
             RigBalance balance;
-            if (!RigModel.TryEvaluate(boat, WindAngleDegrees, out balance))
+            if (!RigModel.TryEvaluate(boat, WindAngleDegrees, out balance, null, 1f, 0f, null, WindSpeed))
             {
                 SetValid(false);
                 return;
             }
+            _attitude = balance.Attitude;
 
             Vector3 centerOfMass = ReadCenterOfMass(boat, balance.HullOrigin);
 
-            // The offset that IS the answer, in meters, along the boat's own fore-aft axis. Computed
-            // once, by the model, and read from there by the marker color, the ring and the reef
-            // track alike; it used to be derived separately in all three, which is three chances for
-            // the sign convention to drift apart.
+            // The lever that IS the answer, in meters. Computed once, by the model, and read from
+            // there by the helm bar, the ring and the reef track alike; it used to be derived
+            // separately in all three, which is three chances for the sign convention to drift apart.
             _helmMeters = balance.HelmMeters;
             _unreliable = balance.AnySailHasFrozenCe;
 
@@ -645,23 +978,50 @@ namespace SailwindRigBalance.UI
             //
             // It runs BEFORE the marker colors, because the sweep is what establishes how much
             // output this rig is capable of, and that is the yardstick the "no verdict" test uses.
+            // The hull's shape for the waterline is read when the rig or the boat changes, the same
+            // events that rebuild the ring, and never on an arrow drag.
+            if (_ringNeedsRebuild || !_waterlineMeasured)
+            {
+                _waterline.Measure(boat);
+                _waterlineMeasured = true;
+            }
+            _waterline.SetTarget(balance.Attitude, WaterlineWanted);
+
             bool wantRing = Config.Settings.ShowRing == null || Config.Settings.ShowRing.Value;
             if (wantRing && (_ringNeedsRebuild || !_ring.Exists))
             {
                 // Seed the arrow from config the first time, then leave it alone: after that the
                 // arrow is where the angle lives.
-                if (!_ring.Exists && Config.Settings.WindAngle != null)
-                    _ring.SetWindAngle(Config.Settings.WindAngle.Value);
+                if (!_ring.Exists && _carryWind)
+                {
+                    _ring.SetWindAngle(_carryAngle);
+                    _ring.SetWindSpeed(_carrySpeed);
+                }
+                else
+                {
+                    if (!_ring.Exists && Config.Settings.WindAngle != null)
+                        _ring.SetWindAngle(Config.Settings.WindAngle.Value);
+                    if (!_ring.Exists && Config.Settings.WindSpeed != null)
+                        _ring.SetWindSpeed(Config.Settings.WindSpeed.Value);
+                }
 
                 _ring.Rebuild(boat, _boat, balance, _balancedMeters,
                     _ringMaterial, _layer, _root == null ? null : _root.transform);
                 _ringNeedsRebuild = false;
+
+                // A sweep that finished before this one started was of the boat somewhere else.
+                _revealAfterRecompute = false;
 
             }
 
             _helmDead = BalanceRing.IsDead(balance, _ring.MaxOutput);
             _helmOffScale = !_helmDead && balance.HelmOffScale;
             _rawLever = balance.RawLever;
+            _barLever = _helmDead ? 0f
+                : _helmOffScale ? Mathf.Sign(_rawLever) * balance.OffScaleLever
+                : Mathf.Abs(_helmMeters) < _balancedMeters ? 0f
+                : _helmMeters;
+            _helmBarHeight = balance.HullTopHeight;
 
             Repaint(Effort, _unreliable ? UnreliableColor : EffortColor);
             UpdateLinkColor();
@@ -669,6 +1029,11 @@ namespace SailwindRigBalance.UI
             UpdateForces(balance);
 
             SetValid(true);
+
+            // Shown once the boat has stopped and this reading is colored against a finished sweep,
+            // or straight away when there is no ring to wait for.
+            if (_holding && !_settleArmed && (_revealAfterRecompute || !_ring.Exists)) Reveal();
+            else ApplyHold();
 
             LogRestAttitudes(balance);
             LogUiSurvey();
@@ -935,11 +1300,11 @@ namespace SailwindRigBalance.UI
             string verdict = _helmDead ? "no verdict here, the sails are not working"
                 : _helmOffScale ? ("off the scale, about " + _rawLever.ToString("F0") + " m of "
                     + (_rawLever > 0f ? "weather" : "lee") + " helm")
-                : (Mathf.Abs(_helmMeters) < _balancedMeters ? "balanced"
-                : (_helmMeters > 0f ? "weather helm" : "lee helm"));
+                : (_barLever == 0f ? "balanced"
+                : (_barLever > 0f ? "weather helm" : "lee helm"));
 
             string summary = $"[Gizmo] {balance.Sails.Count} sail(s); wind {balance.WindAngle:F0} deg off the bow; "
-                + $"CE offset {_helmMeters:F2} m ({verdict}, band {_balancedMeters:F2} m, hull {balance.HullLength:F1} m)"
+                + $"helm lever {_helmMeters:F2} m ({verdict}, band {_balancedMeters:F2} m, hull {balance.HullLength:F1} m)"
                 + $"{(_unreliable ? "; a sail's CE does not track its size" : "")}";
 
             if (summary != _lastSummary && !_ring.Dragging)
@@ -959,8 +1324,17 @@ namespace SailwindRigBalance.UI
             // anything consumed them or not.
             if (_ring.Dragging) return;
 
+            if (balance.Attitude.Valid)
+            {
+                Plugin.Log.LogDebug($"[Gizmo]   at {balance.WindSpeed:F1} m/s: heel {balance.Attitude.Heel:F1} deg, "
+                    + $"pitch {balance.Attitude.Pitch:F1} deg, origin {balance.Attitude.OriginHeight:F2} m above "
+                    + $"the sea{(balance.Attitude.Overpowered ? ", OVERPOWERED (no balance found)" : "")}; "
+                    + $"sail moment ({balance.SailMoment.x:F0}, {balance.SailMoment.y:F0}, {balance.SailMoment.z:F0}) Nm "
+                    + "at 10 m/s");
+            }
+
             Plugin.Log.LogDebug($"[Gizmo]   yaw={balance.YawMoment:F0} Nm "
-                + $"(side {balance.YawFromSide:F0} / thrust {balance.YawFromThrust:F0}) "
+                + $"(side {balance.YawFromSide:F0} / thrust {balance.YawFromThrust:F0} / heel {balance.YawFromHeel:F0}) "
                 + $"fwd={balance.TotalForwardForce:F0} N side={balance.TotalSideForce:F0} N "
                 + $"output={balance.TotalOutput:F0} N (rig best {_ring.MaxOutput:F0} N)");
 
@@ -971,7 +1345,7 @@ namespace SailwindRigBalance.UI
             foreach (SailContribution c in balance.Sails)
             {
                 Plugin.Log.LogDebug($"[Gizmo]   {c.Name}: cat={c.Category} upwindEff={c.UpwindEfficiency:F3} "
-                    + $"unroll={c.Unroll:F2} fwd={c.ForwardForce:F0} side={c.SideForce:F0} "
+                    + $"unroll={c.Unroll:F2} shaded={c.Shading * 100f:F0}% fwd={c.ForwardForce:F0} side={c.SideForce:F0} "
                     + $"lever={c.LeverFromOrigin:F2} m height={c.HeightAboveWaterline:F1} m "
                     + $"yaw={c.YawMoment:F0}");
             }
@@ -1057,6 +1431,15 @@ namespace SailwindRigBalance.UI
             return fromKeel;
         }
 
+        /// <summary>The bar belongs to the blue button and the reef track to the magenta one.</summary>
+        private void UpdateBarAndTrackEnabled()
+        {
+            bool bar = _valid && _visible[Resistance];
+            if (_link != null) _link.enabled = bar;
+            if (_barHead != null) _barHead.enabled = bar && _barLever != 0f;
+            if (_track != null) _track.enabled = _valid && _trackValid && _visible[Effort];
+        }
+
         private void SetValid(bool valid)
         {
             _valid = valid;
@@ -1064,12 +1447,12 @@ namespace SailwindRigBalance.UI
             {
                 if (_markers[i] != null) _markers[i].SetActive(valid && _visible[i]);
             }
-            if (_link != null) _link.enabled = valid && _visible[Effort] && _visible[Resistance];
-            if (_track != null) _track.enabled = valid && _trackValid && _visible[Effort];
+            UpdateBarAndTrackEnabled();
             if (!valid)
                 foreach (LineRenderer arrow in _forceArrows)
                     if (arrow != null) arrow.enabled = false;
             _ring.SetVisible(valid && (Config.Settings.ShowRing == null || Config.Settings.ShowRing.Value));
+            if (!valid) _waterline.Hide();
             if (_overlay != null && !valid) _overlay.enabled = false;
         }
 
@@ -1099,7 +1482,7 @@ namespace SailwindRigBalance.UI
             float strongest = 0f, total = 0f;
             foreach (SailContribution c in balance.Sails)
             {
-                float magnitude = new Vector2(c.SideForce, c.ForwardForce).magnitude;
+                float magnitude = c.ForceMagnitude;
                 strongest = Mathf.Max(strongest, magnitude);
                 total += magnitude;
             }
@@ -1109,13 +1492,13 @@ namespace SailwindRigBalance.UI
 
             foreach (SailContribution c in balance.Sails)
             {
-                var force = new Vector3(c.SideForce, 0f, c.ForwardForce);
-                if (force.magnitude < strongest * 0.02f) continue;
+                float magnitude = c.ForceMagnitude;
+                if (magnitude < strongest * 0.02f) continue;
 
                 _forceFrom.Add(c.Arm);
-                _forceTo.Add(c.Arm + force * scale);
-                _forceShare.Add(force.magnitude / total * 100f);
-                _forceNewtons.Add(force.magnitude);
+                _forceTo.Add(c.Arm + new Vector3(c.SideForce, 0f, c.ForwardForce) * scale);
+                _forceShare.Add(magnitude / total * 100f);
+                _forceNewtons.Add(magnitude);
             }
         }
 
@@ -1129,9 +1512,9 @@ namespace SailwindRigBalance.UI
         /// space is the same size wherever the sail is and whichever way it pulls.
         ///
         /// Written either as a force or as a share, chosen by the button's cycle. The force is in
-        /// kilonewtons at the model's own apparent wind, RigModel.SyntheticWindSpeed, 10 m/s: the
-        /// game's force is proportional to wind speed, so the figure is exact for that breeze and
-        /// scales with any other, and every sail's ratio to every other is the same at any wind.
+        /// real-world kilonewtons at the model's own apparent wind, RigModel.SyntheticWindSpeed,
+        /// 10 m/s (see RealNewtonsPerGameNewton), and every sail's ratio to every other is the same
+        /// at any wind.
         /// The share is of all the sails' force added together, direction ignored, so a rig's
         /// numbers add up to 100. Either way the unit is printed on the label, so the mode the
         /// button was left in is never something the player has to remember.
@@ -1147,18 +1530,7 @@ namespace SailwindRigBalance.UI
             Camera camera = ResolveSourceCamera();
             if (camera == null) return;
 
-            if (_forceLabelStyle == null)
-            {
-                // After AdoptGameStyle, so it inherits the shipyard's lettering and ink.
-                _forceLabelStyle = new GUIStyle(_tipStyle)
-                {
-                    fontSize = 12,
-                    wordWrap = false,
-                    alignment = TextAnchor.MiddleCenter,
-                    padding = new RectOffset(5, 5, 1, 1),
-                };
-                _forceLabelStyle.normal.background = null;
-            }
+            EnsureLabelStyle();
 
             bool percent = Config.Settings.SailForceUnit != null
                 && Config.Settings.SailForceUnit.Value == Config.SailForceUnits.Percent;
@@ -1176,14 +1548,77 @@ namespace SailwindRigBalance.UI
 
                 _forceLabel.text = percent
                     ? Mathf.RoundToInt(share) + "%"
-                    : Kilonewtons(_forceNewtons[i]);
-                Vector2 size = _forceLabelStyle.CalcSize(_forceLabel);
-                size.x += 2f;
+                    : Kilonewtons(_forceNewtons[i], WindSpeed);
+                DrawLabelAt(screen, _forceLabel, Vector2.zero);
+            }
+        }
 
-                var rect = new Rect(screen.x - size.x * 0.5f, Screen.height - screen.y - size.y * 0.5f,
-                    size.x, size.y);
-                DrawPaper(rect);
-                GUI.Label(rect, _forceLabel, _forceLabelStyle);
+        private void EnsureLabelStyle()
+        {
+            if (_forceLabelStyle != null) return;
+
+            // After AdoptGameStyle, so it inherits the shipyard's lettering and ink.
+            _forceLabelStyle = new GUIStyle(_tipStyle)
+            {
+                fontSize = 12,
+                wordWrap = false,
+                alignment = TextAnchor.MiddleCenter,
+                padding = new RectOffset(5, 5, 1, 1),
+            };
+            _forceLabelStyle.normal.background = null;
+        }
+
+        /// <summary>A small paper label centered on a screen point, shifted by <paramref name="nudge"/> pixels.</summary>
+        private void DrawLabelAt(Vector3 screen, GUIContent content, Vector2 nudge)
+        {
+            Vector2 size = _forceLabelStyle.CalcSize(content);
+            size.x += 2f;
+
+            var rect = new Rect(screen.x - size.x * 0.5f + nudge.x, Screen.height - screen.y - size.y * 0.5f + nudge.y,
+                size.x, size.y);
+            DrawPaper(rect);
+            GUI.Label(rect, content, _forceLabelStyle);
+        }
+
+        private readonly GUIContent _windLabel = new GUIContent();
+        private const float KnotsPerMeterPerSecond = 1.943844f;
+
+        /// <summary>
+        /// The wind speed beside the knob that sets it, and the heel beside the waterline it draws,
+        /// in the same paper labels as the sail forces. Knots for the wind because that is how a
+        /// sailor says it, and "kt" rather than "kn" so it cannot be misread next to "kN".
+        /// </summary>
+        private void DrawWindLabels()
+        {
+            if (_boat == null || Event.current.type != EventType.Repaint) return;
+
+            Camera camera = ResolveSourceCamera();
+            if (camera == null) return;
+
+            EnsureLabelStyle();
+
+            if (_ring.Visible)
+            {
+                Vector3 knob = camera.WorldToScreenPoint(_ring.KnobWorld);
+                if (knob.z > 0f)
+                {
+                    _windLabel.text = Mathf.RoundToInt(WindSpeed * KnotsPerMeterPerSecond) + " kt";
+                    DrawLabelAt(knob, _windLabel, new Vector2(0f, -22f));
+                }
+            }
+
+            if (_waterline.Visible)
+            {
+                SeaAttitude shown = _waterline.Shown;
+                Vector3 anchor = _boat.position + _boat.TransformDirection(_waterline.LabelAnchorLocal);
+                Vector3 screen = camera.WorldToScreenPoint(anchor);
+                if (screen.z > 0f)
+                {
+                    // A trailing plus where no balance was found: she goes over further than this.
+                    _windLabel.text = Mathf.RoundToInt(Mathf.Abs(shown.Heel)) + "°"
+                        + (shown.Overpowered ? "+" : "");
+                    DrawLabelAt(screen, _windLabel, new Vector2(0f, 18f));
+                }
             }
         }
 
@@ -1272,7 +1707,7 @@ namespace SailwindRigBalance.UI
 
             string tip = !on ? "Sail forces"
                 : percent ? "Sail forces, share of the rig (click to hide)"
-                : "Sail forces in kN at a 19 knot breeze (click for percent)";
+                : "Sail forces in kN at the wind arrow's speed (click for percent)";
 
             bool clicked = GUILayout.Button(new GUIContent(string.Empty, tip), _forceStyle,
                 GUILayout.Width(24f), GUILayout.Height(24f));
@@ -1312,17 +1747,36 @@ namespace SailwindRigBalance.UI
         }
 
         /// <summary>
-        /// A force as kilonewtons with two significant figures: "12 kN", "2.3 kN", "0.45 kN".
-        /// Small boats make forces well under a kilonewton per sail, where one decimal place would
-        /// write most of them as 0.1 or 0.2 and lose the comparison the number is there for.
+        /// A game force as real-world kilonewtons with two significant figures: "12 kN", "2.3 kN",
+        /// "0.45 kN". Small boats make forces well under a kilonewton per sail, where one decimal
+        /// place would write most of them as 0.1 or 0.2 and lose the comparison the number is there
+        /// for.
         /// </summary>
-        private static string Kilonewtons(float newtons)
+        private static string Kilonewtons(float gameNewtons, float windSpeed)
         {
-            float kn = newtons / 1000f;
+            // gameNewtons is the force at SyntheticWindSpeed. A real sail's force goes with the square
+            // of the wind, so at the arrow's speed it is scaled by the square of the ratio.
+            float ratio = windSpeed / RigModel.SyntheticWindSpeed;
+            float kn = gameNewtons * RealNewtonsPerGameNewton * ratio * ratio / 1000f;
             if (kn >= 10f) return kn.ToString("F0") + " kN";
             if (kn >= 1f) return kn.ToString("F1") + " kN";
             return kn.ToString("F2") + " kN";
         }
+
+        /// <summary>
+        /// Converts the game's sail force into what a real sail of the same area would pull in the
+        /// same wind. The game's force is wind speed x sailArea x C (Sail.cs:407-469, with
+        /// debugSailAreaMult 0.02 times the hardcoded 50 coming to 1), where C is the game's own
+        /// dimensionless factor for angle, sail type and height, between 0 and about 2. Real sail
+        /// force is half the air density x wind speed squared x area x a force coefficient, and
+        /// real coefficients sit in the same 1 to 1.5 range as C at full draw, so C stands in for
+        /// it. What differs is the law: linear in the game, squared in air. At the model's one wind
+        /// speed that is a single constant, half of 1.225 kg/m3 x 10 m/s, about 6.1. sailArea reads
+        /// as square meters because the hulls are built near real scale. A 100 m2 course running
+        /// comes out near 7 kN, which is about what a real one pulls at 19 knots.
+        /// </summary>
+        private const float AirDensity = 1.225f;
+        private const float RealNewtonsPerGameNewton = 0.5f * AirDensity * RigModel.SyntheticWindSpeed;
 
         /// <summary>An arrow, pointing up and to the right, in the force arrows' own color.</summary>
         private static Texture2D MakeForceTexture(int size)
@@ -1366,10 +1820,10 @@ namespace SailwindRigBalance.UI
 
         private void UpdateLinkColor()
         {
-            // The same continuous ramp the ring is painted with, so the link between the two balls
-            // and the arc behind them cannot mean different things by the same color.
+            // The same continuous ramp the ring is painted with, so the helm bar and the arc behind
+            // it cannot mean different things by the same color.
             Color color = _helmDead ? BalanceRing.NoVerdictColor
-                : _helmOffScale ? (_rawLever > 0f ? WeatherHelmColor : LeeHelmColor)
+                : _helmOffScale ? (_rawLever > 0f ? WeatherHelmFarColor : LeeHelmColor)
                 : BalanceRing.HelmColor(_helmMeters, _balancedMeters);
             if (_link == null) return;
 
@@ -1378,6 +1832,11 @@ namespace SailwindRigBalance.UI
             // squared the color, so the drawn line never matched the swatch on the panel button.
             _link.startColor = color;
             _link.endColor = color;
+            if (_barHead != null)
+            {
+                _barHead.startColor = color;
+                _barHead.endColor = color;
+            }
             TintFallbackOnly(_linkMaterial, color);
         }
 
@@ -1439,7 +1898,22 @@ namespace SailwindRigBalance.UI
             MakeLink();
             MakeTrack();
             MakeRingMaterial();
+            MakeWaterlineMaterials();
             MakeOverlayCamera();
+        }
+
+        private void MakeWaterlineMaterials()
+        {
+            try
+            {
+                _waterlineMaterial = MakeMaterial(_linkTexture);
+                TintFallbackOnly(_waterlineMaterial, BalanceRing.KnobColor);
+                _waterline.Attach(_root.transform, _layer, _waterlineMaterial);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning("[Gizmo] waterline failed: " + e.Message);
+            }
         }
 
         private void MakeMarker(int index, string name, Color color)
@@ -1509,7 +1983,7 @@ namespace SailwindRigBalance.UI
 
                 _link = go.AddComponent<LineRenderer>();
                 _link.useWorldSpace = true;
-                _link.positionCount = 3;     // center of effort, the bend below it, then the hull
+                _link.positionCount = 2;     // the post, and the bar when there is a lean to show
                 _link.numCapVertices = 4;
                 _link.numCornerVertices = 4;
                 _link.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -1521,10 +1995,24 @@ namespace SailwindRigBalance.UI
                 _linkMaterial = MakeMaterial(_linkTexture);
                 _link.material = _linkMaterial;
                 _link.enabled = false;
+
+                var headGo = new GameObject("HelmBarHead");
+                headGo.layer = _layer;
+                headGo.transform.SetParent(_root.transform, false);
+
+                _barHead = headGo.AddComponent<LineRenderer>();
+                _barHead.useWorldSpace = true;
+                _barHead.positionCount = 2;
+                _barHead.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                _barHead.receiveShadows = false;
+                _barHead.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+                _barHead.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+                _barHead.material = _linkMaterial;
+                _barHead.enabled = false;
             }
             catch (Exception e)
             {
-                Plugin.Log.LogWarning("[Gizmo] helm link failed: " + e.Message);
+                Plugin.Log.LogWarning("[Gizmo] helm bar failed: " + e.Message);
                 _link = null;
             }
         }
@@ -1580,20 +2068,14 @@ namespace SailwindRigBalance.UI
         /// that destination: blue if furling this sail would leave weather helm, red for lee helm,
         /// green for balanced.
         ///
-        /// Two evaluations, and the line between them is an approximation, not the path. The center
-        /// is now drawn at the lever arm -YawMoment/TotalSideForce, and sweeping one sail's unroll
-        /// moves numerator and denominator independently, so the true path is a ratio of two affine
-        /// functions rather than a weighted average of fixed points. Over a normal sweep that curve
-        /// is gentle and a straight segment between exact endpoints reads correctly.
+        /// Two evaluations, and the line between them is the path: the center of effort is a weighted
+        /// average of fixed points, and sweeping one sail's unroll changes one weight. Its color is
+        /// the helm reading at the destination, which is a separate question from where the line
+        /// goes, so it can read gray at the destination while the line itself stays valid.
         ///
-        /// It is refused outright in the two cases where it would not. If either end has no helm
-        /// reading the endpoints are not even the same KIND of point, one being a lever arm and the
-        /// other the sails' own centroid, so a line joining them means nothing. And if the net side
-        /// force changes sign across the sweep the real path runs off through infinity somewhere in
-        /// the middle, which a straight line would quietly draw straight through: that is a genuine
-        /// case on a square rigger with backed sails, the same rig the HelmMeters note calls out.
-        /// Both refusals write a debug line, because a track that is simply absent looks identical
-        /// to the feature being turned off.
+        /// Refused only when the destination has no sails drawing at all, which leaves no center of
+        /// effort to go to. That writes a debug line, because a track that is simply absent looks
+        /// identical to the feature being turned off.
         /// </summary>
         private void UpdateTrack(GameObject boat, RigBalance current)
         {
@@ -1603,39 +2085,16 @@ namespace SailwindRigBalance.UI
             bool wanted = Config.Settings.ShowReefTrack == null || Config.Settings.ShowReefTrack.Value;
             if (!wanted || _trackSail == null || _boat == null) return;
 
-            float destinationUnroll = _trackSail.currentUnroll > 0.5f ? 0f : 1f;
+            float destinationUnroll = Shipyard.FurlSailButton.ToggledUnroll(_trackSail);
 
             RigBalance other;
             if (!RigModel.TryEvaluate(boat, WindAngleDegrees, out other, _trackSail, destinationUnroll,
-                    current.HullLength))
+                    current.HullLength, null, WindSpeed))
                 return;
 
-            // Both ends must be the same KIND of point before a line between them says anything.
-            // Without a meaningful helm reading the center of effort is drawn as the sails' own
-            // centroid, up in the rig and off the centerline, rather than as a lever arm on it, so
-            // joining one of each draws a confident segment across two incomparable quantities.
-            //
-            // Note this is HelmMeaningful and not the wider IsDead. IsDead also covers "the sails
-            // are barely drawing at this angle", and both ends of that are still lever arms and
-            // still perfectly comparable: the honest answer there is to draw the track in the
-            // no-verdict gray, which VerdictFor does below, not to make it disappear. Gating the
-            // geometry on IsDead made the track vanish whenever furling the selected sail dropped
-            // the rig under a tenth of its best output, with nothing on screen to distinguish that
-            // from the feature being switched off.
-            if (!current.HelmMeaningful || !other.HelmMeaningful)
+            if (current.Sails.Count == 0 || other.Sails.Count == 0)
             {
-                LogTrackRefusal("one end has no helm reading, so the two ends are not the same "
-                    + "kind of point");
-                return;
-            }
-
-            // A sign change in the net side force puts a pole in the middle of the swept path, so
-            // the two endpoints say nothing about what happens between them. Safe against
-            // Mathf.Sign's +1 at exactly zero only because the gate above already guarantees both
-            // magnitudes exceed 0.01 N: do not reorder these two.
-            if (Mathf.Sign(current.TotalSideForce) != Mathf.Sign(other.TotalSideForce))
-            {
-                LogTrackRefusal("the net side force changes sign across the sweep");
+                LogTrackRefusal("one end has no sails drawing, so it has no center of effort");
                 return;
             }
 
@@ -1670,7 +2129,7 @@ namespace SailwindRigBalance.UI
                 // Everything goes back to the default layer so the shipyard camera still renders it;
                 // the two markers inside the hull will simply be occluded.
                 //
-                // The whole hierarchy, not a hand-written list. Naming the markers and the link
+                // The whole hierarchy, not a hand-written list. Naming the markers and the bar
                 // individually left the reef track behind on the private layer, and Camera.main's
                 // culling mask has every bit above 23 clear, so with no overlay camera created on
                 // this branch nothing rendered it at all: the feature vanished silently in the exact
@@ -1809,6 +2268,9 @@ namespace SailwindRigBalance.UI
 
         private Camera ResolveSourceCamera()
         {
+            // The showcase draws through its own camera; Camera.main stays the menu's, drawing nothing.
+            if (HullShowcase.Active && HullShowcase.ViewCamera != null) return HullShowcase.ViewCamera;
+
             if (_source != null && _source.enabled && _source.gameObject.activeInHierarchy) return _source;
 
             _source = Camera.main;
@@ -1892,7 +2354,7 @@ namespace SailwindRigBalance.UI
         /// writing the material as well multiplies the color by itself. Standard ignores vertex
         /// color entirely, so on that path the material is the only place a color can live.
         ///
-        /// This is per renderer, which is why it is safe for the link and the track and NOT for the
+        /// This is per renderer, which is why it is safe for the bar and the track and NOT for the
         /// ring: the ring is one mesh carrying two dozen different verdicts, and a material can only
         /// hold one. On the fallback path the ring is drawn plain, which is stated in the log.
         /// </summary>
@@ -1906,7 +2368,7 @@ namespace SailwindRigBalance.UI
         /// Searched by name and in order, because a Unity build only contains the shaders something
         /// in it actually references. Every candidate is unlit, textured and alpha blended, which
         /// is what a round marker on a square quad needs, AND every one of them multiplies vertex
-        /// color, which the link, the track and the ring all depend on. Which one exists is a
+        /// color, which the bar, the track and the ring all depend on. Which one exists is a
         /// property of this build, not something to assume, so the resolved name is logged.
         /// </summary>
         private static Shader FindUnlitShader()
@@ -1921,7 +2383,7 @@ namespace SailwindRigBalance.UI
             };
 
             // Unlit/Transparent is deliberately NOT a candidate, though it fits every other
-            // requirement. It has no vertex color input at all, so the helm link, the reef track
+            // requirement. It has no vertex color input at all, so the helm bar, the reef track
             // and the balance ring would all draw plain white through it while the code believed it
             // had a working shader and stayed silent. Falling through to the emissive Standard path
             // below is worse looking but honest, and it says so in the log.
@@ -1943,6 +2405,7 @@ namespace SailwindRigBalance.UI
             // and the next session starts against no previous answer.
             FlushRepeatedRebuilds();
             _lastRebuildReason = null;
+            _unrollSeen = float.NaN;
 
             // The next boat reports its own rest attitudes rather than inheriting this one's.
             _restAttitudesLogged = false;
@@ -1964,6 +2427,10 @@ namespace SailwindRigBalance.UI
 
             // The ring first, because it holds _ringMaterial as its sharedMaterial.
             _ring.Destroy();
+            _waterline.Destroy();
+            _waterlineMeasured = false;
+            _attitude = default(SeaAttitude);
+            DestroyMaterial(ref _waterlineMaterial);
 
             _furlAttempts = 0;
             _nextFurlAttemptAt = 0f;
@@ -1971,12 +2438,17 @@ namespace SailwindRigBalance.UI
             _source = null;
             _overlay = null;
             _link = null;
+            _barHead = null;
             _track = null;
             _trackValid = false;
             _trackSail = null;
             _polledSelection = null;
             _lastSummary = null;
             _settleArmed = false;
+            _holding = false;
+            _revealAfterRecompute = false;
+            _paperSampled = false;
+            _paperRef = null;
             _boat = null;
 
             // Materials are destroyed, not merely dropped. Unity only cleans up a material it
@@ -2094,7 +2566,7 @@ namespace SailwindRigBalance.UI
             return tex;
         }
 
-        /// <summary>Opaque white, for the link line, which takes its color from vertex colors.</summary>
+        /// <summary>Opaque white, for the helm bar, which takes its color from vertex colors.</summary>
         private static Texture2D MakeSolidTexture()
         {
             var tex = new Texture2D(2, 2, TextureFormat.ARGB32, false);
@@ -2124,14 +2596,23 @@ namespace SailwindRigBalance.UI
         /// </summary>
         private void OnGUI()
         {
-            if (!ShipyardHooks.InShipyard || !_valid) return;
+            // While held, the strip and the legend stay up with a Calculating note, so it is plain
+            // the mod is working; only what is drawn on the boat waits. Not from the very first
+            // frame, though: AdoptGameStyle takes the shipyard's paper once, and it used to first run
+            // a RebuildDelay into the visit, when the shipyard's own buttons are certainly up.
+            bool waiting = _holding && Time.unscaledTime - _holdStart >= RebuildDelay;
+            if (!TargetActive || (!_valid && !waiting)) return;
             EnsureStyles();
             AdoptGameStyle();
 
             // First, so the strip and its notes draw over a label rather than under one, and
             // before the panel check, because the arrows can be switched on from the config with
             // the strip hidden and their numbers belong to them, not to the strip.
-            DrawForceLabels();
+            if (!_holding)
+            {
+                DrawForceLabels();
+                DrawWindLabels();
+            }
 
             if (Config.Settings.ShowPanel != null && !Config.Settings.ShowPanel.Value) return;
 
@@ -2155,6 +2636,15 @@ namespace SailwindRigBalance.UI
             DrawPanel(0);
             GUILayout.EndArea();
 
+            // The legend hangs under the strip while the ring is up, and the hover note under that.
+            float below = _panel.yMax + 6f;
+            bool ringWanted = _holding
+                ? Config.Settings.ShowRing == null || Config.Settings.ShowRing.Value
+                : _ring.Visible;
+            if (ringWanted && (Config.Settings.ShowRingLegend == null || Config.Settings.ShowRingLegend.Value))
+                below = DrawRingLegend(_panel.xMax, below) + 6f;
+            if (_holding) below = DrawCalculating(_panel.xMax, below) + 6f;
+
             // Hover tracking is only updated on Repaint, because GUI.tooltip is populated while the
             // hovered control is drawn and reads empty during Layout. Updating on every event would
             // reset the timer several times a frame and the delay would never elapse.
@@ -2172,41 +2662,460 @@ namespace SailwindRigBalance.UI
 
             // The one case where silence would be dishonest: a sail whose center of effort does not
             // follow its own size makes the magenta marker wrong, not merely imprecise. That one is
-            // not a hover hint, so it shows immediately.
-            string note = _unreliable
-                ? "A sail's center of effort does not follow its size. The magenta marker is unreliable."
-                : (hoverReady ? _hoverTracked : null);
-
-            if (string.IsNullOrEmpty(note)) return;
-
-            // One line, box sized to the line. Measured with wrapping OFF, because CalcSize on a
-            // word-wrapping style is not the single-line size: with the shipyard's adopted font it
-            // returned a narrower preferred width, the label wrapped to two lines inside it, and the
-            // height came up short, clipping the second line. Wrapping stays off for the draw too,
-            // so what was measured is what is drawn. The one message longer than the cap, the
-            // unreliable-sail warning, is the only case that wraps, at the height computed FOR that
-            // wrapped width.
-            const float MaxNoteWidth = 230f;
-            var content = new GUIContent(note);
-
-            _tipStyle.wordWrap = false;
-            Vector2 line = _tipStyle.CalcSize(content);
-
-            // Two pixels of slack so a rounding difference between measure and draw cannot re-wrap.
-            float noteWidth = line.x + 2f;
-            float noteHeight = line.y;
-            if (noteWidth > MaxNoteWidth)
+            // not a hover hint, so it shows immediately, and stays put under the strip.
+            if (_unreliable)
             {
-                noteWidth = MaxNoteWidth;
-                _tipStyle.wordWrap = true;
-                noteHeight = _tipStyle.CalcHeight(content, noteWidth);
+                Rect warning = MeasureNote("A sail's center of effort does not follow its size. "
+                    + "The magenta marker is unreliable.");
+                warning.x = _panel.xMax - warning.width;
+                warning.y = below;
+                DrawNote(warning);
             }
 
-            // Right edge aligned with the panel's, so the two read as one control wherever it sits.
-            var rect = new Rect(_panel.xMax - noteWidth, _panel.yMax + 6f, noteWidth, noteHeight);
-            DrawPaper(rect);
-            GUI.Label(rect, content, _tipStyle);
+            // A hover hint sits by the cursor and follows it, flipped to whichever side has room, so
+            // it reads as belonging to the control under the mouse (user's call, 2026-11-14).
+            if (hoverReady)
+            {
+                Rect tip = MeasureNote(_hoverTracked);
+                Vector2 mouse = Event.current.mousePosition;
+                const float OffsetX = 16f, OffsetY = 20f, Edge = 4f;
+
+                tip.x = mouse.x + OffsetX;
+                if (tip.xMax > Screen.width - Edge) tip.x = mouse.x - OffsetX - tip.width;
+                tip.y = mouse.y + OffsetY;
+                if (tip.yMax > Screen.height - Edge) tip.y = mouse.y - OffsetY - tip.height;
+                tip.x = Mathf.Clamp(tip.x, Edge, Mathf.Max(Edge, Screen.width - Edge - tip.width));
+                tip.y = Mathf.Clamp(tip.y, Edge, Mathf.Max(Edge, Screen.height - Edge - tip.height));
+                DrawNote(tip);
+            }
+        }
+
+        private readonly GUIContent _noteContent = new GUIContent();
+        private bool _noteWraps;
+
+        /// <summary>
+        /// The box a note needs, at the origin. One line, box sized to the line. Measured with
+        /// wrapping OFF, because CalcSize on a word-wrapping style is not the single-line size: with
+        /// the shipyard's adopted font it returned a narrower preferred width, the label wrapped to
+        /// two lines inside it, and the height came up short, clipping the second line. Wrapping
+        /// stays off for the draw too, so what was measured is what is drawn. Only a note longer than
+        /// the cap wraps, at the height computed FOR that wrapped width.
+        /// </summary>
+        private Rect MeasureNote(string text)
+        {
+            const float MaxNoteWidth = 230f;
+            _noteContent.text = text;
+
+            _tipStyle.wordWrap = false;
+            Vector2 line = _tipStyle.CalcSize(_noteContent);
+
+            // Two pixels of slack so a rounding difference between measure and draw cannot re-wrap.
+            float width = line.x + 2f;
+            float height = line.y;
+            _noteWraps = width > MaxNoteWidth;
+            if (_noteWraps)
+            {
+                width = MaxNoteWidth;
+                _tipStyle.wordWrap = true;
+                height = _tipStyle.CalcHeight(_noteContent, width);
+            }
             _tipStyle.wordWrap = true;
+            return new Rect(0f, 0f, width, height);
+        }
+
+        /// <summary>Draws the note last measured, in the given box.</summary>
+        private void DrawNote(Rect rect)
+        {
+            DrawPaper(rect);
+            _tipStyle.wordWrap = _noteWraps;
+            GUI.Label(rect, _noteContent, _tipStyle);
+            _tipStyle.wordWrap = true;
+        }
+
+        // ------------------------------------------------------------------ paper color
+
+        // The shipyard's paper is lit: it is world-space, on a shader that takes the scene's light,
+        // so it is pinker and darker in a storm, paler at noon, dim at night, while the panels here
+        // are IMGUI and drawn unlit. One constant cannot match it (user, 2026-11-14, in a storm: the
+        // strip and legend read orange-cream against salmon scrolls). So the color is read off the
+        // screen: about once a second, at the end of the frame, the middle of the largest shipyard
+        // scroll that is clear of these panels, keeping the brighter half of the pixels so the ink
+        // on it does not count, and taking their median.
+        private Color _paper = PaperColor;
+        private Color _paperTarget = PaperColor;
+        private bool _paperSampled;
+        private Renderer _paperRef;
+        private Camera _paperCamera;
+        private Texture2D _paperRead;
+        private bool _paperLogged;
+        private const float PaperSampleSeconds = 1f;
+        private const int PaperReadMax = 192;
+
+        private System.Collections.IEnumerator SamplePaperLoop()
+        {
+            var endOfFrame = new WaitForEndOfFrame();
+            var pause = new WaitForSecondsRealtime(PaperSampleSeconds);
+            while (true)
+            {
+                // Quickly at the start of a visit, so the panels are the right color when they
+                // first show; once a second after that.
+                if (_paperSampled) yield return pause;
+                else yield return null;
+                if (!ShipyardHooks.InShipyard || HullShowcase.Active) continue;
+                yield return endOfFrame;
+                try
+                {
+                    SamplePaper();
+                }
+                catch (Exception e)
+                {
+                    Plugin.Log.LogDebug("[Gizmo] paper sample failed: " + e.Message);
+                    _paperSampled = true;   // so a failure retries once a second, not every frame
+                }
+            }
+        }
+
+        private void SamplePaper()
+        {
+            if (!ValidPaperRef()) FindPaperRef();
+            if (_paperRef == null) return;
+
+            Rect inner;
+            if (!ScreenRectOf(_paperRef, _paperCamera, out inner)) { _paperRef = null; return; }
+
+            // The middle half of the scroll, away from its ragged ends and edges, capped in size.
+            inner = new Rect(inner.x + inner.width * 0.25f, inner.y + inner.height * 0.25f,
+                inner.width * 0.5f, inner.height * 0.5f);
+            float w = Mathf.Min(inner.width, PaperReadMax), h = Mathf.Min(inner.height, PaperReadMax);
+            var read = new Rect(Mathf.Floor(inner.center.x - w * 0.5f), Mathf.Floor(inner.center.y - h * 0.5f),
+                Mathf.Floor(w), Mathf.Floor(h));
+            read.xMin = Mathf.Max(0f, read.xMin);
+            read.yMin = Mathf.Max(0f, read.yMin);
+            read.xMax = Mathf.Min(Screen.width, read.xMax);
+            read.yMax = Mathf.Min(Screen.height, read.yMax);
+            if (read.width < 8f || read.height < 8f) return;
+
+            if (_paperRead == null)
+                _paperRead = new Texture2D(PaperReadMax, PaperReadMax, TextureFormat.RGB24, false)
+                    { hideFlags = HideFlags.HideAndDontSave };
+            _paperRead.ReadPixels(read, 0, 0, false);
+            Color32[] pixels = _paperRead.GetPixels32();
+
+            // Only the part this read wrote; the rest holds whatever an earlier read left.
+            int rw = (int)read.width, rh = (int)read.height;
+            var samples = new System.Collections.Generic.List<PaperPixel>(rw * rh / 4 + 1);
+            for (int y = 0; y < rh; y += 2)
+                for (int x = 0; x < rw; x += 2)
+                {
+                    Color32 c = pixels[y * PaperReadMax + x];
+                    samples.Add(new PaperPixel(0.299f * c.r + 0.587f * c.g + 0.114f * c.b, c));
+                }
+            if (samples.Count < 16) return;
+            samples.Sort((a, b) => a.Luma.CompareTo(b.Luma));
+
+            // The median of the brighter half: ink and shadow fall in the darker half.
+            int start = samples.Count / 2;
+            var bright = samples.GetRange(start, samples.Count - start);
+            var sampled = new Color(Median(bright, 0) / 255f, Median(bright, 1) / 255f, Median(bright, 2) / 255f, 1f);
+
+            _paperTarget = sampled;
+            if (!_paperSampled)
+            {
+                _paper = sampled;
+                _paperSampled = true;
+            }
+            if (!_paperLogged)
+            {
+                _paperLogged = true;
+                Plugin.Log.LogInfo($"[Gizmo] paper color sampled from '{_paperRef.name}' "
+                    + $"({read.width:F0}x{read.height:F0} px): {sampled}.");
+            }
+        }
+
+        private struct PaperPixel
+        {
+            public float Luma;
+            public Color32 Color;
+            public PaperPixel(float luma, Color32 color) { Luma = luma; Color = color; }
+        }
+
+        private static float Median(System.Collections.Generic.List<PaperPixel> list, int channel)
+        {
+            var values = new float[list.Count];
+            for (int i = 0; i < list.Count; i++)
+            {
+                Color32 c = list[i].Color;
+                values[i] = channel == 0 ? c.r : channel == 1 ? c.g : c.b;
+            }
+            Array.Sort(values);
+            return values[values.Length / 2];
+        }
+
+        private bool ValidPaperRef()
+        {
+            return _paperRef != null && _paperRef.enabled && _paperRef.gameObject.activeInHierarchy
+                && _paperRef.isVisible && _paperCamera != null && _paperCamera.isActiveAndEnabled;
+        }
+
+        /// <summary>
+        /// The largest parchment scroll of the shipyard's interface on screen that does not sit under
+        /// this mod's panels in the top right corner, and the camera that draws it.
+        /// </summary>
+        private void FindPaperRef()
+        {
+            _paperRef = null;
+            _paperCamera = null;
+            ShipyardUI ui = ShipyardUI.instance;
+            if (ui == null) return;
+            try { FindPaperRefIn(ui); }
+            finally
+            {
+                if (_paperRef == null && !_paperMissLogged)
+                {
+                    _paperMissLogged = true;
+                    Plugin.Log.LogInfo("[Gizmo] no shipyard scroll on screen to sample the paper color "
+                        + "from; the panels keep their fixed color until one shows.");
+                }
+            }
+        }
+
+        private bool _paperMissLogged;
+
+        private void FindPaperRefIn(ShipyardUI ui)
+        {
+            // The corner these panels take, in screen pixels with y up, kept clear of samples.
+            var ours = new Rect(Screen.width - 340f, Screen.height - 360f, 340f, 360f);
+
+            // The big scrolls, not the buttons. The first version looked for the parchment texture,
+            // which the scrolls turned out not to use, and sampled 'mode button Parts Other', an
+            // unselected tab, so every panel came out dark brown (2026-11-14). Anything that is a
+            // button or lettering is passed over, and of what is left the largest on screen is a
+            // scroll.
+            float best = 0f;
+            var seen = _paperCandidatesLogged ? null : new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<float, string>>();
+            foreach (Renderer r in ui.GetComponentsInChildren<Renderer>())
+            {
+                if (r == null || !r.enabled || !r.isVisible) continue;
+                if (r.GetComponent<TextMesh>() != null || r.GetComponentInParent<GoPointerButton>() != null) continue;
+
+                Camera camera = CameraDrawing(r.gameObject.layer);
+                Rect rect;
+                if (camera == null || !ScreenRectOf(r, camera, out rect)) continue;
+                if (rect.Overlaps(ours)) continue;
+
+                float area = rect.width * rect.height;
+                if (seen != null)
+                {
+                    Material m = r.sharedMaterial;
+                    seen.Add(new System.Collections.Generic.KeyValuePair<float, string>(area, $"'{r.name}' {rect.width:F0}x{rect.height:F0} px, "
+                        + $"shader '{(m == null || m.shader == null ? "none" : m.shader.name)}', "
+                        + $"texture '{(m == null || !m.HasProperty("_MainTex") || m.mainTexture == null ? "none" : m.mainTexture.name)}'"));
+                }
+                if (area > best)
+                {
+                    best = area;
+                    _paperRef = r;
+                    _paperCamera = camera;
+                }
+            }
+
+            if (seen != null && seen.Count > 0)
+            {
+                _paperCandidatesLogged = true;
+                seen.Sort((a, b) => b.Key.CompareTo(a.Key));
+                var lines = new System.Collections.Generic.List<string>();
+                for (int i = 0; i < seen.Count && i < 6; i++) lines.Add(seen[i].Value);
+                Plugin.Log.LogInfo("[Gizmo] paper candidates, largest first: " + string.Join("; ", lines.ToArray()) + ".");
+            }
+        }
+
+        private bool _paperCandidatesLogged;
+
+        /// <summary>The enabled camera drawn last that renders this layer to the screen.</summary>
+        private static Camera CameraDrawing(int layer)
+        {
+            Camera found = null;
+            foreach (Camera c in Camera.allCameras)
+            {
+                if (c == null || !c.enabled || (c.cullingMask & (1 << layer)) == 0 || c.targetTexture != null) continue;
+                if (found == null || c.depth > found.depth) found = c;
+            }
+            return found;
+        }
+
+        /// <summary>The renderer's box on screen, in pixels with y up, the way ReadPixels takes it.</summary>
+        private static bool ScreenRectOf(Renderer r, Camera camera, out Rect rect)
+        {
+            rect = default(Rect);
+            Bounds b = r.bounds;
+            float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
+            for (int i = 0; i < 8; i++)
+            {
+                var corner = new Vector3(
+                    (i & 1) == 0 ? b.min.x : b.max.x,
+                    (i & 2) == 0 ? b.min.y : b.max.y,
+                    (i & 4) == 0 ? b.min.z : b.max.z);
+                Vector3 p = camera.WorldToScreenPoint(corner);
+                if (p.z <= 0f) return false;
+                minX = Mathf.Min(minX, p.x); maxX = Mathf.Max(maxX, p.x);
+                minY = Mathf.Min(minY, p.y); maxY = Mathf.Max(maxY, p.y);
+            }
+            rect = Rect.MinMaxRect(minX, minY, maxX, maxY);
+            return rect.width > 20f && rect.height > 20f && rect.xMax > 0f && rect.yMax > 0f
+                && rect.xMin < Screen.width && rect.yMin < Screen.height;
+        }
+
+        private readonly GUIContent _calculatingContent = new GUIContent();
+
+        /// <summary>
+        /// "Calculating" with one, two, then three dots, under the legend while the gizmo is held.
+        /// The box is sized for three dots and the text is left-aligned in it, so neither the box nor
+        /// the word moves as the dots change. Returns its bottom edge.
+        /// </summary>
+        private float DrawCalculating(float right, float top)
+        {
+            _calculatingContent.text = "Calculating...";
+            TextAnchor alignment = _tipStyle.alignment;
+            bool wrap = _tipStyle.wordWrap;
+            _tipStyle.wordWrap = false;
+            _tipStyle.alignment = TextAnchor.MiddleLeft;
+
+            Vector2 size = _tipStyle.CalcSize(_calculatingContent);
+            var rect = new Rect(right - size.x - 2f, top, size.x + 2f, size.y);
+            DrawPaper(rect);
+
+            int dots = 1 + (int)(Time.unscaledTime / 0.4f) % 3;
+            _calculatingContent.text = "Calculating" + new string('.', dots);
+            GUI.Label(rect, _calculatingContent, _tipStyle);
+
+            _tipStyle.alignment = alignment;
+            _tipStyle.wordWrap = wrap;
+            return rect.yMax;
+        }
+
+        // ------------------------------------------------------------------ ring legend
+
+        /// <summary>The legend's rows, top to bottom, at their position on the ramp (+1 far weather, -1 far lee).</summary>
+        private static readonly string[] LegendLabels =
+        {
+            "Strong weather helm", "Weather helm", "Balanced", "Lee helm", "Strong lee helm",
+        };
+
+        private const float LegendRow = 18f;
+        private const float LegendStrip = 12f;
+        private Texture2D _legendTex;
+        private GUIStyle _legendStyle, _legendTitleStyle;
+        private readonly GUIContent _legendContent = new GUIContent();
+
+        /// <summary>
+        /// What the ring's colors mean, as a strip of the same ramp the ring, the helm bar and the
+        /// reef track are painted from (BalanceRing.HelmColor), with a label at each of its stops,
+        /// then the gray of no verdict. Right-aligned to <paramref name="right"/>, starting at
+        /// <paramref name="top"/>; returns its bottom edge.
+        /// </summary>
+        private float DrawRingLegend(float right, float top)
+        {
+            EnsureLegend();
+
+            float labelWidth = 0f;
+            _legendContent.text = "Helm";
+            float titleHeight = _legendTitleStyle.CalcSize(_legendContent).y;
+            labelWidth = _legendTitleStyle.CalcSize(_legendContent).x;
+            foreach (string label in LegendLabels)
+            {
+                _legendContent.text = label;
+                labelWidth = Mathf.Max(labelWidth, _legendStyle.CalcSize(_legendContent).x);
+            }
+            _legendContent.text = "No verdict";
+            labelWidth = Mathf.Max(labelWidth, _legendStyle.CalcSize(_legendContent).x);
+
+            const float Pad = 12f, Gap = 8f;
+            int rows = LegendLabels.Length + 1;
+            float width = Pad + LegendStrip + Gap + labelWidth + Pad;
+            float height = Pad + titleHeight + 2f + rows * LegendRow + Pad - 4f;
+            var box = new Rect(right - width, top, width, height);
+            DrawPaper(box);
+
+            float x = box.x + Pad;
+            float y = box.y + Pad - 3f;
+            _legendContent.text = "Helm";
+            GUI.Label(new Rect(x, y, width - 2f * Pad, titleHeight), _legendContent, _legendTitleStyle);
+            y += titleHeight + 2f;
+
+            // The strip runs from the middle of the first row to the middle of the last ramp row, so
+            // each label sits level with its own color.
+            float stripTop = y + LegendRow * 0.5f;
+            float stripBottom = y + LegendRow * (LegendLabels.Length - 0.5f);
+            GUI.DrawTexture(new Rect(x, stripTop - 2f, LegendStrip, stripBottom - stripTop + 4f), _legendTex,
+                ScaleMode.StretchToFill, false);
+
+            float textX = x + LegendStrip + Gap;
+            for (int i = 0; i < LegendLabels.Length; i++)
+            {
+                _legendContent.text = LegendLabels[i];
+                GUI.Label(new Rect(textX, y + i * LegendRow, labelWidth + 2f, LegendRow), _legendContent, _legendStyle);
+            }
+
+            // Gray on its own, apart from the ramp: it is not a point on the scale but the lack of one.
+            float grayY = y + LegendLabels.Length * LegendRow;
+            Color previous = GUI.color;
+            Color gray = BalanceRing.NoVerdictColor;
+            GUI.color = new Color(gray.r, gray.g, gray.b, 1f);
+            GUI.DrawTexture(new Rect(x, grayY + (LegendRow - LegendStrip) * 0.5f, LegendStrip, LegendStrip),
+                Texture2D.whiteTexture);
+            GUI.color = previous;
+            _legendContent.text = "No verdict";
+            GUI.Label(new Rect(textX, grayY, labelWidth + 2f, LegendRow), _legendContent, _legendStyle);
+
+            return box.yMax;
+        }
+
+        private void EnsureLegend()
+        {
+            if (_legendTex == null)
+            {
+                // Rows sit evenly down the strip but the ramp's stops do not sit evenly along it (the
+                // middle stop is at 3 bands of 8), so each quarter of the strip is mapped to the stretch
+                // of ramp between two labeled stops.
+                float mid = (BalanceRing.MidAtBands - 1f) / (BalanceRing.FarAtBands - 1f);
+                float[] stops = { 1f, mid, 0f, -mid, -1f };
+
+                const int Height = 128;
+                _legendTex = new Texture2D(1, Height, TextureFormat.RGBA32, false)
+                {
+                    wrapMode = TextureWrapMode.Clamp,
+                    filterMode = FilterMode.Bilinear,
+                    hideFlags = HideFlags.HideAndDontSave,
+                };
+                for (int py = 0; py < Height; py++)
+                {
+                    // Texture rows count up from the bottom; the strip reads top down.
+                    float s = 1f - py / (float)(Height - 1);
+                    float scaled = s * (stops.Length - 1);
+                    int leg = Mathf.Min((int)scaled, stops.Length - 2);
+                    float p = Mathf.Lerp(stops[leg], stops[leg + 1], scaled - leg);
+                    Color c = BalanceRing.HelmColorAt(p);
+                    c.a = 1f;
+                    _legendTex.SetPixel(0, py, c);
+                }
+                _legendTex.Apply();
+            }
+
+            if (_legendStyle == null)
+            {
+                _legendStyle = new GUIStyle(GUI.skin.label)
+                {
+                    fontSize = 12,
+                    wordWrap = false,
+                    alignment = TextAnchor.MiddleLeft,
+                    padding = new RectOffset(0, 0, 0, 0),
+                    margin = new RectOffset(0, 0, 0, 0),
+                };
+                _legendStyle.normal.textColor = new Color(0.20f, 0.13f, 0.08f);
+                if (_tipStyle != null && _tipStyle.font != null) _legendStyle.font = _tipStyle.font;
+
+                _legendTitleStyle = new GUIStyle(_legendStyle) { fontSize = 13, fontStyle = FontStyle.Bold };
+            }
         }
 
         private void DrawPanel(int id)
@@ -2221,7 +3130,7 @@ namespace SailwindRigBalance.UI
             GUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
             Toggle(Effort, _unreliable ? UnreliableColor : EffortColor, "Center of effort");
-            Toggle(Resistance, ResistanceColor, "Center of lateral resistance");
+            Toggle(Resistance, ResistanceColor, "Center of lateral resistance and helm bar");
             Toggle(Mass, MassColor, "Center of mass");
             RingToggle();
             ForceToggle();
@@ -2252,9 +3161,16 @@ namespace SailwindRigBalance.UI
 
             try
             {
-                foreach (GoPointerButton button in FindObjectsOfType<GoPointerButton>())
+                // The shipyard's own buttons where its interface is up; anywhere in the scene picked
+                // an almanac in the player's things before (2026-11-14 log: '701 almanac(Clone)').
+                GoPointerButton[] buttons = ShipyardUI.instance != null
+                    ? ShipyardUI.instance.GetComponentsInChildren<GoPointerButton>()
+                    : FindObjectsOfType<GoPointerButton>();
+                foreach (GoPointerButton button in buttons)
                 {
-                    if (button == null) continue;
+                    // Not this mod's own furl button, a clone that carries none of the game's styling
+                    // it is meant to borrow (log 2026-11-14: adopted from 'RigBalanceFurlSelectedSail').
+                    if (button == null || button.name.StartsWith("RigBalance", StringComparison.Ordinal)) continue;
 
                     var renderer = button.GetComponent<Renderer>();
                     var text = button.GetComponentInChildren<TextMesh>();
@@ -2323,7 +3239,7 @@ namespace SailwindRigBalance.UI
 
             _visible[index] = !_visible[index];
             if (_markers[index] != null) _markers[index].SetActive(_visible[index]);
-            if (_link != null) _link.enabled = _visible[Effort] && _visible[Resistance];
+            UpdateBarAndTrackEnabled();
 
             ConfigEntry<bool> entry = VisibilityEntry(index);
             if (entry != null) entry.Value = _visible[index];
@@ -2347,7 +3263,7 @@ namespace SailwindRigBalance.UI
             Color previous = GUI.color;
             GUI.color = on ? Color.white : new Color(0.32f, 0.32f, 0.32f, 0.85f);
 
-            bool clicked = GUILayout.Button(new GUIContent(string.Empty, "Balance ring"), _ringStyle,
+            bool clicked = GUILayout.Button(new GUIContent(string.Empty, "Balance ring and waterline"), _ringStyle,
                 GUILayout.Width(24f), GUILayout.Height(24f));
 
             GUI.color = previous;
@@ -2368,7 +3284,7 @@ namespace SailwindRigBalance.UI
             else
             {
                 _ring.SetVisible(false);
-
+                _waterline.SetTarget(_attitude, false);
             }
         }
 
@@ -2390,21 +3306,30 @@ namespace SailwindRigBalance.UI
             Sail selected = _polledSelection;
             if (selected == null) return;
 
-            bool set = selected.currentUnroll > 0.5f;
+            bool set = Shipyard.FurlSailButton.IsSet(selected);
 
             Color previous = GUI.color;
             GUI.color = set ? new Color(0.95f, 0.95f, 0.90f) : new Color(0.32f, 0.32f, 0.32f, 0.85f);
 
             string name = string.IsNullOrEmpty(selected.sailName) ? "this sail" : selected.sailName;
+            string key = FurlKeyName();
             bool clicked = GUILayout.Button(
-                new GUIContent(string.Empty, (set ? "Furl " : "Set ") + name),
+                new GUIContent(string.Empty, (set ? "Furl " : "Set ") + name + (key == null ? "" : " (" + key + ")")),
                 _circleStyle, GUILayout.Width(24f), GUILayout.Height(24f));
 
             GUI.color = previous;
             if (!clicked) return;
 
             // The reef track already showed where this would land; clicking commits to it.
-            Shipyard.FurlSailButton.SetUnroll(ShipyardHooks.CurrentBoat, selected, set ? 0f : 1f);
+            Shipyard.FurlSailButton.Toggle(selected);
+        }
+
+        /// <summary>The furl key as the config writes it, or null when it is unbound.</summary>
+        private static string FurlKeyName()
+        {
+            var entry = Config.Settings.FurlSelectedSailKey;
+            if (entry == null || entry.Value.MainKey == KeyCode.None) return null;
+            return entry.Value.ToString();
         }
 
         /// <summary>
@@ -2470,7 +3395,8 @@ namespace SailwindRigBalance.UI
             };
             // Same paper as the panel, and AdoptGameStyle replaces the lettering and ink with the
             // shipyard's own so the label reads as part of the game rather than beside it.
-            _tipStyle.normal.background = _panelTex;
+            // No background of its own: every note draws DrawPaper first, which is tinted.
+            _tipStyle.normal.background = null;
             _tipStyle.normal.textColor = new Color(0.20f, 0.13f, 0.08f);
 
             // A plain box, drawn separately from the layout area, so the panel is fixed in place.
@@ -2478,7 +3404,7 @@ namespace SailwindRigBalance.UI
             // thing in the shipyard that could be moved and read as foreign because of it.
             // Corner radius 10 in a 32 px tile, nine-sliced on a 12 px border so the corners keep
             // their shape at any panel size and only the flat middle stretches.
-            _panelTex = MakePanelTexture(32, 10);
+            _panelTex = MakePanelTexture(32, 10, neutral: true);
             _panelStyle = new GUIStyle(GUIStyle.none)
             {
                 border = new RectOffset(12, 12, 12, 12),
@@ -2500,13 +3426,9 @@ namespace SailwindRigBalance.UI
         /// </summary>
         private void DrawPaper(Rect rect)
         {
-            if (_paperTex == null)
-            {
-                GUI.Box(rect, GUIContent.none, _panelStyle);
-                return;
-            }
-
-            // The color is a constant, and deliberately so after three attempts at deriving it.
+            // The color was a constant, after three attempts at deriving it, and is now sampled off
+            // the screen (see "paper color"), falling back to the constant. What follows is the
+            // history of why it is not read from the material.
             //
             // Drawing the game's texture painted black, because parchment_alpha does not carry the
             // paper in its RGB. Generating the shape and tinting it with the material's _Color
@@ -2516,13 +3438,16 @@ namespace SailwindRigBalance.UI
             // and a fourth guess is worth less than a constant matched to the buttons on screen.
             //
             // The material color is still read, but only to log it.
+            // Nine-sliced through the panel style, never stretched. Stretching the 32 pixel tile over
+            // a whole panel blurred it and scaled its rounded corners up until they cut into the
+            // legend's first and last rows.
             Color previous = GUI.color;
-            GUI.color = Color.white;
-            GUI.DrawTexture(rect, _panelTex, ScaleMode.StretchToFill, true);
+            GUI.color = new Color(_paper.r, _paper.g, _paper.b, 1f);
+            GUI.Box(rect, GUIContent.none, _panelStyle);
             GUI.color = previous;
         }
 
-        /// <summary>Matched by eye to the shipyard's own buttons.</summary>
+        /// <summary>Matched by eye to the shipyard's own buttons. The fallback when no sample is taken.</summary>
         private static readonly Color PaperColor = new Color(0.96f, 0.81f, 0.67f, 0.97f);
         private static readonly Color PaperEdgeColor = new Color(0.45f, 0.30f, 0.20f, 1.00f);
 
@@ -2573,13 +3498,22 @@ namespace SailwindRigBalance.UI
         /// The circles need this behind them for a plainer reason: they are saturated colors meant
         /// to match the markers, and against an open sky they have nothing to contrast with.
         /// </summary>
-        private static Texture2D MakePanelTexture(int size, int radius)
+        internal static Texture2D MakePanelTexture(int size, int radius, bool neutral = false)
         {
             var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
             var pixels = new Color32[size * size];
 
             Color paper = PaperColor;
             Color edge = PaperEdgeColor;
+
+            // Neutral: white paper and a rim as dark relative to it as the colored one, for drawing
+            // under GUI.color, which multiplies. Tinted with PaperColor it is the colored tile again;
+            // tinted with a sampled color the rim keeps the same proportion to the paper.
+            if (neutral)
+            {
+                edge = new Color(edge.r / paper.r, edge.g / paper.g, edge.b / paper.b, 1f);
+                paper = new Color(1f, 1f, 1f, paper.a);
+            }
 
             for (int y = 0; y < size; y++)
             {
@@ -2633,8 +3567,8 @@ namespace SailwindRigBalance.UI
         /// <summary>
         /// The balance ring's button: an annulus wearing the ring's own verdict colors, so the
         /// button is a miniature of the thing it controls. It runs through the same diverging ramp
-        /// the rose draws with: weather blue at the top, balanced green on the beams, lee red at the
-        /// bottom, eased by the same square root HelmColor uses, and mirror symmetric port for
+        /// the rose draws with (BalanceRing.HelmColorAt): dark blue at the top through light blue,
+        /// balanced green on the beams, orange, then red at the bottom, and mirror symmetric port for
         /// starboard because the rose it stands for is. Built from the vertical component of each
         /// pixel's direction rather than from its angle, which gives that symmetry with no seam to
         /// hide.
@@ -2660,8 +3594,7 @@ namespace SailwindRigBalance.UI
 
                     // Texture row 0 is the bottom, so +dy is up on screen.
                     float t = d > 0.001f ? dy / d : 0f;
-                    Color extreme = t > 0f ? WeatherHelmColor : LeeHelmColor;
-                    Color color = Color.Lerp(BalancedColor, extreme, Mathf.Sqrt(Mathf.Abs(t)));
+                    Color color = BalanceRing.HelmColorAt(t);
 
                     color.a = a;
                     tex.SetPixel(x, y, color);

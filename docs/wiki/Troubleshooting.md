@@ -36,7 +36,8 @@ Look for either of these:
 
 The first means the setting is off; set `DrawThroughHull = true` in the config. The second
 means another mod has claimed every spare Unity layer, and there is nothing the mod can do
-except fall back to drawing them normally.
+except fall back to drawing them normally. The helm bar's arrow sits at the top of the hull, so
+it stays visible either way.
 
 ## Markers do not update when I change the rig
 
@@ -46,12 +47,15 @@ destroys and recreates every sail and the mod has to let that settle before meas
 Each rebuild logs a line:
 
 ```
-[Gizmo] 7 sail(s); CE offset -0.42 m (lee helm)
+[Gizmo] 7 sail(s); wind 45 deg off the bow; helm lever -1.42 m (lee helm, band 0.59 m, hull 29.7 m)
 ```
 
 If that line appears when you change something, the gizmo is working and the markers are
 where the model puts them. If it never appears, one of the shipyard hooks did not apply;
 see the first section.
+
+Forces in the log are the game's own newtons. The kN labels on the sail force arrows are scaled
+to real-world force, so a label reads 6.125 times the matching figure in the log.
 
 ## The magenta marker is red
 
@@ -67,8 +71,8 @@ size on screen, and this multiplies that.
 
 ## The button strip is in the way
 
-Drag it. Its position is remembered across sessions. To remove it entirely while keeping
-the markers, set `ShowPanel = false`.
+It is fixed in the top right corner. To remove it while keeping the markers, set
+`ShowPanel = false`, which also removes the furl button and turns off the furl key.
 
 ## Everything reads as balanced
 

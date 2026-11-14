@@ -31,7 +31,7 @@ namespace SailwindRigBalance
         // ("version is invalid") and skip it entirely. Any "alpha" wording lives in prose only.
         // Bump for every shipped zip, including a packaging-only change, so two machines can never
         // silently differ.
-        public const string PluginVersion = "0.16.1";
+        public const string PluginVersion = "0.17.0";
 
         public static Plugin Instance { get; private set; }
         public static ManualLogSource Log { get; private set; }
@@ -52,6 +52,8 @@ namespace SailwindRigBalance
 
             ApplyPatches();
             gameObject.AddComponent<UI.ShipyardGizmo>();
+            gameObject.AddComponent<Core.HeelCheck>();
+            gameObject.AddComponent<UI.HullShowcase>();
 
             Log.LogInfo($"{PluginName} v{PluginVersion} loaded.");
         }
@@ -81,6 +83,31 @@ namespace SailwindRigBalance
                     Log.LogWarning($"[Init] hook '{type.Name}' did not apply: {e.Message}");
                 }
             }
+
+            // The hull showcase's guards: menu buttons, saving and loading refused while it runs. All
+            // or nothing, because a showcase that could start a game or write a save from the menu
+            // is the one thing it promises never to do; with any guard missing the button is not
+            // offered at all.
+            int guards = 0, guardsFailed = 0;
+            foreach (Type type in typeof(UI.HullShowcase).GetNestedTypes(
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
+            {
+                if (type.GetCustomAttributes(typeof(HarmonyPatch), true).Length == 0) continue;
+                try
+                {
+                    _harmony.CreateClassProcessor(type).Patch();
+                    guards++;
+                }
+                catch (Exception e)
+                {
+                    guardsFailed++;
+                    Log.LogWarning($"[Init] showcase guard '{type.Name}' did not apply: {e.Message}");
+                }
+            }
+            UI.HullShowcase.GuardsReady = guardsFailed == 0 && guards == UI.HullShowcase.GuardCount;
+            if (!UI.HullShowcase.GuardsReady)
+                Log.LogWarning($"[Init] {guards} of {UI.HullShowcase.GuardCount} showcase guard(s) applied, so the "
+                    + "Hull showcase button is not offered.");
 
             if (failed == 0)
                 Log.LogInfo($"[Init] {applied} shipyard hook(s) applied; rig model available={Core.RigModel.Available}");

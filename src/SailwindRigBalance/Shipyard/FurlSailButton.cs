@@ -223,9 +223,12 @@ namespace SailwindRigBalance.Shipyard
         private void Update()
         {
             Sail selected = SelectedSail();
-            bool show = selected != null;
+            bool show = selected != null
+                && (SailwindRigBalance.Config.Settings.ShowPanel == null
+                    || SailwindRigBalance.Config.Settings.ShowPanel.Value);
 
-            // "which appears only when a sail is selected"
+            // "which appears only when a sail is selected", and never with ShowPanel off, which
+            // promises no interface at all
             if (_renderers != null)
             {
                 foreach (Renderer renderer in _renderers)
@@ -239,7 +242,7 @@ namespace SailwindRigBalance.Shipyard
 
             // Wording is deliberately not one letter away from SE's "Furl Sails". "this sail"
             // states the scope outright, because the two buttons sit next to each other.
-            string wanted = selected.currentUnroll > 0.5f ? "Furl\nthis sail" : "Unfurl\nthis sail";
+            string wanted = IsSet(selected) ? "Furl\nthis sail" : "Unfurl\nthis sail";
             if (_label.text != wanted) _label.text = wanted;
 
             lookText = wanted.Replace("\n", " ");
@@ -250,8 +253,18 @@ namespace SailwindRigBalance.Shipyard
             Sail selected = SelectedSail();
             if (selected == null) return;
 
-            SetUnroll(ShipyardHooks.CurrentBoat, selected, selected.currentUnroll > 0.5f ? 0f : 1f);
+            Toggle(selected);
         }
+
+        /// <summary>Whether a furl toggle would furl this sail, rather than set it.</summary>
+        public static bool IsSet(Sail sail) => sail.currentUnroll > 0.5f;
+
+        /// <summary>The unroll a furl toggle takes this sail to. The reef track previews this.</summary>
+        public static float ToggledUnroll(Sail sail) => IsSet(sail) ? 0f : 1f;
+
+        /// <summary>What the button, the strip's toggle and the furl key all do.</summary>
+        public static void Toggle(Sail sail) =>
+            SetUnroll(ShipyardHooks.CurrentBoat, sail, ToggledUnroll(sail));
 
         /// <summary>
         /// Sets one sail's furl state, and with it every sail the game will drag along.

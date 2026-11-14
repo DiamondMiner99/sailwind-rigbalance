@@ -1144,3 +1144,146 @@ positions come from, and the rigidbody's offset from it is logged whenever it ex
 meter. Two lessons: an audit that checks only one of a reading's terms can pass a reading that is
 wrong in the other, so the audit now compares the helm lever as well; and a model that mixes
 positions from two sources is measuring the distance between the sources whenever they disagree.
+
+---
+
+## 19. The marker that was a lever, and the trim grid under it
+
+Players reported the center of effort sitting behind the only sail on a one-sail junk, and the
+balance snapping as the wind arrow moved. An offline port of `Sail.UpdateWindForceOnSail` and of
+the model's trim search and gates reproduced both, using the standard junk's authored windcenter
+(2.56 m behind the mast at 100 percent) and the junk small hull's windage (`sideForce` 6.0,
+`forceOffset` 7 m aft). Neither was a force error.
+
+**The marker was not a location.** With a verdict it was drawn on the centerline at net yaw over
+net side force, and without one at the sails' force-weighted centroid. At 125 degrees on a 61 m2
+junk the sail pulls about 3 m forward of the pivot while the lever worked out to several meters
+aft: thrust acting well to leeward and the hull's windage outweigh the sail's side force. The
+reading was right and she does round up, but a ball on the sail plan's height reads as a place.
+Switching between the two definitions also moved the ball by up to 7.5 m between adjacent degrees.
+
+So they are now separate things on screen. Magenta is always the centroid. The lever is a colored
+post up from the blue marker to the top of the hull, then an arrow along the centerline at true
+length, with the post alone for balanced and for no verdict. A first version drew the bar at the
+blue marker's height with a camera-sized minimum length, which made its length change with zoom and
+hid it from bow-on views and with `DrawThroughHull` off. This gives up "magenta aft of blue is weather helm", which the lever placement
+existed to guarantee. The earlier complaint behind that placement, magenta forward of blue with a
+blue link, is now the documented normal case, and the bar is what to read. The reef track benefits:
+both ends are now the same kind of point, and moving one weight in a weighted average traces a
+straight line, so its old refusals are gone.
+
+**The trim search was too coarse for the lever.** It stopped at an 18 degree grid on a 145 degree
+swing. Drive is nearly flat at its peak, 319 to 320 N from 55 to 70 degrees at that bearing, while
+side force halves from 238 to 121 N, so which grid point won changed the lever by up to 2.9 m for
+one degree of arrow. A swing limit moves the grid, so a limit could change a reading where it was
+not even binding: the rig read 1.94 m on one tack and 3.45 m on the other at 125 and 235 degrees,
+with the ideal trim inside both limits.
+
+**Refining the grid exposed the tie window.** The first fix reached 4.5 degree spacing and read
+1.58 and 1.57 m at those bearings, which looked right and was not. `TieFraction` was a thousandth
+of a sail's capacity, about five degrees either side of the peak in drive terms, and the tie rule
+takes the most centered pose in the window. A coarse grid rarely had two poses inside it, a fine
+one always does, so every trim moved up to five degrees toward the centerline. That adds about 20
+percent to the side force at no visible cost in drive and pulls readings toward lee helm: a true
+2.31 m read 1.54 m. The mirror audit passed throughout, because a bias shared by both tacks mirrors
+perfectly. On a large rig it turned out to matter very little: see the end of this section.
+
+The window is now a hundred thousandth, which still catches the real ties head to wind, and the
+search adds one last pose at the top of the parabola through the highest pose and its neighbors.
+Taking the highest rather than the tie rule's pick matters: with the peak nearly midway between two
+poses the tie rule can hand back the lower one, and those three points do not make a hump. Drive is
+the product of two terms linear in trim, so the peak is close to half the wind angle, and the
+offline port finds 22.25, 37.5, 47.5 and 62.5 degrees at bearings 45, 75, 95 and 125. Skipping poses
+already tried brings it to about twelve evaluations per sail. The junk reads 2.41 m at 125 degrees
+and the worst step is 0.4 to 0.75 m for one degree of arrow. The largest remaining error against a
+brute force search, 0.6 to 1.0 m, is near 16 degrees off the bow, where vanilla's force ramps up
+from nothing. Readings shift with this, because the old answers carried both errors.
+
+The marker's weighting changed for the same reason its meaning did. It used side force plus drive,
+while the arrows and percent labels use the size of the force, so two equal arrows could pull the
+ball unevenly. All three now use `SailContribution.ForceMagnitude`.
+
+What remains is real. Near a run, one tack can hit its swing limit, or the best pose can change
+sides, which moves the ball up to 5.6 m at a single bearing on this rig. With uneven limits the
+tacks can still differ by up to 3.4 m where a limit binds.
+
+Fin sails carry a low center of effort because the game authors them that way: the base prefab's
+windcenter is about 2 m above the foot of a roughly 14 m sail, and `Sail.ApplyForce` applies the
+force there.
+
+**Headsails push much harder toward lee helm than they look.** A fourteen-sail schooner rig on the
+brig hull read lee on every bearing with all sails set, 1.1 to 2.4 m against a 0.59 m band, so the
+ring was nearly all red. Fixing the tie window barely moved it (45 degrees from -1.3 to -1.2 m, 95
+degrees from -2.5 to -2.4 m), so that was not the cause. An offline 3D port of `Sail.cs:407-448`, on
+the real mast stations and prefab windcenters with areas fitted to logged forces, reproduces the log:
+side shares of 68, 53, 38 and 21 percent at 45, 95, 125 and 155 degrees against a logged 68, 53, 39
+and 23, and the jib at 318 and 242 N against a logged 317 and 240. It reads about 0.5 m less lee than
+the log on average.
+
+The cause is the swing axis of a stay sail, which leans with the stay, about 36 degrees on the jib
+and 39 on the genoas. The sail's force lies along its tilted normal, and `Sail.cs:425` takes the angle
+between that 3D vector and the bow, then uses it for the shares at `:442-443`. So the leaning force
+never gets near the bow's direction: the jib's sideways share is 0.40 at 89 degrees of trim on a dead
+run, where a sail on an upright mast is near zero. Those sails stand 16 to 21 m forward, and at 95
+degrees they contribute about 17,000 Nm toward lee, which is nearly all of the net yaw. The reading is
+correct for the forces the game applies. The model does not include sails shading each other, which
+it cancels deliberately, so a crowded rig may sail differently from its ring. With the two genoas
+furled, the port predicts about -0.04, -0.32 and +0.80 m at 45, 95 and 135 degrees.
+
+**Two states the ring could not see.** Shipyard Expansion's Furl Sails button writes
+`Sail.currentUnroll` from a coroutine, through nothing this mod hooks, so the ring kept painting the
+previous rig. Sail furl state is now polled by fingerprint each frame, which covers any writer. Doing
+that exposed the other one: a fully furled rig keeps 1.5 percent of its force through the yard floor
+at `Sail.cs:415`, and hull windage then gives a lever of about 3 m, while measuring output against the
+rig's own best cannot object, because a furled rig's best is equally small. A rig with no sail at 5
+percent unroll or more now gives no verdict.
+
+## 20. The game shades the two tacks differently
+
+Measured 2026-11-13 on a 14-sail brig. With the heel solver's center of mass centered sideways
+(cargo and the player had listed her a degree or two in the shipyard, so one tack was read at more
+heel than the other), heel and trims mirrored exactly, yet the mirror audit still failed on every
+sweep. The only per-sail quantity that differed was shading: a square shaded 0% on one tack and
+51% on the other, a jib 8% against 46%. Dividing each sail's force by one minus its shading made
+the pair match.
+
+Cause: every sail's shadow collider is the same flat 2 x 2 m plane (`wind_shadow_col_mesh`, nine
+vertices, a trigger except on staysails), and the game's PhysicsManager has
+`m_QueriesHitBackfaces = False` (read from globalgamemanagers; no code changes it). A ray that
+meets an occluding sail's front face is blocked; the reflected ray on the other tack meets the
+back face and passes through. `SailShadowCol.CheckShadow` casts its rays the same way with a plain
+`Physics.Raycast`, so at sea a rig really is shaded differently on port and starboard.
+
+Decision: model it as the game does. The ring shows the lopsided shading because the boat sails
+that way. The mirror audit now counts a pair whose forces agree once shading is taken back out
+as "differs only in sail shading" at Info, not as a fault. `ModelSailShading` off gives a
+symmetric ring for anyone who wants the rig judged in clear air.
+
+## 21. In a hard wind the heel search swung instead of settling
+
+Measured 2026-11-14 on the same 14-sail brig, with the wind arrow starting at the wind in port, a
+storm, so 30 m/s. The ring was lopsided far past what shading explains: the mirror audit found 12 of
+18 pairs asymmetric in force, and the helm at 125 and 235 degrees read +3.8 against +10.8 m. The heel
+the sweep line prints did not mirror either: 51 degrees at 75 against 14 at 285, 23 at 95 against 35
+at 265.
+
+Cause: the heel was found by taking forces and attitude in turns, four rounds. In a moderate wind that
+converges in two or three. In a hard one it swings: upright, the sails lay her over to about 51
+degrees; at 51 degrees they spill enough wind that the balance is about 14; at 14 they lay her over to
+51 again. Four rounds then stop on whichever end the last one reached, and because the game shades the
+two tacks differently (section 20) the two tacks reached different ends.
+
+The balance is the heel where the forces taken at it would hold that same heel. More heel always means
+less force, so the difference between the two falls steadily with heel and crosses zero once. The
+search now keeps the tightest round on each side of the crossing and, once it has both, closes in by
+false position held at least 15 percent from either end, up to ten rounds, which finds the same balance
+from either tack. A bearing that runs out of rounds is marked `?` in the sweep line. Moderate winds
+take the same two or three rounds as before.
+
+The first build of that search still left 65 and 75 against 295 and 285 apart: laid over at 51
+degrees on one tack, balanced at 18 to 22 on the other. Upright, the forces wanted more heel than
+the hull can hold, so the second round went straight to the heel limit. On one tack the forces taken
+there still beat the hull's greatest righting moment and the search stopped, laid over; on the other,
+a few percent smaller through shading, they came back and found 18 degrees. A boat heeling over from
+upright stops at the first balance she meets, so before a crossing is bracketed each round now moves
+the heel at most 12 degrees toward where the forces want it, and up to twelve rounds are allowed.

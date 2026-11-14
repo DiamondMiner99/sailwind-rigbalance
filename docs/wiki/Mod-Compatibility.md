@@ -52,6 +52,10 @@ the BepInEx chainloader, never assumed from the dependency list, and logged at s
 **Drydock** adds keel weight options through the same mechanism Sailwind and Shipyard
 Expansion use, so those are picked up too.
 
+**MoreSailwindSails** patches the game's sail force function for its own sails. The mod drives
+that same function rather than a copy of it, so those sails are read with that mod's changes,
+and its Fisherman's Stays are not counted as part of the hull.
+
 **Sail Info** and **Mariner's HUD** show sail numbers while sailing. They do not overlap
 with this mod, which only runs in the shipyard.
 
