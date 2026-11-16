@@ -3036,13 +3036,6 @@ namespace SailwindRigBalance.UI
 
         /// <summary>The extra rows with ShowHelmTicks on, outward first.</summary>
         private static readonly string[] LegendTickLabels = { "Tick outward: weather", "Tick inward: lee" };
-
-        /// <summary>
-        /// The last row with ExtendShipyardCamera on: the lift's control. Players with the game's
-        /// control hints off would otherwise never learn it, and the legend is where they look.
-        /// </summary>
-        private const string LegendCameraLabel = "Right-drag up/down: raise view";
-
         private const float LegendRow = 18f;
         private const float LegendStrip = 12f;
         private Texture2D _legendTex;
@@ -3080,18 +3073,10 @@ namespace SailwindRigBalance.UI
                     labelWidth = Mathf.Max(labelWidth, _legendStyle.CalcSize(_legendContent).x);
                 }
 
-            bool camera = Config.Settings.ExtendShipyardCamera != null && Config.Settings.ExtendShipyardCamera.Value
-                && Shipyard.ShipyardCamera.Working;
-            if (camera)
-            {
-                _legendContent.text = LegendCameraLabel;
-                labelWidth = Mathf.Max(labelWidth, _legendStyle.CalcSize(_legendContent).x);
-            }
-
-            const float Pad = 12f, Gap = 8f, CameraGap = 6f;
-            int rows = LegendLabels.Length + 1 + (ticks ? LegendTickLabels.Length : 0) + (camera ? 1 : 0);
+            const float Pad = 12f, Gap = 8f;
+            int rows = LegendLabels.Length + 1 + (ticks ? LegendTickLabels.Length : 0);
             float width = Pad + LegendStrip + Gap + labelWidth + Pad;
-            float height = Pad + titleHeight + 2f + rows * LegendRow + (camera ? CameraGap : 0f) + Pad - 4f;
+            float height = Pad + titleHeight + 2f + rows * LegendRow + Pad - 4f;
             var box = new Rect(right - width, top, width, height);
             DrawPaper(box);
 
@@ -3146,26 +3131,6 @@ namespace SailwindRigBalance.UI
                     _legendContent.text = LegendTickLabels[i];
                     GUI.Label(new Rect(textX, rowY, labelWidth + 2f, LegendRow), _legendContent, _legendStyle);
                 }
-            }
-
-            // The camera's control, set apart from the color key by a small gap, beside an up/down
-            // arrow: a stem with a cap at each end.
-            if (camera)
-            {
-                float rowY = grayY + (1 + (ticks ? LegendTickLabels.Length : 0)) * LegendRow + CameraGap;
-                float mid = rowY + LegendRow * 0.5f;
-                float cx = x + LegendStrip * 0.5f;
-
-                GUI.color = _legendStyle.normal.textColor;
-                GUI.DrawTexture(new Rect(cx - 1f, mid - 6f, 2f, 12f), Texture2D.whiteTexture);
-                GUI.DrawTexture(new Rect(cx - 2f, mid - 5f, 4f, 2f), Texture2D.whiteTexture);
-                GUI.DrawTexture(new Rect(cx - 4f, mid - 3f, 8f, 2f), Texture2D.whiteTexture);
-                GUI.DrawTexture(new Rect(cx - 4f, mid + 1f, 8f, 2f), Texture2D.whiteTexture);
-                GUI.DrawTexture(new Rect(cx - 2f, mid + 3f, 4f, 2f), Texture2D.whiteTexture);
-                GUI.color = previous;
-
-                _legendContent.text = LegendCameraLabel;
-                GUI.Label(new Rect(textX, rowY, labelWidth + 2f, LegendRow), _legendContent, _legendStyle);
             }
 
             return box.yMax;

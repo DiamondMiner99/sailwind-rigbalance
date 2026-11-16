@@ -70,9 +70,6 @@ namespace SailwindRigBalance.Shipyard
         private static bool _failed;
         private static readonly List<Renderer> Renderers = new List<Renderer>();
 
-        /// <summary>False once the extension has failed and switched itself off for the session.</summary>
-        internal static bool Working => !_failed;
-
         private static bool Active =>
             !_failed
             && Config.Settings.ExtendShipyardCamera.Value

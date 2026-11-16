@@ -134,7 +134,7 @@ three markers. The fourth, a small ring wearing the rose's own colors, hides the
 and the waterline, and turning it off also stops the sweep behind the ring, which is most of
 what the mod spends on each rig change. The fifth, a pink arrow, shows each sail's force.
 Hover any button for its name. While the ring is shown, a legend of its colors hangs under the
-buttons, with the camera's right-drag lift as its last row. The strip is fixed there: nothing else in the shipyard can be dragged, and a panel that
+buttons. The strip is fixed there: nothing else in the shipyard can be dragged, and a panel that
 could be would read as belonging to a different program.
 
 When you enter a shipyard the markers wait until the boat has settled into the cradle and the
