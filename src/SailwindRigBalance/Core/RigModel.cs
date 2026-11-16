@@ -596,12 +596,30 @@ namespace SailwindRigBalance.Core
         /// The hull as the shipyard judges it, and how she floats with no wind, or null when heel is
         /// not modeled for this boat.
         ///
-        /// The shipyard judges the rig, not the loading. Cargo or the player standing to one side
-        /// moves the rigidbody's center of mass sideways (BoatMass.cs:66-117), which lists her a
-        /// degree or two at no wind, so one tack was read at more heel than the other and the ring
-        /// came out lopsided (2026-11-13 log: @2 against @0 at 1 m/s on a brig). The weight is kept,
-        /// since how deep she sits is real; only its sideways position is centered, over the
-        /// buoyancy points so she floats upright. HeelCheck reads the real loading at sea.
+        /// The shipyard judges the rig, not the loading, so the center of mass is the hull's design
+        /// point, BoatKeel.centerOfMass, the same one the yellow marker shows
+        /// (ShipyardGizmo.ReadCenterOfMass). The weight is kept from the rigidbody, since how deep
+        /// she sits is real. HeelCheck reads the real loading at sea.
+        ///
+        /// The rigidbody's center of mass cannot be used here, because in a shipyard the game
+        /// itself puts it kilometers away. Shipyard.AdmitShip sets GameState.currentBoat to the boat
+        /// in the yard (Shipyard.cs:275), and from then on BoatMass.UpdateMass counts the player as
+        /// standing aboard: 160 kg at Refs.observerMirror's localPosition (BoatMass.cs:109-114), and
+        /// any item in the player's hands at the same place (BoatMass.cs:78-84).
+        /// Ashore the mirror is parented to '_shifting world' (PlayerEmbarkDisembarkTrigger.cs:163),
+        /// whose children hold real map coordinates, hundreds of kilometers. Nothing in vanilla
+        /// notices, because the boat is kinematic in the yard. Read from there, the center of mass
+        /// pitched every boat to the 30 degree limit, bow down, which tips the sails forward and read
+        /// as lee helm on every bearing; it moved with every step the player took, so each rebuild
+        /// gave a different ring (Discord, 2026-11-15: waterline "nosediving", "lee helm for days",
+        /// colors "switching for random reasons"). It only happens with the boat as
+        /// GameState.lastBoat (BoatMass.cs:25) and the player ashore; from aboard the offset is the
+        /// player's place on deck. Cargo trim used to come in the same way, and earlier still its
+        /// sideways part listed her a degree or two so one tack read at more heel than the other
+        /// (2026-11-13 log: @2 against @0 at 1 m/s on a brig).
+        ///
+        /// The sideways position is still centered over the buoyancy points, so a hull whose design
+        /// point sits a little off them floats upright.
         ///
         /// Kept for the boat, her mass and her center of mass, which is all it is read from, so a
         /// sweep's 36 bearings and a drag's frames reuse it instead of reading and floating her again
@@ -614,7 +632,7 @@ namespace SailwindRigBalance.Core
             if (body == null) return null;
 
             int id = boatRoot.GetInstanceID();
-            Vector3 com = boatRoot.transform.InverseTransformDirection(body.worldCenterOfMass - boatRoot.transform.position);
+            Vector3 com = DesignCenterOfMass(boatRoot, body);
             if (_hullCache != null && id == _hullCacheBoat && body.mass == _hullCacheMass
                 && (com - _hullCacheCom).sqrMagnitude < 1e-8f)
             {
@@ -625,6 +643,7 @@ namespace SailwindRigBalance.Core
             Hydrostatics.HullModel hull = Hydrostatics.Read(boatRoot, body);
             if (hull != null)
             {
+                hull.CenterOfMass = com;
                 hull.CenterOfMass.x = Hydrostatics.BuoyancyCenterX(hull);
                 calm = Hydrostatics.Float(hull);
             }
@@ -641,6 +660,28 @@ namespace SailwindRigBalance.Core
         private static float _hullCacheMass;
         private static Vector3 _hullCacheCom;
         private static SeaAttitude _hullCacheCalm;
+
+        /// <summary>
+        /// The hull's design center of mass in the boat's own axes, from BoatKeel, which every keel
+        /// option writes (BoatCustomKeel.cs:11) and BoatMass builds on (BoatMass.cs:116). A
+        /// rigidbody point is in its own pose with no scale, the same frame as Hydrostatics.Read's
+        /// center of mass. A hull with no BoatKeel has no BoatMass maintaining it either (UpdateMass
+        /// reads the keel), so its rigidbody value is whatever was set once and is safe to use.
+        /// </summary>
+        private static Vector3 DesignCenterOfMass(GameObject boatRoot, Rigidbody body)
+        {
+            try
+            {
+                var keel = boatRoot.GetComponent<BoatKeel>();
+                if (keel != null) return keel.centerOfMass;
+            }
+            catch (Exception e)
+            {
+                WarnOnce("keel", "[Heel] BoatKeel is not the shape this build expects, so the rigidbody's "
+                    + "center of mass is used: " + e.Message);
+            }
+            return boatRoot.transform.InverseTransformDirection(body.worldCenterOfMass - boatRoot.transform.position);
+        }
 
         private static SeaAttitude Between(SeaAttitude a, SeaAttitude b, float t)
         {
@@ -1694,6 +1735,14 @@ namespace SailwindRigBalance.Core
         /// The check is unchanged by that, and deliberately: it measures parentage per sail at
         /// runtime rather than testing an SE version, so it reports the condition wherever it turns
         /// up and stops reporting it when the sail is fixed.
+        ///
+        /// Parentage is not the only way to follow a resize. MoreSailwindSails keeps windcenter
+        /// outside the scaled subtree and sets it from the cloth's corner bones in a prefix on
+        /// Sail.UpdateWindForceOnSail (FishermansStaysailRig.RefreshAerodynamics and its siblings),
+        /// so it follows the sail's size and shape on every force update, and the model calls that
+        /// method for every pose it tries. Those sails failed the parentage test and showed the
+        /// unreliable warning (Discord, 2026-11-15). So a sail that fails it gets one more question,
+        /// asked of its behavior: see CenterPlacedByForceUpdate.
         /// </summary>
         private static bool CeTracksResizes(Sail sail)
         {
@@ -1707,7 +1756,8 @@ namespace SailwindRigBalance.Core
                     return true;
                 }
 
-                return sail.windcenter.IsChildOf(sail.cloth.transform.parent);
+                if (sail.windcenter.IsChildOf(sail.cloth.transform.parent)) return true;
+                return CenterPlacedByForceUpdate(sail);
             }
             catch (Exception e)
             {
@@ -1715,6 +1765,64 @@ namespace SailwindRigBalance.Core
                 return true;
             }
         }
+
+        /// <summary>
+        /// Whether something puts this sail's windcenter back in place whenever the game updates
+        /// its force. Vanilla's UpdateWindForceOnSail only reads windcenter, so the test moves it
+        /// aside, runs the update, and sees whether it came back; the pose is restored either way.
+        /// It runs inside TryEvaluateSail, whose finally block restores every field the update
+        /// writes. A yes is kept for the sail's lifetime. A no is asked again after a couple of
+        /// seconds, in case the mod could not place it at that moment (its own frame refresh can
+        /// decline, for instance before its bones exist).
+        /// </summary>
+        private static bool CenterPlacedByForceUpdate(Sail sail)
+        {
+            if (MUpdateForce == null || sail.windcenter == null) return false;
+
+            int id = sail.GetInstanceID();
+            float now = Time.unscaledTime;
+            CenterProbe known;
+            if (CenterProbes.TryGetValue(id, out known)
+                && (known.Placed || now - known.At < CenterProbeRetrySeconds))
+                return known.Placed;
+
+            Transform center = sail.windcenter;
+            Vector3 position = center.position;
+            Quaternion rotation = center.rotation;
+            Vector3 nudged = position + new Vector3(0.37f, 0.23f, -0.31f);
+            bool placed = false;
+            try
+            {
+                center.position = nudged;
+                MUpdateForce.Invoke(sail, null);
+                placed = (center.position - nudged).sqrMagnitude > 1e-4f;
+            }
+            catch (Exception e)
+            {
+                WarnOnce("probe:" + sail.sailName, "[RigModel] could not test whether another mod places the "
+                    + $"center of effort of '{sail.sailName}': {(e.InnerException ?? e).Message}");
+            }
+            finally
+            {
+                center.SetPositionAndRotation(position, rotation);
+            }
+
+            CenterProbes[id] = new CenterProbe { Placed = placed, At = now };
+            if (placed && Warned.Add("placed:" + sail.sailName))
+                Plugin.Log.LogInfo($"[RigModel] '{sail.sailName}' keeps its center of effort outside the "
+                    + "scaled cloth, and another mod puts it in place on every force update, so it follows "
+                    + "the sail's size.");
+            return placed;
+        }
+
+        private struct CenterProbe
+        {
+            public bool Placed;
+            public float At;
+        }
+
+        private static readonly Dictionary<int, CenterProbe> CenterProbes = new Dictionary<int, CenterProbe>();
+        private const float CenterProbeRetrySeconds = 2f;
 
         /// <summary>
         /// The hull's fore-and-aft extent, so a tolerance can be expressed as a fraction of the

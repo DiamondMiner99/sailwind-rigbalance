@@ -96,6 +96,23 @@ namespace SailwindRigBalance.Compat
             }
         }
 
+        /// <summary>
+        /// Whether a plugin is loaded, asked when it matters rather than at our own Awake, which can
+        /// run before plugins later in the load order are in the table. Never throws.
+        /// </summary>
+        public static bool IsLoaded(string guid)
+        {
+            try
+            {
+                var infos = Chainloader.PluginInfos;
+                return infos != null && infos.ContainsKey(guid);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         private static string TryGetVersion(IDictionary<string, BepInEx.PluginInfo> infos, string guid)
         {
             if (infos == null) return null;

@@ -31,7 +31,7 @@ namespace SailwindRigBalance
         // ("version is invalid") and skip it entirely. Any "alpha" wording lives in prose only.
         // Bump for every shipped zip, including a packaging-only change, so two machines can never
         // silently differ.
-        public const string PluginVersion = "0.17.0";
+        public const string PluginVersion = "0.18.0";
 
         public static Plugin Instance { get; private set; }
         public static ManualLogSource Log { get; private set; }
@@ -68,7 +68,8 @@ namespace SailwindRigBalance
             _harmony = new Harmony(PluginGUID);
             int applied = 0, failed = 0;
 
-            foreach (Type type in typeof(Shipyard.ShipyardHooks).GetNestedTypes(
+            foreach (Type host in new[] { typeof(Shipyard.ShipyardHooks), typeof(Shipyard.ShipyardCamera) })
+            foreach (Type type in host.GetNestedTypes(
                 System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
             {
                 if (type.GetCustomAttributes(typeof(HarmonyPatch), true).Length == 0) continue;

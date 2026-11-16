@@ -194,6 +194,7 @@ namespace SailwindRigBalance.UI
             {
                 _dragging = false;
                 _draggingSpeed = false;
+                _focus = ArrowPart.None;
             }
         }
 
@@ -211,6 +212,7 @@ namespace SailwindRigBalance.UI
             _arrowGo = null;
             _dragging = false;
             _draggingSpeed = false;
+            _focus = ArrowPart.None;
             _speedSettled = false;
             _centerCapped = false;
             _loggedAudit = null;
@@ -265,38 +267,19 @@ namespace SailwindRigBalance.UI
             if (!_go.activeSelf) return;
 
             Vector3 center = _go.transform.position;
-            Vector3 handle = center + DirectionFor(WindAngle, boat) * _radius;
 
             if (!_dragging)
             {
-                if (!Input.GetMouseButtonDown(0)) { SetArrowHighlight(false); return; }
-
-                // The knob first, because it sits on the end of the arrow and the arrow's own target
-                // reaches it. The knob is the smaller target, so it gets the tie.
-                Vector3 knob = camera.WorldToScreenPoint(KnobWorld);
-                if (knob.z > 0f && Vector2.Distance(new Vector2(Input.mousePosition.x, Input.mousePosition.y),
-                        new Vector2(knob.x, knob.y)) <= KnobGrabPixels)
-                {
-                    _dragging = true;
-                    _draggingSpeed = true;
-                    SetArrowHighlight(true);
-                    SuppressCameraLook();
-                    return;
-                }
-
-                // The whole arrow is the target, tip to tail, projected to the screen. A single point
-                // on the ring lands on the head in one arrow style and far from it in the other.
-                Vector3 direction = DirectionFor(WindAngle, boat);
-                Vector3 inner = camera.WorldToScreenPoint(center + direction * (_radius - ArrowHeadLength));
-                Vector3 outer = camera.WorldToScreenPoint(center + direction * (_radius + ArrowShaftLength));
-                if (inner.z <= 0f || outer.z <= 0f) return;   // behind the camera
-
-                if (DistanceToSegment(new Vector2(Input.mousePosition.x, Input.mousePosition.y),
-                        new Vector2(inner.x, inner.y), new Vector2(outer.x, outer.y)) > GrabRadiusPixels)
-                    return;
+                // Whichever part the cursor is over lights up, and the other fades, before any
+                // click, so it is plain which one a press will take. Without that the two targets
+                // overlapped unseen and a press meant to turn the wind could set its speed
+                // (Discord, 2026-11-15).
+                ArrowPart under = PartUnderCursor(camera, center, boat);
+                SetFocus(under);
+                if (under == ArrowPart.None || !Input.GetMouseButtonDown(0)) return;
 
                 _dragging = true;
-                SetArrowHighlight(true);
+                _draggingSpeed = under == ArrowPart.Knob;
                 SuppressCameraLook();
                 return;
             }
@@ -304,7 +287,7 @@ namespace SailwindRigBalance.UI
             if (!Input.GetMouseButton(0))
             {
                 _dragging = false;
-                SetArrowHighlight(false);
+                SetFocus(ArrowPart.None);
 
                 // One more rebuild on release, so the settled state is evaluated and logged with
                 // _dragging already false. Without it the last frame of the drag recomputed while
@@ -359,7 +342,56 @@ namespace SailwindRigBalance.UI
         }
 
         private const float GrabRadiusPixels = 40f;
-        private const float KnobGrabPixels = 22f;
+
+        /// <summary>How far past the knob's drawn edge a press still takes it, in pixels.</summary>
+        private const float KnobSlackPixels = 14f;
+
+        /// <summary>The two things on the arrow a press can take: the arrow turns the wind, the knob sets its speed.</summary>
+        private enum ArrowPart { None, Arrow, Knob }
+
+        /// <summary>The part lit up: the one under the cursor, or the one being dragged.</summary>
+        private ArrowPart _focus;
+
+        /// <summary>
+        /// The part of the arrow a press here would take, or None.
+        ///
+        /// The arrow's target is the whole arrow, tip to tail, projected to the screen, because a
+        /// single point on the ring lands on the head in one arrow style and far from it in the
+        /// other. The knob's is its drawn disc plus a little slack. They meet at the arrow's outer
+        /// end, where the knob sits, so where both reach the nearer one wins, measured to the
+        /// arrow's line and to the knob's edge. Inside the disc that is always the knob; on the
+        /// shaft just short of it, the arrow. The old rule tested a fixed 22 pixels round the knob's
+        /// center first, which took the end of the shaft for the knob when it was drawn small and
+        /// gave the arrow a press just off a knob drawn large.
+        /// </summary>
+        private ArrowPart PartUnderCursor(Camera camera, Vector3 center, Transform boat)
+        {
+            var mouse = new Vector2(Input.mousePosition.x, Input.mousePosition.y);
+            Vector3 direction = DirectionFor(WindAngle, boat);
+
+            float toArrow = float.MaxValue;
+            Vector3 inner = camera.WorldToScreenPoint(center + direction * (_radius - ArrowHeadLength));
+            Vector3 outer = camera.WorldToScreenPoint(center + direction * (_radius + ArrowShaftLength));
+            if (inner.z > 0f && outer.z > 0f)   // not behind the camera
+                toArrow = DistanceToSegment(mouse, new Vector2(inner.x, inner.y), new Vector2(outer.x, outer.y));
+
+            float toKnob = float.MaxValue;
+            Vector3 knobWorld = KnobWorld;
+            Vector3 knob = camera.WorldToScreenPoint(knobWorld);
+            if (knob.z > 0f)
+            {
+                // Measured across the arrow, which the camera foreshortens least.
+                Vector3 across = Vector3.Cross(boat.up, direction).normalized;
+                Vector3 rim = camera.WorldToScreenPoint(knobWorld + across * KnobRadius);
+                float knobPixels = Vector2.Distance(new Vector2(knob.x, knob.y), new Vector2(rim.x, rim.y));
+                toKnob = Mathf.Max(0f, Vector2.Distance(mouse, new Vector2(knob.x, knob.y)) - knobPixels);
+            }
+
+            bool arrowInReach = toArrow <= GrabRadiusPixels;
+            bool knobInReach = toKnob <= KnobSlackPixels;
+            if (knobInReach && (!arrowInReach || toKnob <= toArrow)) return ArrowPart.Knob;
+            return arrowInReach ? ArrowPart.Arrow : ArrowPart.None;
+        }
 
         /// <summary>
         /// Stops the shipyard camera looking around while the arrow is being dragged. The rotator
@@ -399,13 +431,15 @@ namespace SailwindRigBalance.UI
             return boat.TransformDirection(local);
         }
 
-        private void SetArrowHighlight(bool on)
+        private void SetFocus(ArrowPart part)
         {
             if (_arrowGo == null) return;
+            _focus = part;
             var r = _arrowGo.GetComponent<MeshRenderer>();
             if (r != null) r.enabled = true;
-            // Rebuilt colors are cheap; the mesh is seven vertices.
-            BuildArrowMesh(on);
+            // Rebuilt every frame the arrow is idle, as it always was, so it keeps up with a bearing,
+            // speed or style set from elsewhere. Two dozen vertices.
+            BuildArrowMesh();
         }
 
         /// <summary>
@@ -587,14 +621,18 @@ namespace SailwindRigBalance.UI
                 MaxOutput = _pendingBest;
 
                 var colors = new Color[Segments];
+                var ticks = new float[Segments];
                 for (int i = 0; i < Segments; i++)
                 {
                     colors[i] = _pendingEvaluated[i]
                         ? VerdictFor(_pendingSampled[i], _pendingBest, _pendingBalancedMeters)
                         : DeadColor;
+                    ticks[i] = _pendingEvaluated[i]
+                        ? TickFor(_pendingSampled[i], _pendingBest, _pendingBalancedMeters)
+                        : 0f;
                 }
 
-                BuildMesh(_radius, _pendingBand, colors);
+                BuildMesh(_radius, _pendingBand, colors, ticks);
                 UpdateArrow(boat);
 
                 LogSweep(_pendingSampled, _pendingEvaluated, _pendingBest,
@@ -1166,6 +1204,27 @@ namespace SailwindRigBalance.UI
         internal static Color NoVerdictColor => DeadColor;
 
         /// <summary>
+        /// The helm at one bearing as a tick, for the HelmTicks setting: positive for weather helm,
+        /// negative for lee, its size from just over zero at the edge of the balanced band to 1 at
+        /// the ramp's far stop, and zero for balanced or no verdict, which get no tick. The same
+        /// thresholds as the colors (VerdictFor, HelmColor), so tick and color never disagree.
+        /// </summary>
+        internal static float TickFor(RigBalance balance, float maxOutput, float balancedMeters)
+        {
+            if (IsDead(balance, maxOutput)) return 0f;
+            if (balance.HelmOffScale) return balance.RawLever > 0f ? 1f : -1f;
+            if (balancedMeters <= 0.0001f) return 0f;
+
+            float bands = Mathf.Abs(balance.HelmMeters) / balancedMeters;
+            if (bands <= 1f) return 0f;
+            float size = Mathf.Max(Mathf.InverseLerp(1f, FarAtBands, bands), 0.001f);
+            return balance.HelmMeters > 0f ? size : -size;
+        }
+
+        private static bool TicksWanted => Config.Settings.ShowHelmTicks != null
+            && Config.Settings.ShowHelmTicks.Value;
+
+        /// <summary>
         /// Rebuilds the arrow so it sits at the current wind bearing. By default it points inward at
         /// the boat, the direction the wind blows; the WindArrowStyle setting turns it round to point
         /// into the wind like a weather vane. It is drawn in the ring's own local space and rotated
@@ -1174,7 +1233,7 @@ namespace SailwindRigBalance.UI
         private void UpdateArrow(Transform boat)
         {
             if (_arrowGo == null || _arrowMesh == null) return;
-            BuildArrowMesh(_dragging);
+            BuildArrowMesh();
         }
 
         private static bool WeatherVaneWanted => Config.Settings.WindArrowStyle != null
@@ -1231,7 +1290,10 @@ namespace SailwindRigBalance.UI
         /// <summary>The waterline's color, shared so the knob reads as the control for it.</summary>
         internal static readonly Color KnobColor = new Color(0.35f, 0.80f, 1f, 0.95f);
 
-        private void BuildArrowMesh(bool highlighted)
+        /// <summary>The alpha the part not under the cursor fades to.</summary>
+        private const float FadedAlpha = 0.30f;
+
+        private void BuildArrowMesh()
         {
             if (_arrowMesh == null) return;
 
@@ -1294,15 +1356,23 @@ namespace SailwindRigBalance.UI
                 triangles[t + 2] = 8 + (k + 1) % KnobSegments;
             }
 
-            Color color = highlighted
-                ? new Color(1f, 1f, 1f, 1f)
-                : new Color(0.98f, 0.98f, 0.92f, 0.90f);
+            // The knob in the waterline's blue, so it reads as the control for the heel it shows.
+            // The part under the cursor or in hand goes white and the other fades back.
+            Color color = new Color(0.98f, 0.98f, 0.92f, 0.90f);
+            Color knobColor = KnobColor;
+            if (_focus == ArrowPart.Arrow)
+            {
+                color = Color.white;
+                knobColor.a = FadedAlpha;
+            }
+            else if (_focus == ArrowPart.Knob)
+            {
+                color.a = FadedAlpha;
+                knobColor = Color.white;
+            }
 
             var colors = new Color[vertices.Length];
-            for (int i = 0; i < colors.Length; i++) colors[i] = color;
-
-            // The knob in the waterline's blue, so it reads as the control for the heel it shows.
-            Color knobColor = highlighted && _draggingSpeed ? Color.white : KnobColor;
+            for (int i = 0; i < 7; i++) colors[i] = color;
             for (int i = 7; i < colors.Length; i++) colors[i] = knobColor;
 
             _arrowMesh.Clear();
@@ -1356,19 +1426,28 @@ namespace SailwindRigBalance.UI
             arrowFilter.sharedMesh = _arrowMesh;
         }
 
-        private void BuildMesh(float radius, float band, Color[] colors)
+        private void BuildMesh(float radius, float band, Color[] colors, float[] ticks)
         {
-            FillRing(_mesh, radius, band, colors);
+            FillRing(_mesh, radius, band, colors, TicksWanted ? ticks : null);
         }
 
-        private static void FillRing(Mesh mesh, float radius, float band, Color[] colors)
+        /// <summary>A tick's width, and its length past the band at its smallest and largest, in bands.</summary>
+        private const float TickWidth = 0.5f, TickShortest = 0.6f, TickLongest = 3f;
+
+        private static void FillRing(Mesh mesh, float radius, float band, Color[] colors, float[] ticks)
         {
             float inner = radius - band * 0.5f;
             float outer = radius + band * 0.5f;
 
-            var vertices = new Vector3[MeshSegments * 4];
-            var vertexColors = new Color[MeshSegments * 4];
-            var triangles = new int[MeshSegments * 6];
+            int tickCount = 0;
+            if (ticks != null)
+                foreach (float tick in ticks)
+                    if (tick != 0f) tickCount++;
+
+            int quads = MeshSegments + tickCount;
+            var vertices = new Vector3[quads * 4];
+            var vertexColors = new Color[quads * 4];
+            var triangles = new int[quads * 6];
 
             for (int i = 0; i < MeshSegments; i++)
             {
@@ -1404,6 +1483,49 @@ namespace SailwindRigBalance.UI
                 triangles[t + 3] = v + 0;
                 triangles[t + 4] = v + 2;
                 triangles[t + 5] = v + 3;
+            }
+
+            // Ticks, one per evaluated bearing at the middle of its arc: out of the ring for weather
+            // helm, into it for lee, longer as the helm grows. A reading that does not depend on
+            // telling the colors apart. Each starts on the band's center line, so it grows out of the
+            // band with no seam, in the band's own color at that bearing, and is wound like the
+            // band's quads, which the fallback material's back-face culling already accepts.
+            if (tickCount > 0)
+            {
+                int quad = MeshSegments;
+                for (int i = 0; i < ticks.Length; i++)
+                {
+                    float tick = ticks[i];
+                    if (tick == 0f) continue;
+
+                    float degrees = 360f * (i + 0.5f) / ticks.Length;
+                    float a = degrees * Mathf.Deg2Rad;
+                    Vector3 d = new Vector3(-Mathf.Sin(a), 0f, Mathf.Cos(a));
+                    Vector3 along = new Vector3(-Mathf.Cos(a), 0f, -Mathf.Sin(a)) * (band * TickWidth * 0.5f);
+
+                    float length = band * (0.5f + Mathf.Lerp(TickShortest, TickLongest, Mathf.Abs(tick)));
+                    float near = tick > 0f ? radius : radius - length;
+                    float far = tick > 0f ? radius + length : radius;
+
+                    int v = quad * 4;
+                    vertices[v + 0] = d * near - along;
+                    vertices[v + 1] = d * far - along;
+                    vertices[v + 2] = d * far + along;
+                    vertices[v + 3] = d * near + along;
+
+                    Color c = colors[i];
+                    c.a = 1f;
+                    for (int k = 0; k < 4; k++) vertexColors[v + k] = c;
+
+                    int t = quad * 6;
+                    triangles[t + 0] = v + 0;
+                    triangles[t + 1] = v + 1;
+                    triangles[t + 2] = v + 2;
+                    triangles[t + 3] = v + 0;
+                    triangles[t + 4] = v + 2;
+                    triangles[t + 5] = v + 3;
+                    quad++;
+                }
             }
 
             mesh.Clear();

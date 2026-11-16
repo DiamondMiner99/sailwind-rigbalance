@@ -53,6 +53,8 @@ namespace SailwindRigBalance.Config
         public static ConfigEntry<bool> ShowMass { get; private set; }
         public static ConfigEntry<bool> ShowReefTrack { get; private set; }
         public static ConfigEntry<bool> ShowRing { get; private set; }
+        public static ConfigEntry<bool> ShowHelmTicks { get; private set; }
+        public static ConfigEntry<bool> ColorblindPalette { get; private set; }
         public static ConfigEntry<bool> ShowSailForces { get; private set; }
         public static ConfigEntry<SailForceUnits> SailForceUnit { get; private set; }
         public static ConfigEntry<WindArrowStyles> WindArrowStyle { get; private set; }
@@ -70,6 +72,8 @@ namespace SailwindRigBalance.Config
         public static ConfigEntry<bool> LogHeelAtSea { get; private set; }
         public static ConfigEntry<bool> ShowHullShowcaseButton { get; private set; }
         public static ConfigEntry<bool> ShowRingLegend { get; private set; }
+        public static ConfigEntry<bool> ExtendShipyardCamera { get; private set; }
+        public static ConfigEntry<float> MaxZoomOut { get; private set; }
 
         public static void Bind(ConfigFile config)
         {
@@ -95,6 +99,13 @@ namespace SailwindRigBalance.Config
                 + "sail: green balanced, blue weather helm, red lee helm, gray where the sails are "
                 + "not drawing enough for the question to mean anything. Red anywhere on the ring is "
                 + "a boat that develops lee helm on some heading, which a single reading cannot show.");
+
+            ShowHelmTicks = config.Bind("Markers", "ShowHelmTicks", false,
+                "Mark every bearing of the balance ring with a short tick that shows the helm without "
+                + "color: pointing out of the ring for weather helm, into it for lee helm, longer the "
+                + "stronger the helm, and none where she is balanced or there is no verdict.");
+            ShowHelmTicks.SettingChanged += (sender, args) =>
+                SailwindRigBalance.Shipyard.ShipyardHooks.MarkDirty("helm ticks setting");
 
             ShowSailForces = config.Bind("Markers", "ShowSailForces", false,
                 "Draw an arrow at each sail's center of effort showing the force it makes at the "
@@ -194,12 +205,36 @@ namespace SailwindRigBalance.Config
             ShowRingLegend = config.Bind("Interface", "ShowRingLegend", true,
                 "While the balance ring is shown, put a legend of its colors under the button strip.");
 
+            ColorblindPalette = config.Bind("Interface", "ColorblindPalette", false,
+                "Paint the helm in blue, white and orange instead of blue, green and red, for red-green "
+                + "color blindness: blue weather helm, white balanced, orange to dark orange lee helm. The "
+                + "ring, the helm bar, the reef track, the legend and the ring button all follow it. "
+                + "ShowHelmTicks adds a reading that needs no color at all.");
+            ColorblindPalette.SettingChanged += (sender, args) =>
+            {
+                SailwindRigBalance.UI.ShipyardGizmo.PaletteVersion++;
+                SailwindRigBalance.Shipyard.ShipyardHooks.MarkDirty("palette setting");
+            };
+
             ShowHullShowcaseButton = config.Bind("Interface", "ShowHullShowcaseButton", false,
                 "Put a Hull showcase button on the main menu. Off by default; it is a tool for checking "
                 + "the mod against every hull rather than something a player needs. It looks at every boat in the world in "
                 + "turn with the waterline, heel and balance ring drawn on it, before any save is "
                 + "loaded, and writes each hull's waterline to the log. It only reads: no boat moves "
                 + "and nothing is saved.");
+
+            ExtendShipyardCamera = config.Bind("Camera", "ExtendShipyardCamera", true,
+                "Widen the shipyard camera so a tall rig can be seen to the top: hold the right mouse "
+                + "button and move the mouse up or down to raise or lower the view, up to the top of "
+                + "the rig, and zoom out further than the game allows. Off, the shipyard camera is "
+                + "the game's own.");
+
+            MaxZoomOut = config.Bind("Camera", "MaxZoomOutMeters", 80f,
+                new ConfigDescription(
+                    "How far the shipyard camera can zoom out, in meters, with ExtendShipyardCamera on. "
+                    + "The game's own limit is 40. With HMS Leopard installed, its own zoom to 80 m is "
+                    + "used instead.",
+                    new AcceptableValueRange<float>(40f, 150f)));
 
             // No PanelPosition entry. The strip is fixed in the top right, because nothing else in
             // the shipyard can be dragged and a panel that could read as belonging to another

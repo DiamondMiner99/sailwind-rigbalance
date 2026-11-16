@@ -82,6 +82,14 @@ will eventually sail, and a single close-hauled reading would never have shown y
 Gray arcs near the bow and stern are normal; no boat sails straight into the wind, and
 dead downwind there is nothing to balance.
 
+If red and green are hard to tell apart, two settings help. `ColorblindPalette` paints the
+helm in blue, white and orange: blue weather helm, white balanced, orange to dark orange lee
+helm, on the ring, the helm bar, the reef track, the legend and the ring button alike.
+`ShowHelmTicks` puts a short tick at every bearing of the ring that reads without color: out
+of the ring for weather helm, into it for lee helm, longer the stronger the helm, and none
+where she is balanced or there is no verdict. With ticks on, the legend says which way is
+which.
+
 The ring is the same measurement as the markers, taken at 36 bearings, so it rebuilds a
 moment after each rig change rather than instantly. The old ring stays up until the new
 one is ready.
@@ -98,14 +106,17 @@ whatever falls out of that, because that is the trim you will actually sail.
 ## Heel and the waterline
 
 The wind arrow has a knob on its outer end. Drag it out for more wind and in for less; the
-number beside it is the speed in knots, up to 100. When the shipyard opens, the arrow starts at
-the wind blowing in port, at its bearing against the way the boat is lying, and its speed.
+number beside it is the speed in knots, up to 100. Point at the arrow or the knob before you
+press: the one a press would take turns white and the other fades. When the shipyard opens, the
+arrow starts at the wind blowing in port, at its bearing against the way the boat is lying, and
+its speed.
 
 The boat is heeled in that wind from the game's own buoyancy points and her weight, and every
 reading, the markers, the helm bar and the ring, is taken at that heel. A heeled boat carries
 more weather helm, because her drive acts off to leeward, so the same rig can read balanced in
-a breeze and blue in a gale. Her weight is centered sideways for the reading, so cargo or you
-standing at one rail does not tip one tack against the other.
+a breeze and blue in a gale. The heel is worked out from her full weight at the hull's design
+center of mass, the point the yellow marker shows, so cargo and where you stand do not change
+it.
 
 A light blue line on the hull marks where the sea would meet her at that heel, with the heel
 angle beside it. The boat is never moved, so the line is drawn on her as she sits in the
@@ -212,5 +223,6 @@ strip itself is fixed in place.
 If the magenta marker turns red and a line of text appears, one of the sails on the boat
 has a center of effort that does not follow its own size, so the combined figure is
 unreliable. In practice this meant one of Shipyard Expansion's three added lug sails, which
-Shipyard Expansion fixed in v0.11.0. On SE v0.10.1 and earlier you will see it. See
-[Mod Compatibility](Mod-Compatibility).
+Shipyard Expansion fixed in v0.11.0. On SE v0.10.1 and earlier you will see it. Sails from
+mods that place their own center of effort on every force update, such as MoreSailwindSails,
+are recognized and do not turn it red. See [Mod Compatibility](Mod-Compatibility).

@@ -24,13 +24,16 @@ version number, so it reports the same condition wherever it turns up next.
 
 ## The center of mass ignores cargo
 
-The yellow marker reads the hull's keel data, which is the design center of mass. It does
-not include the shifting weight of cargo in the hold or a player standing on deck, both of
-which the game does account for while sailing.
+The yellow marker, the heel and the waterline all use the hull's keel data, which is the
+design center of mass. They do not include where cargo sits in the hold or where a player
+stands on deck, both of which the game does account for while sailing. Her weight, cargo
+included, still counts toward how deep she sits.
 
-This is deliberate: the marker is there to judge a hull and its keel options, not today's
-loading. It also has to be this way, because the game only maintains the loaded value for
-the boat you sailed in on, not for a boat you are looking at before buying.
+This is deliberate: the shipyard judges a hull and its rig, not today's loading. It also has
+to be this way. The game only maintains the loaded value for the boat you sailed in on, not
+for a boat you are looking at before buying, and while a boat is in the shipyard the game
+counts you as standing aboard wherever you really are, which puts that value kilometers off
+the boat when you are ashore.
 
 ## No comparison against the previous rig
 

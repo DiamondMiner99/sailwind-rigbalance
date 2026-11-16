@@ -84,6 +84,10 @@ gradient: weather helm goes from green through light blue to dark blue, and lee 
 green through orange to red. Light blue or orange is helm the rudder holds easily; dark blue
 or red is a lot of helm.
 
+To see a tall rig to the top, hold the right mouse button and move the mouse up or down to
+raise or lower the view. Side to side still pans as before, and the scroll wheel zooms out to
+80 m instead of 40.
+
 ### The balance ring
 
 A rose is drawn on the water around the boat, colored the same way. **The top of the ring
@@ -97,16 +101,22 @@ some heading you will eventually sail, and a single close-hauled reading would n
 shown you that. Gray means no answer: she is running, so there is no side force to balance.
 An arc at dark blue or red may be past the scale entirely; the log says by how much.
 
+If red and green are hard to tell apart, turn on `ColorblindPalette` for blue, white and orange,
+and `ShowHelmTicks` for a tick at every bearing: out of the ring for weather helm, into it for lee
+helm, longer the stronger the helm.
+
 ### Heel and the waterline
 
 The wind arrow has a knob on its outer end. Drag it out for more wind and in for less; the
-number beside it is the speed in knots, up to 100. When the shipyard opens, the arrow starts at
-the wind blowing in port: the bearing it comes from against the way the boat is lying, and its
-speed.
+number beside it is the speed in knots, up to 100. Point at the arrow or the knob before you
+press: the one a press would take turns white and the other fades. When the shipyard opens, the
+arrow starts at the wind blowing in port: the bearing it comes from against the way the boat is
+lying, and its speed.
 
 The mod heels her in that wind, using the game's own buoyancy points and her weight, and reads
 the helm at that heel. A heeled boat carries more weather helm, so a rig that balances in a
-breeze can read blue in a gale.
+breeze can read blue in a gale. The heel is worked out from her full weight at the hull's design
+center of mass, the point the yellow marker shows, so cargo and where you stand do not change it.
 
 A light blue line on the hull marks where the sea would meet her at that heel, with the heel
 angle beside it. The boat itself is never moved, so at a steep heel the line runs low on the
@@ -124,7 +134,7 @@ three markers. The fourth, a small ring wearing the rose's own colors, hides the
 and the waterline, and turning it off also stops the sweep behind the ring, which is most of
 what the mod spends on each rig change. The fifth, a pink arrow, shows each sail's force.
 Hover any button for its name. While the ring is shown, a legend of its colors hangs under the
-buttons. The strip is fixed there: nothing else in the shipyard can be dragged, and a panel that
+buttons, with the camera's right-drag lift as its last row. The strip is fixed there: nothing else in the shipyard can be dragged, and a panel that
 could be would read as belonging to a different program.
 
 When you enter a shipyard the markers wait until the boat has settled into the cradle and the
@@ -146,13 +156,17 @@ balances. It does respond to a keel or ballast option where a hull has one.
 | `ShowCenterOfMass` | true | yellow marker |
 | `ShowReefTrack` | true | where the center of effort would go if you furled the selected sail |
 | `ShowBalanceRing` | true | the rose showing every point of sail at once |
+| `ShowHelmTicks` | false | a tick at every bearing of the ring, out for weather helm and in for lee helm, to read it without color |
 | `ShowSailForces` | false | an arrow for each sail's force at the wind arrow's angle (also a button) |
 | `SailForceUnits` | Kilonewtons | whether the arrows' numbers are kN or percent (the button cycles it) |
 | `WindArrowStyle` | Downwind | which way the wind arrow points: the way the wind blows, or into it (`WeatherVane`) |
 | `ShowPanel` | true | the button strip and the furl button |
 | `FurlSelectedSailKey` | G | furls the selected sail, or sets it if it is furled |
 | `ShowRingLegend` | true | a legend of the ring's colors under the button strip |
+| `ColorblindPalette` | false | helm colors in blue, white and orange instead of blue, green and red |
 | `ShowHullShowcaseButton` | false | a Hull showcase button on the main menu, for checking every hull's waterline |
+| `ExtendShipyardCamera` | true | hold the right mouse button and move up or down to raise the shipyard view to the top of the rig, and zoom out further |
+| `MaxZoomOutMeters` | 80 | how far the shipyard camera zooms out with `ExtendShipyardCamera` on (the game stops at 40); with HMS Leopard installed its own 80 m zoom is used instead |
 | `DrawThroughHull` | true | draw markers on top of the boat |
 | `MarkerScale` | 1.0 | marker size multiplier |
 | `StartFromLocalWind` | true | the arrow starts at the wind blowing in port, its bearing against the boat and its speed |
@@ -175,7 +189,8 @@ the sail area on every resize. SE's deep keel options move the yellow marker.
 
 MoreSailwindSails is compatible. Its sails are read through the same game force function as
 any other, with that mod's own changes to it, and its Fisherman's Stays are not counted as
-part of the hull.
+part of the hull. Its sails place their own center of effort on every force update, which the
+mod recognizes, so they do not turn the magenta marker red.
 
 **One caveat, on older Shipyard Expansion:** on SE v0.10.1 and earlier, the three added lug
 sails keep their center of effort outside the part that gets scaled, so it doesn't move when

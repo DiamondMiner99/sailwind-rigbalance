@@ -54,7 +54,15 @@ Expansion use, so those are picked up too.
 
 **MoreSailwindSails** patches the game's sail force function for its own sails. The mod drives
 that same function rather than a copy of it, so those sails are read with that mod's changes,
-and its Fisherman's Stays are not counted as part of the hull.
+and its Fisherman's Stays are not counted as part of the hull. Its sails keep their center of
+effort outside the part a resize scales and place it themselves on every force update, so it
+follows their size. The mod checks for that and does not turn the magenta marker red for them.
+
+**NANDTweaks** and **HMS Leopard** both change the shipyard camera. NANDTweaks' camera
+tweak raises the view with the right mouse button, the same control this mod uses; with
+`ExtendShipyardCamera` on, this mod's lift replaces it in the shipyard, from the deck to the
+top of the rig. Leopard replaces the zoom everywhere, out to 80 m, and this mod leaves the zoom
+to it.
 
 **Sail Info** and **Mariner's HUD** show sail numbers while sailing. They do not overlap
 with this mod, which only runs in the shipyard.

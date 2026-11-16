@@ -13,6 +13,7 @@ shipyard: marker visibility is re-read on every shipyard visit.
 | `ShowCenterOfMass` | `true` | the yellow marker |
 | `ShowReefTrack` | `true` | with a sail selected, where the center of effort would go if you furled it |
 | `ShowBalanceRing` | `true` | the ring showing the helm at every point of sail |
+| `ShowHelmTicks` | `false` | a tick at every bearing of the ring that reads without color: out of the ring for weather helm, into it for lee helm, longer the stronger the helm, none for balanced or no verdict |
 | `ShowSailForces` | `false` | an arrow for each sail's force at the wind arrow's angle |
 | `SailForceUnits` | `Kilonewtons` | whether the arrows' numbers are kN or percent |
 | `WindArrowStyle` | `Downwind` | `Downwind` points the wind arrow the way the wind blows, `WeatherVane` points it into the wind |
@@ -28,6 +29,7 @@ button writes the setting, so a marker you hide stays hidden next session.
 | `ShowPanel` | `true` | the button strip and the furl button |
 | `FurlSelectedSailKey` | `G` | furls the selected sail, or sets it if it is furled; clear it to turn the key off |
 | `ShowRingLegend` | `true` | while the ring is shown, a legend of its colors under the button strip: strong weather helm, weather helm, balanced, lee helm, strong lee helm, and gray for no verdict |
+| `ColorblindPalette` | `false` | helm colors in blue, white and orange instead of blue, green and red, on the ring, the helm bar, the reef track, the legend and the ring button |
 | `ShowHullShowcaseButton` | `false` | a Hull showcase button on the main menu, which steps through every boat in the world with the waterline, heel and balance ring on it and writes each hull's waterline to the log |
 
 Turn `ShowPanel` off for markers and nothing else, which also turns off the furl key. The strip sits in the top right corner.
@@ -48,6 +50,17 @@ broken screen.
 
 Markers already scale with camera distance to hold a roughly constant size on screen.
 `MarkerScale` multiplies that, it does not replace it.
+
+## Camera
+
+| setting | default | what it does |
+| --- | --- | --- |
+| `ExtendShipyardCamera` | `true` | in the shipyard, hold the right mouse button and move the mouse up or down to raise or lower the view, from the deck to the top of the rig, and zoom out further than the game allows |
+| `MaxZoomOutMeters` | `80` | how far the shipyard camera zooms out with `ExtendShipyardCamera` on, 40 to 150; the game stops at 40 |
+
+The view is never taken below the sea. With NANDTweaks' camera tweak on, this mod's lift
+replaces NANDTweaks' in the shipyard, so the two do not add up. With HMS Leopard installed,
+the zoom is Leopard's own, out to 80 m, and `MaxZoomOutMeters` has no effect.
 
 ## Model
 

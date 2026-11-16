@@ -1287,3 +1287,58 @@ there still beat the hull's greatest righting moment and the search stopped, lai
 a few percent smaller through shading, they came back and found 18 degrees. A boat heeling over from
 upright stops at the first balance she meets, so before a crossing is bracketed each round now moves
 the heel at most 12 degrees toward where the forces want it, and up to twelve rounds are allowed.
+
+## 22. In the shipyard the game counts the player aboard at their map position
+
+Reported 2026-11-15 on Discord against v0.17.0, by several players on different hulls with no log:
+the waterline drawn as a loop at the bow only, as if she were diving; lee helm on nearly every
+bearing (aram12_ trimmed a rig to slight lee in the yard and found strong weather helm at sea);
+the ring changing color between clicks that changed nothing; and one player for whom a restart
+cleared it. aram12_'s screenshot labeled the heel `2°+`, overpowered at two degrees of heel, which
+only the pitch limit explains.
+
+Cause, from the decompile. Shipyard.AdmitShip sets `GameState.currentBoat` to the boat in the yard
+(Shipyard.cs:275) and DischargeShip clears it (:299). While it is set, BoatMass.UpdateMass counts the
+player as aboard: 160 kg at `Refs.observerMirror.transform.localPosition`, rotated a quarter turn and
+scaled by 160 / selfMass and leverageMult (BoatMass.cs:109-114), and the same for an item in the
+player's hands (:78-84). Ashore the mirror is parented to `_shifting world`
+(PlayerEmbarkDisembarkTrigger.cs:160-163), and a child of the shifting world holds real map
+coordinates (FloatingOriginManager.ShiftingPosToRealPos), hundreds of kilometers. So for the whole
+visit the rigidbody's center of mass sits kilometers off the boat. Vanilla never notices, because the
+boat is kinematic in the yard.
+
+UpdateMass only runs for `GameState.lastBoat` (BoatMass.cs:25), which is set on embark and never
+cleared. So it needs the boat you sailed in on and you standing ashore when you admit her. Admitting
+from aboard leaves the offset at your place on deck (the author's own logs: 0.23 m), and after a
+fresh load without boarding UpdateMass does not run at all, which is the restart that cleared it.
+
+The heel model read `Rigidbody.worldCenterOfMass` and only centered its sideways part, so the
+fore-and-aft part pinned the pitch at its 30 degree limit. A boat pitched bow down leans her sails
+forward, which moves their side force forward by height times the tangent of the pitch, and that
+reads as lee helm. The player's smallest movement moved the far-off point, so the cached hull was
+read again on nearly every evaluation and each sweep solved a slightly different boat.
+
+The yellow marker never had the problem: it reads BoatKeel.centerOfMass and logs how far the
+rigidbody differs (ShipyardGizmo.ReadCenterOfMass). The heel model now reads the same point, keeps the
+rigidbody's mass, and still centers the sideways part over the buoyancy points. Cargo trim no
+longer enters the shipyard reading, consistent with the marker. HeelCheck at sea still reads the
+real loading, which is correct there because the player is aboard.
+
+Not confirmed by a player's log. A log from an affected visit would show the `[Gizmo] center of mass
+from BoatKeel ... rigidbody differs by` line with a distance in the hundreds of meters or more.
+
+## 23. A center of effort can follow a resize without living under the scaled cloth
+
+The red-marker check asked one thing: is the sail's `windcenter` inside `cloth.transform.parent`, the
+transform a resize scales. MoreSailwindSails keeps `windcenter` elsewhere, under its own mast or
+flying frame or the sail root, and sets it from the cloth's corner bones in a Harmony prefix on
+Sail.UpdateWindForceOnSail (FishermansStaysailRig.RefreshAerodynamics and the same in
+FishermansFlyingSailRig and LooseFootedSpritsailRig). That follows the sail's size and shape on every
+force update, and the model calls the same method for every pose it tries, so the position it uses
+was already right. The check flagged them anyway (Discord, 2026-11-15, on the spritsails).
+
+A sail that fails the parentage test is now asked about its behavior: move `windcenter` aside, run
+UpdateWindForceOnSail, and see whether something put it back. Vanilla only reads it there, so a stock
+sail with the old defect still fails. The pose is restored either way, inside TryEvaluateSail's own
+save and restore of the fields the update writes. A yes is kept for the sail; a no is asked again
+after two seconds, in case the other mod declined to place it at that moment.

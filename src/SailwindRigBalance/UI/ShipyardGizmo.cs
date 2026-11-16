@@ -204,17 +204,45 @@ namespace SailwindRigBalance.UI
         //
         // Lighter and more cyan than the center-of-resistance marker's blue, so the helm bar
         // arriving at that marker still reads as a separate thing from it.
-        internal static readonly Color WeatherHelmColor = new Color(0.25f, 0.78f, 1.00f);
-        internal static readonly Color LeeHelmColor = new Color(1.00f, 0.20f, 0.15f);
+        private static readonly Color StandardWeatherMid = new Color(0.25f, 0.78f, 1.00f);
+        private static readonly Color StandardLeeFar = new Color(1.00f, 0.20f, 0.15f);
 
         // The middle stops of the ramp (BalanceRing.HelmColor). With only the two ends, a rig a
         // little outside the band was already most of the way to full blue or red, so players saw
         // three colors and no gradient. Orange sits between green and red on the lee side; on the
         // weather side the light blue above becomes the middle stop and a dark blue marks the far
         // end. The dark blue stays deeper than ResistanceColor so the bar still reads apart from it.
-        internal static readonly Color LeeHelmMidColor = new Color(1.00f, 0.60f, 0.10f);
-        internal static readonly Color WeatherHelmFarColor = new Color(0.12f, 0.22f, 0.85f);
-        internal static readonly Color BalancedColor = new Color(0.35f, 1.00f, 0.45f);
+        private static readonly Color StandardLeeMid = new Color(1.00f, 0.60f, 0.10f);
+        private static readonly Color StandardWeatherFar = new Color(0.12f, 0.22f, 0.85f);
+        private static readonly Color StandardBalanced = new Color(0.35f, 1.00f, 0.45f);
+
+        // The ColorblindPalette set (a player asked, Discord 2026-11-15). Green against orange and
+        // red is the pair red-green color blindness merges: simulated (Machado 2009, full
+        // severity) balanced green and the orange middle stop come out about 26 apart in CIELAB for
+        // protanopia and deuteranopia, and the two lee stops 18. This keeps the blue weather arm,
+        // makes balanced a near white and the lee arm orange to dark orange, which tells apart by
+        // lightness as well as hue: every pair, gray included, stays at least 27 apart under
+        // protanopia, deuteranopia and tritanopia alike.
+        private static readonly Color ColorblindWeatherFar = new Color(0.10f, 0.25f, 0.80f);
+        private static readonly Color ColorblindWeatherMid = new Color(0.40f, 0.72f, 1.00f);
+        private static readonly Color ColorblindBalanced = new Color(0.96f, 0.96f, 0.92f);
+        private static readonly Color ColorblindLeeMid = new Color(1.00f, 0.72f, 0.30f);
+        private static readonly Color ColorblindLeeFar = new Color(0.70f, 0.28f, 0.00f);
+
+        private static bool ColorblindWanted => Config.Settings.ColorblindPalette != null
+            && Config.Settings.ColorblindPalette.Value;
+
+        internal static Color WeatherHelmColor => ColorblindWanted ? ColorblindWeatherMid : StandardWeatherMid;
+        internal static Color LeeHelmColor => ColorblindWanted ? ColorblindLeeFar : StandardLeeFar;
+        internal static Color LeeHelmMidColor => ColorblindWanted ? ColorblindLeeMid : StandardLeeMid;
+        internal static Color WeatherHelmFarColor => ColorblindWanted ? ColorblindWeatherFar : StandardWeatherFar;
+        internal static Color BalancedColor => ColorblindWanted ? ColorblindBalanced : StandardBalanced;
+
+        /// <summary>
+        /// Bumped when the palette setting changes, so the textures painted from it (the legend's
+        /// strip and the ring button) are painted again.
+        /// </summary>
+        internal static int PaletteVersion;
 
         private readonly GameObject[] _markers = new GameObject[MarkerCount];
         private readonly Material[] _materials = new Material[MarkerCount];
@@ -397,6 +425,7 @@ namespace SailwindRigBalance.UI
         private GUIStyle _circleStyle, _ringStyle, _forceStyle, _tipStyle, _panelStyle, _panelInnerStyle;
         private Texture2D _circleTex;
         private Texture2D _ringTex;
+        private int _ringTexPalette;
         private Texture2D _forceTex;
         private Texture2D _panelTex;
         private Texture2D _paperTex;
@@ -1419,8 +1448,9 @@ namespace SailwindRigBalance.UI
                 {
                     _loggedComDrift = drift;
                     Plugin.Log.LogInfo($"[Gizmo] center of mass from BoatKeel {keel.centerOfMass}, "
-                        + $"rigidbody differs by {drift:F2} m (BoatMass is not maintaining this boat, "
-                        + "or cargo is aboard). Using BoatKeel.");
+                        + $"rigidbody differs by {drift:F2} m (cargo aboard, a keel BoatMass has not "
+                        + "applied, or the game counting the player aboard at their map position while "
+                        + "she is in the yard). The marker and the heel model use BoatKeel.");
                 }
             }
             else
@@ -3001,9 +3031,19 @@ namespace SailwindRigBalance.UI
             "Strong weather helm", "Weather helm", "Balanced", "Lee helm", "Strong lee helm",
         };
 
+        /// <summary>The extra rows with ShowHelmTicks on, outward first.</summary>
+        private static readonly string[] LegendTickLabels = { "Tick outward: weather", "Tick inward: lee" };
+
+        /// <summary>
+        /// The last row with ExtendShipyardCamera on: the lift's control. Players with the game's
+        /// control hints off would otherwise never learn it, and the legend is where they look.
+        /// </summary>
+        private const string LegendCameraLabel = "Right-drag up/down: raise view";
+
         private const float LegendRow = 18f;
         private const float LegendStrip = 12f;
         private Texture2D _legendTex;
+        private int _legendPalette;
         private GUIStyle _legendStyle, _legendTitleStyle;
         private readonly GUIContent _legendContent = new GUIContent();
 
@@ -3029,10 +3069,26 @@ namespace SailwindRigBalance.UI
             _legendContent.text = "No verdict";
             labelWidth = Mathf.Max(labelWidth, _legendStyle.CalcSize(_legendContent).x);
 
-            const float Pad = 12f, Gap = 8f;
-            int rows = LegendLabels.Length + 1;
+            bool ticks = Config.Settings.ShowHelmTicks != null && Config.Settings.ShowHelmTicks.Value;
+            if (ticks)
+                foreach (string label in LegendTickLabels)
+                {
+                    _legendContent.text = label;
+                    labelWidth = Mathf.Max(labelWidth, _legendStyle.CalcSize(_legendContent).x);
+                }
+
+            bool camera = Config.Settings.ExtendShipyardCamera != null && Config.Settings.ExtendShipyardCamera.Value
+                && Shipyard.ShipyardCamera.Working;
+            if (camera)
+            {
+                _legendContent.text = LegendCameraLabel;
+                labelWidth = Mathf.Max(labelWidth, _legendStyle.CalcSize(_legendContent).x);
+            }
+
+            const float Pad = 12f, Gap = 8f, CameraGap = 6f;
+            int rows = LegendLabels.Length + 1 + (ticks ? LegendTickLabels.Length : 0) + (camera ? 1 : 0);
             float width = Pad + LegendStrip + Gap + labelWidth + Pad;
-            float height = Pad + titleHeight + 2f + rows * LegendRow + Pad - 4f;
+            float height = Pad + titleHeight + 2f + rows * LegendRow + (camera ? CameraGap : 0f) + Pad - 4f;
             var box = new Rect(right - width, top, width, height);
             DrawPaper(box);
 
@@ -3067,13 +3123,62 @@ namespace SailwindRigBalance.UI
             _legendContent.text = "No verdict";
             GUI.Label(new Rect(textX, grayY, labelWidth + 2f, LegendRow), _legendContent, _legendStyle);
 
+            // With ticks on, what their direction means, each beside a small drawing of one: a bar
+            // for the ring with the tick standing above it (out) or hanging below it (in).
+            if (ticks)
+            {
+                Color ink = _legendStyle.normal.textColor;
+                for (int i = 0; i < LegendTickLabels.Length; i++)
+                {
+                    float rowY = grayY + (i + 1) * LegendRow;
+                    float mid = rowY + LegendRow * 0.5f;
+                    bool outward = i == 0;
+
+                    GUI.color = ink;
+                    GUI.DrawTexture(new Rect(x, mid - 1f, LegendStrip, 3f), Texture2D.whiteTexture);
+                    GUI.DrawTexture(new Rect(x + LegendStrip * 0.5f - 1.5f, outward ? mid - 7f : mid + 2f, 3f, 6f),
+                        Texture2D.whiteTexture);
+                    GUI.color = previous;
+
+                    _legendContent.text = LegendTickLabels[i];
+                    GUI.Label(new Rect(textX, rowY, labelWidth + 2f, LegendRow), _legendContent, _legendStyle);
+                }
+            }
+
+            // The camera's control, set apart from the color key by a small gap, beside an up/down
+            // arrow: a stem with a cap at each end.
+            if (camera)
+            {
+                float rowY = grayY + (1 + (ticks ? LegendTickLabels.Length : 0)) * LegendRow + CameraGap;
+                float mid = rowY + LegendRow * 0.5f;
+                float cx = x + LegendStrip * 0.5f;
+
+                GUI.color = _legendStyle.normal.textColor;
+                GUI.DrawTexture(new Rect(cx - 1f, mid - 6f, 2f, 12f), Texture2D.whiteTexture);
+                GUI.DrawTexture(new Rect(cx - 2f, mid - 5f, 4f, 2f), Texture2D.whiteTexture);
+                GUI.DrawTexture(new Rect(cx - 4f, mid - 3f, 8f, 2f), Texture2D.whiteTexture);
+                GUI.DrawTexture(new Rect(cx - 4f, mid + 1f, 8f, 2f), Texture2D.whiteTexture);
+                GUI.DrawTexture(new Rect(cx - 2f, mid + 3f, 4f, 2f), Texture2D.whiteTexture);
+                GUI.color = previous;
+
+                _legendContent.text = LegendCameraLabel;
+                GUI.Label(new Rect(textX, rowY, labelWidth + 2f, LegendRow), _legendContent, _legendStyle);
+            }
+
             return box.yMax;
         }
 
         private void EnsureLegend()
         {
+            if (_legendTex != null && _legendPalette != PaletteVersion)
+            {
+                Destroy(_legendTex);
+                _legendTex = null;
+            }
+
             if (_legendTex == null)
             {
+                _legendPalette = PaletteVersion;
                 // Rows sit evenly down the strip but the ramp's stops do not sit evenly along it (the
                 // middle stop is at 3 bands of 8), so each quarter of the strip is mapped to the stretch
                 // of ramp between two labeled stops.
@@ -3353,7 +3458,22 @@ namespace SailwindRigBalance.UI
 
         private void EnsureStyles()
         {
-            if (_circleStyle != null) return;
+            if (_circleStyle != null)
+            {
+                // The ring button wears the helm ramp, so it is painted again when the palette changes.
+                if (_ringTexPalette != PaletteVersion && _ringStyle != null)
+                {
+                    _ringTexPalette = PaletteVersion;
+                    if (_ringTex != null) Destroy(_ringTex);
+                    _ringTex = MakeRingTexture(28);
+                    _ringStyle.normal.background = _ringTex;
+                    _ringStyle.hover.background = _ringTex;
+                    _ringStyle.active.background = _ringTex;
+                }
+                return;
+            }
+
+            _ringTexPalette = PaletteVersion;
 
             _circleTex = MakeCircleTexture(28);
             // Margins fixed rather than inherited: PanelWidth is computed from these, and the

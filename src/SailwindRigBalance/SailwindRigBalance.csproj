@@ -60,6 +60,10 @@
     <Reference Include="Crest">
       <HintPath>$(GameDir)/Sailwind_Data/Managed/Crest.dll</HintPath>
     </Reference>
+    <!-- GameInput lives here, not in Assembly-CSharp. The shipyard camera reads its scroll axis. -->
+    <Reference Include="Oculus.VR">
+      <HintPath>$(GameDir)/Sailwind_Data/Managed/Oculus.VR.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
   <!-- Allows the net472 target to build on machines without the .NET Framework 4.7.2
