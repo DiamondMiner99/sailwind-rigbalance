@@ -71,7 +71,7 @@ direction and a rough figure.
 
 A rose is drawn on the water around the boat, colored the same way as the helm bar. **The top
 of the ring is your bow**, and each arc answers one question: if the wind came from that
-bearing, what would the helm do? The white arrow marks the bearing the markers are
+bearing, what would the helm do? The gray arrow marks the bearing the markers are
 currently reporting, and you can drag it around the ring to look at any other. It points
 the way the wind blows, in at the boat; set `WindArrowStyle` to `WeatherVane` to have it
 point into the wind instead.

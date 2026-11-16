@@ -222,12 +222,15 @@ namespace SailwindRigBalance.UI
         // protanopia and deuteranopia, and the two lee stops 18. This keeps the blue weather arm,
         // makes balanced a near white and the lee arm orange to dark orange, which tells apart by
         // lightness as well as hue: every pair, gray included, stays at least 27 apart under
-        // protanopia, deuteranopia and tritanopia alike.
-        private static readonly Color ColorblindWeatherFar = new Color(0.10f, 0.25f, 0.80f);
-        private static readonly Color ColorblindWeatherMid = new Color(0.40f, 0.72f, 1.00f);
+        // protanopia, deuteranopia and tritanopia alike. The middle stops are saturated and a step
+        // darker than a pastel, so the band either side of balanced stands off the near white
+        // (a player found the first, paler set blended): balanced and either middle stop are at
+        // least 48 apart under all three.
+        private static readonly Color ColorblindWeatherFar = new Color(0.06f, 0.20f, 0.70f);
+        private static readonly Color ColorblindWeatherMid = new Color(0.20f, 0.60f, 1.00f);
         private static readonly Color ColorblindBalanced = new Color(0.96f, 0.96f, 0.92f);
-        private static readonly Color ColorblindLeeMid = new Color(1.00f, 0.72f, 0.30f);
-        private static readonly Color ColorblindLeeFar = new Color(0.70f, 0.28f, 0.00f);
+        private static readonly Color ColorblindLeeMid = new Color(1.00f, 0.62f, 0.12f);
+        private static readonly Color ColorblindLeeFar = new Color(0.66f, 0.24f, 0.00f);
 
         private static bool ColorblindWanted => Config.Settings.ColorblindPalette != null
             && Config.Settings.ColorblindPalette.Value;

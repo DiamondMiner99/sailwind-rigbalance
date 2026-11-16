@@ -1357,8 +1357,9 @@ namespace SailwindRigBalance.UI
             }
 
             // The knob in the waterline's blue, so it reads as the control for the heel it shows.
-            // The part under the cursor or in hand goes white and the other fades back.
-            Color color = new Color(0.98f, 0.98f, 0.92f, 0.90f);
+            // The part under the cursor or in hand goes white and the other fades back. The arrow
+            // rests a light gray, as the knob rests blue, so lighting it up shows.
+            Color color = new Color(0.70f, 0.70f, 0.66f, 0.90f);
             Color knobColor = KnobColor;
             if (_focus == ArrowPart.Arrow)
             {

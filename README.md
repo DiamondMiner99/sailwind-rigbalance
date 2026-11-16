@@ -92,7 +92,7 @@ raise or lower the view. Side to side still pans as before, and the scroll wheel
 
 A rose is drawn on the water around the boat, colored the same way. **The top of the ring
 is your bow**, and each arc answers: if the wind came from that bearing, what would the helm
-do? The white arrow marks the bearing the markers are currently reporting, and you can drag
+do? The gray arrow marks the bearing the markers are currently reporting, and you can drag
 it round to look at any other.
 
 Read the ring as a whole. Green and blue all the way round is a boat that behaves on every
