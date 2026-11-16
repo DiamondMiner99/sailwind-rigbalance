@@ -18,9 +18,9 @@ markers, for a boat.
 
 ## In one paragraph
 
-Enter any shipyard and three markers appear on your boat: magenta for the center of
-effort, blue for the center of lateral resistance, yellow for the center of mass. A
-colored post rises from the blue marker with an arrow running along the hull from its top, and
+Enter any shipyard and three markers appear on your boat: the center of effort (COE)
+in magenta, the center of lateral resistance (CLR) in blue, and the center of mass in yellow. A
+colored post rises from the CLR with an arrow running along the hull from its top, and
 that is your helm balance. A blue arrow pointing aft is weather helm; a red arrow pointing
 forward is lee helm; a green post with no arrow is balanced. Change a sail and watch it move
 before you confirm the order.

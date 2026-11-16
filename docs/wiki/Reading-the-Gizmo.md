@@ -4,23 +4,23 @@ Enter a shipyard. There is nothing to press.
 
 ## The three markers
 
-| marker | name | what it is |
+| marker | color | what it is |
 | --- | --- | --- |
-| **magenta** | center of effort | where the sails pull, with each sail weighted by its force at best trim |
-| **blue** | center of lateral resistance | where the hull pushes back |
-| **yellow** | center of mass | the boat's own balance point |
+| **COE**, center of effort | magenta | where the sails pull, with each sail weighted by its force at best trim |
+| **CLR**, center of lateral resistance | blue | where the hull pushes back |
+| **center of mass** | yellow | the boat's own balance point |
 
 They are drawn on top of the hull, so the two that sit inside the boat are still visible,
 and they are unlit, so they hold their color at night and do not change shade with the
 time of day.
 
-The magenta marker is where the sails would be pulling at the wind arrow's bearing, trimmed
+The COE is where the sails would be pulling at the wind arrow's bearing, trimmed
 for best drive. The sails stay at rest in the shipyard, so with the wind aft the marker can
 sit out to one side of the cloth you see, where that sail would be once swung out.
 
 ## The reading
 
-**The helm bar**: a colored post rising from the blue marker to the top of the hull, with an arrow
+**The helm bar**: a colored post rising from the CLR to the top of the hull, with an arrow
 running along the centerline from there.
 
 | what you see | what it means |
@@ -40,7 +40,7 @@ reached at three times the balanced band, and dark blue or red at eight. The bal
 of the hull's length by default, which is about 0.6 m on a brig, and configurable as
 `BalancedThresholdFraction`.
 
-**The bar and the magenta marker can disagree, and the bar is the one to trust.** Three things
+**The bar and the COE can disagree, and the bar is the one to trust.** Three things
 turn the boat:
 
 - Side force from each sail, acting at that sail's position along the hull. Sails on slanted
@@ -50,13 +50,13 @@ turn the boat:
 - Thrust from a sail swung out to one side. On a reach the sail's pull sits well to leeward of
   the centerline, which turns the bow toward the wind. Junks and other sails set to one side
   of their mast do this strongly.
-- The wind on the hull itself, which pushes at a point 7 to 12 m aft of the blue marker
+- The wind on the hull itself, which pushes at a point 7 to 12 m aft of the CLR
   depending on the hull. This always turns the bow toward the wind. It is fixed per hull, and
   a cabin or other fitted part does not change it. On a small rig it can make up around half
   of the helm.
 
-The magenta marker only knows about the sails' positions, so a one-sail junk on a broad reach
-can show magenta forward of blue with a bar running aft. She does round up, as the bar says.
+The COE only knows about the sails' positions, so a one-sail junk on a broad reach
+can show the COE forward of the CLR with a bar running aft. She does round up, as the bar says.
 
 Gray means the question does not apply: with the wind well aft there is almost no side force
 to divide by, so the gizmo gives no number.
@@ -115,7 +115,7 @@ The boat is heeled in that wind from the game's own buoyancy points and her weig
 reading, the markers, the helm bar and the ring, is taken at that heel. A heeled boat carries
 more weather helm, because her drive acts off to leeward, so the same rig can read balanced in
 a breeze and blue in a gale. The heel is worked out from her full weight at the hull's design
-center of mass, the point the yellow marker shows, so cargo and where you stand do not change
+center of mass, the point its marker shows, so cargo and where you stand do not change
 it.
 
 A light blue line on the hull marks where the sea would meet her at that heel, with the heel
@@ -137,15 +137,21 @@ forward pushes the helm toward lee; adding it aft pushes it toward weather.
 
 The markers start at close hauled, 45 degrees off the bow, because that is where balance
 bites. After that the arrow owns the angle: drag it and the markers re-read at whatever
-bearing you leave it on. The magenta marker can jump to the other side of the boat near
+bearing you leave it on. The COE can jump to the other side of the boat near
 a dead run, at the bearing where a sail's best trim changes sides.
 
 ## The reef track
 
-Select a sail and a thin second line appears, running from the magenta marker to where it
-would go if that one sail were reefed away, with every other sail left alone. Its color is
-the helm you would have at that end, so it answers "what does this sail do to her helm"
-before you touch anything.
+Select a sail and a thin second line appears, running from the COE. It is about
+that one selected sail only. The COE is where the sails' push is centered now, and the far
+end of the line is where it would be if you furled that sail, or set it if it is furled, with
+every other sail left alone. Its color is the helm you would have after that change, so it
+answers "what does this sail do to her helm" before you touch anything.
+
+A long line means the sail moves the balance a lot and a short one means it barely matters, so
+clicking through the sails shows which one to change. Nothing moves along the line: the COE
+stays where it is, and the line points to where it could go. It is read at the wind arrow's
+bearing, like the markers.
 
 ## Furling one sail
 
@@ -184,18 +190,18 @@ sideways counts as much as one pulling ahead, and neither is how much it moves t
 which also depends on where along the boat the sail sits. Sails under 3 percent keep their
 arrow but get no number, to keep a big rig readable.
 
-The arrows also explain the magenta marker. It is the center of the arrows' starting points,
+The arrows also explain the COE. It is the center of the arrows' starting points,
 weighted by their size, so one big sail pulling hard drags it toward itself. In percent mode, each
 label is that sail's weight in the marker's position. Swing the wind
 arrow and watch the arrows change length to see why the marker moves.
 
-## The yellow marker
+## The center of mass marker
 
 The center of mass behaves differently from the other two, and it is worth knowing why.
 
 It does **not** respond to sails or deck parts. In Sailwind a mast, a sail, a forecastle or
 a cabin adds to the boat's mass without moving its center of mass at all. So you can hang
-an entirely different sail plan and the yellow ball will not move.
+an entirely different sail plan and the center of mass marker will not move.
 
 It **does** respond to a keel or ballast option, where a hull has one. In vanilla that is
 the junk medium's deep keel, which drops the center of mass 0.75 m. With Shipyard Expansion
@@ -206,7 +212,7 @@ It also sits below the hull on most boats. That is not a bug; a low center of ma
 the game gives a boat a strong righting moment.
 
 Its one use with the other markers is heel: the game takes torque about the center of mass
-and applies the sail force up at the sail, so the height of magenta above yellow is your
+and applies the sail force up at the sail, so the height of the COE above the center of mass is your
 heeling lever.
 
 ## The buttons
@@ -220,7 +226,7 @@ strip itself is fixed in place.
 
 ## The red marker
 
-If the magenta marker turns red and a line of text appears, one of the sails on the boat
+If the COE marker turns red and a line of text appears, one of the sails on the boat
 has a center of effort that does not follow its own size, so the combined figure is
 unreliable. In practice this meant one of Shipyard Expansion's three added lug sails, which
 Shipyard Expansion fixed in v0.11.0. On SE v0.10.1 and earlier you will see it. Sails from

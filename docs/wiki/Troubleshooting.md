@@ -25,7 +25,7 @@ producing a log at all.
 ## Markers appear, but hidden inside the boat
 
 Two of the three markers sit inside the hull by nature. They are normally drawn on top of
-it by an overlay camera. If that is off you will only see the magenta one.
+it by an overlay camera. If that is off you will only see the COE.
 
 Look for either of these:
 
@@ -57,7 +57,7 @@ see the first section.
 Forces in the log are the game's own newtons. The kN labels on the sail force arrows are scaled
 to real-world force, so a label reads 6.125 times the matching figure in the log.
 
-## The magenta marker is red
+## The COE marker is red
 
 One of the sails aboard has a center of effort that does not track its own size, so the
 combined figure is not trustworthy. In practice this is one of Shipyard Expansion's three

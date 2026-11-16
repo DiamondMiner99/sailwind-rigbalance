@@ -22,7 +22,7 @@ which is the same traversal Shipyard Expansion itself uses to reach every sail o
 
 **Keel options are included.** Shipyard Expansion adds a deep keel to the kakam, the dhow
 and the cog, and a cladding option to the sanbuq. Each of these moves the center of mass,
-and the yellow marker follows.
+and the center of mass marker follows.
 
 ### The one caveat, on Shipyard Expansion v0.10.1 and earlier
 
@@ -31,7 +31,7 @@ center of effort is attached outside the part that gets scaled, so it stays put 
 sail is resized. The gizmo cannot give an honest combined figure when one of them is on the
 boat.
 
-When that happens the magenta marker turns **red** and a line of text says the marker is
+When that happens the COE marker turns **red** and a line of text says the marker is
 unreliable.
 
 Shipyard Expansion v0.11.0 fixed it, so on current SE those three sails read like any
@@ -56,7 +56,7 @@ Expansion use, so those are picked up too.
 that same function rather than a copy of it, so those sails are read with that mod's changes,
 and its Fisherman's Stays are not counted as part of the hull. Its sails keep their center of
 effort outside the part a resize scales and place it themselves on every force update, so it
-follows their size. The mod checks for that and does not turn the magenta marker red for them.
+follows their size. The mod checks for that and does not turn the COE marker red for them.
 
 **NANDTweaks** and **HMS Leopard** both change the shipyard camera. NANDTweaks' camera
 tweak raises the view with the right mouse button, the same control this mod uses; with

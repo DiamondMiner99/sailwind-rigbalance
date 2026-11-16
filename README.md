@@ -59,17 +59,17 @@ If you already run any Sailwind mod, skip to step 2.
 
 Enter a shipyard. The markers appear on the boat.
 
-| marker | what it is |
-|--------|------------|
-| **magenta** | center of effort - where the sails pull, with each sail weighted by its force at best trim |
-| **blue** | center of lateral resistance - where the hull pushes back |
-| **yellow** | center of mass - the boat's own balance point |
+| marker | color | what it is |
+|--------|-------|------------|
+| **COE**, center of effort | magenta | where the sails pull, with each sail weighted by its force at best trim |
+| **CLR**, center of lateral resistance | blue | where the hull pushes back |
+| **center of mass** | yellow | the boat's own balance point |
 
-The reading is the **helm bar**: a colored post rising from the blue marker to the top of the
+The reading is the **helm bar**: a colored post rising from the CLR to the top of the
 hull, with an arrow running along the centerline from there. The arrow's length is how hard she
 wants to turn, as a lever in meters. It counts everything that turns the boat, including thrust
 from a sail swung out to one side and the wind on the hull itself, so it can point aft while the
-magenta marker sits forward of blue.
+COE sits forward of the CLR.
 
 | what you see | what it means |
 |--------------|---------------|
@@ -105,6 +105,15 @@ If red and green are hard to tell apart, turn on `ColorblindPalette` for blue, w
 and `ShowHelmTicks` for a tick at every bearing: out of the ring for weather helm, into it for lee
 helm, longer the stronger the helm.
 
+### One sail's effect
+
+Click a sail and a thin line runs from the COE. It is about that one sail only. The
+COE is where the sails' push is centered now, and the far end of the line is where it would
+be if you furled that sail, or set it if it is furled, with every other sail left as it is. The
+line's color is the helm you would have after that change. A long line means the sail matters a
+lot to the balance and a short one means it barely does, so clicking through the sails shows
+which one to change. Nothing moves along the line; it is a preview. `ShowReefTrack` turns it off.
+
 ### Heel and the waterline
 
 The wind arrow has a knob on its outer end. Drag it out for more wind and in for less; the
@@ -116,7 +125,7 @@ lying, and its speed.
 The mod heels her in that wind, using the game's own buoyancy points and her weight, and reads
 the helm at that heel. A heeled boat carries more weather helm, so a rig that balances in a
 breeze can read blue in a gale. The heel is worked out from her full weight at the hull's design
-center of mass, the point the yellow marker shows, so cargo and where you stand do not change it.
+center of mass, the point its marker shows, so cargo and where you stand do not change it.
 
 A light blue line on the hull marks where the sea would meet her at that heel, with the heel
 angle beside it. The boat itself is never moved, so at a steep heel the line runs low on the
@@ -141,7 +150,7 @@ When you enter a shipyard the markers wait until the boat has settled into the c
 ring is drawn, with "Calculating..." under the legend meanwhile, so the first thing you see is
 the final reading.
 
-**The yellow marker behaves differently.** It does not respond to sails or deck parts - in
+**The center of mass marker behaves differently.** It does not respond to sails or deck parts - in
 this game a mast, a sail or a forecastle adds weight without moving where the boat
 balances. It does respond to a keel or ballast option where a hull has one.
 
@@ -151,10 +160,10 @@ balances. It does respond to a keel or ballast option where a hull has one.
 
 | setting | default | what it does |
 |---------|---------|--------------|
-| `ShowCenterOfEffort` | true | magenta marker |
-| `ShowCenterOfLateralResistance` | true | blue marker and helm bar |
-| `ShowCenterOfMass` | true | yellow marker |
-| `ShowReefTrack` | true | where the center of effort would go if you furled the selected sail |
+| `ShowCenterOfEffort` | true | the COE marker |
+| `ShowCenterOfLateralResistance` | true | the CLR marker and the helm bar |
+| `ShowCenterOfMass` | true | the center of mass marker |
+| `ShowReefTrack` | true | with a sail selected, a line from the center of effort to where it would go if you furled that sail, or set it if furled |
 | `ShowBalanceRing` | true | the rose showing every point of sail at once |
 | `ShowHelmTicks` | false | a tick at every bearing of the ring, out for weather helm and in for lee helm, to read it without color |
 | `ShowSailForces` | false | an arrow for each sail's force at the wind arrow's angle (also a button) |
@@ -185,16 +194,16 @@ hull visible at all. Turn it off if it ever conflicts with another mod's renderi
 
 Shipyard Expansion is supported. Resizing a sail, rotating a spar and adding sails to stays
 all work, because the center of effort is read from the sail's live geometry and SE updates
-the sail area on every resize. SE's deep keel options move the yellow marker.
+the sail area on every resize. SE's deep keel options move the center of mass marker.
 
 MoreSailwindSails is compatible. Its sails are read through the same game force function as
 any other, with that mod's own changes to it, and its Fisherman's Stays are not counted as
 part of the hull. Its sails place their own center of effort on every force update, which the
-mod recognizes, so they do not turn the magenta marker red.
+mod recognizes, so they do not turn the COE marker red.
 
 **One caveat, on older Shipyard Expansion:** on SE v0.10.1 and earlier, the three added lug
 sails keep their center of effort outside the part that gets scaled, so it doesn't move when
-the sail is resized. When one is aboard, the magenta marker turns red and says so. SE v0.11.0
+the sail is resized. When one is aboard, the COE marker turns red and says so. SE v0.11.0
 fixed it, so on current SE this doesn't come up. The check reads each sail's own geometry at
 runtime rather than the SE version, so it goes quiet by itself once you update. The mod flags
 this and nothing else - it does not modify Shipyard Expansion.

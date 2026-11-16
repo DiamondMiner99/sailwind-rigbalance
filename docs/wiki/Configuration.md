@@ -8,10 +8,10 @@ shipyard: marker visibility is re-read on every shipyard visit.
 
 | setting | default | what it does |
 | --- | --- | --- |
-| `ShowCenterOfEffort` | `true` | the magenta marker |
-| `ShowCenterOfLateralResistance` | `true` | the blue marker and the helm bar |
-| `ShowCenterOfMass` | `true` | the yellow marker |
-| `ShowReefTrack` | `true` | with a sail selected, where the center of effort would go if you furled it |
+| `ShowCenterOfEffort` | `true` | the COE marker |
+| `ShowCenterOfLateralResistance` | `true` | the CLR marker and the helm bar |
+| `ShowCenterOfMass` | `true` | the center of mass marker |
+| `ShowReefTrack` | `true` | with a sail selected, a line from the center of effort to where it would go if you furled that sail, or set it if furled |
 | `ShowBalanceRing` | `true` | the ring showing the helm at every point of sail |
 | `ShowHelmTicks` | `false` | a tick at every bearing of the ring that reads without color: out of the ring for weather helm, into it for lee helm, longer the stronger the helm, none for balanced or no verdict |
 | `ShowSailForces` | `false` | an arrow for each sail's force at the wind arrow's angle |

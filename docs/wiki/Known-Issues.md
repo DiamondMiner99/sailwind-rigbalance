@@ -12,7 +12,7 @@ hull-agnostic by construction, but that is an argument, not a test.
 
 Sails 156, 157 and 158, added by Shipyard Expansion, kept their center of effort outside
 the part that gets scaled, so it did not move when the sail was resized. The gizmo detects
-this, turns the magenta marker red and says the reading is unreliable.
+this, turns the COE marker red and says the reading is unreliable.
 
 Shipyard Expansion v0.11.0 fixed it. On SE v0.10.1 and earlier the red marker appears
 on those three sails, and updating Shipyard Expansion clears it.
@@ -24,7 +24,7 @@ version number, so it reports the same condition wherever it turns up next.
 
 ## The center of mass ignores cargo
 
-The yellow marker, the heel and the waterline all use the hull's keel data, which is the
+The center of mass marker, the heel and the waterline all use the hull's keel data, which is the
 design center of mass. They do not include where cargo sits in the hold or where a player
 stands on deck, both of which the game does account for while sailing. Her weight, cargo
 included, still counts toward how deep she sits.
