@@ -11,7 +11,7 @@ namespace SailwindRigBalance.Shipyard
     /// Shipyard.UpdateOrder is the obvious hook and is NOT sufficient on its own: CancelOrder runs
     /// SaveableBoatCustomization.LoadData, which destroys and re-instantiates every sail on the
     /// boat, and neither it nor ResetOrder calls UpdateOrder. Since DischargeShip calls CancelOrder
-    /// unconditionally, an UpdateOrder-only hook would keep drawing from destroyed Sail references
+    /// whenever it runs, an UpdateOrder-only hook would keep drawing from destroyed Sail references
     /// on every exit. LoadData is patched separately for exactly that reason.
     /// </summary>
     public static class ShipyardHooks
@@ -125,12 +125,34 @@ namespace SailwindRigBalance.Shipyard
             private static void Postfix(global::Shipyard __instance) => Enter(__instance);
         }
 
+        // Since 0.41 the game ignores an exit click while it is still sliding the boat into the
+        // cradle (the private movingShip flag), and the player stays in the shipyard, so the session
+        // must not end then. Before 0.41 the field does not exist and every exit counts.
+        private static readonly System.Reflection.FieldInfo MovingShipField =
+            AccessTools.Field(typeof(global::Shipyard), "movingShip");
+
+        private static bool GameIgnoresDischarge(global::Shipyard shipyard)
+        {
+            try
+            {
+                return MovingShipField != null && shipyard != null && (bool)MovingShipField.GetValue(shipyard);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         // Prefix: DischargeShip's first statement is CancelOrder(), which destroys every sail.
         // Tear down before that rather than after, so nothing holds a dead reference.
         [HarmonyPatch(typeof(global::Shipyard), nameof(global::Shipyard.DischargeShip))]
         private static class DischargeShipPatch
         {
-            private static void Prefix() => Exit();
+            private static void Prefix(global::Shipyard __instance)
+            {
+                if (GameIgnoresDischarge(__instance)) return;
+                Exit();
+            }
         }
 
         // Shipyard has TWO UpdateOrder overloads, UpdateOrder(bool) and UpdateOrder(). Patching by
